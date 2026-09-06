@@ -1,7 +1,7 @@
 import { MongoClient, Db, Collection } from 'mongodb';
 import { CourtDoc, ProductDoc, OrderDoc, InventoryMovementDoc, AppSettingDoc } from './types';
 
-const MONGO_URI = process.env.MONGO_URI || 'mongodb://localhost:27017';
+const MONGO_URI = process.env.MONGO_URI || process.env.MONGO_URL || process.env.MONGODB_URI || 'mongodb://localhost:27017';
 export const DB_NAME = 'tran_luu_order'; // STRICTLY ISOLATED DATABASE
 
 let client: MongoClient | null = null;
@@ -22,7 +22,7 @@ export async function connectToDatabase(): Promise<{ client: MongoClient; db: Db
     const adminDb = client.db('admin');
     const hello = await adminDb.command({ hello: 1 });
     isReplicaSet = !!hello.setName;
-    console.log(`[MongoDB] Connected to ${DB_NAME} at ${MONGO_URI}`);
+    console.log(`[MongoDB] Connected to ${DB_NAME} at ${MONGO_URI.replace(/:([^:@]+)@/, ':****@')}`);
     console.log(`[MongoDB] Topology: ${isReplicaSet ? `Replica Set (${hello.setName})` : 'Standalone (using atomic updates + compensating rollback)'}`);
   } catch (e) {
     console.warn('[MongoDB] Could not query topology, assuming standalone:', e);

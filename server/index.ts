@@ -37,10 +37,11 @@ if (IS_PROD) {
   app.use(express.static(distPath));
 
   // SPA fallback: tất cả routes không phải /api đều trả về index.html
-  app.get('*', (req, res) => {
-    if (!req.path.startsWith('/api')) {
-      res.sendFile(path.join(distPath, 'index.html'));
+  app.use((req, res, next) => {
+    if (req.method === 'GET' && !req.path.startsWith('/api')) {
+      return res.sendFile(path.join(distPath, 'index.html'));
     }
+    next();
   });
 }
 
