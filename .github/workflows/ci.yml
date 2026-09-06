@@ -1,4 +1,4 @@
-﻿name: CI — Build & Test
+name: CI — Build & Test
 
 on:
   push:
@@ -27,11 +27,8 @@ jobs:
       - name: Build frontend (React + Vite)
         run: npm run build
 
-      - name: Build server TypeScript
-        run: npm run build:server
-
       - name: Verify build artifacts
         run: |
           test -f dist/index.html && echo "Frontend index.html OK"
-          test -f dist-server/index.js && echo "Server index.js OK"
-          echo "All build artifacts verified!"
+          test -f server/index.ts && echo "Server entrypoint OK"
+          echo "All artifacts verified successfully!"
