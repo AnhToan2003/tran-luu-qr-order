@@ -1,0 +1,39 @@
+# ===== Dependencies =====
+node_modules/
+.pnp
+.pnp.js
+
+# ===== Build Output =====
+dist/
+dist-ssr/
+build/
+
+# ===== Environment Variables (NEVER commit) =====
+.env
+.env.*
+!.env.example
+
+# ===== TypeScript =====
+*.tsbuildinfo
+
+# ===== Database Files (local dev only) =====
+*.sqlite
+*.sqlite3
+*.db
+
+# ===== Logs =====
+logs/
+*.log
+npm-debug.log*
+
+# ===== OS Files =====
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# ===== Editor =====
+.vscode/settings.json
+.idea/
+
+# ===== Scratch / Temp =====
+scratch/
