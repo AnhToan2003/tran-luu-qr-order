@@ -1,0 +1,261 @@
+// Clean SVG representations of Vietnamese badminton drinks with authentic packaging style
+
+export interface Product {
+  id: string;
+  name: string;
+  volume: string;
+  priceVnd: number;
+  stock: number;
+  category: 'water' | 'isotonic' | 'energy' | 'tea' | 'coffee';
+  tag?: string;
+  isAvailable?: boolean;
+  imageSvg: string;
+}
+
+// 1. Lavie 500ml (Natural mineral water, light blue bottle, blue cap, red/white text)
+const lavieSvg = `data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 260" width="200" height="260">
+  <defs>
+    <linearGradient id="lavieBottle" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="%23CBE9F9"/>
+      <stop offset="35%" stop-color="%23E7F5FD"/>
+      <stop offset="70%" stop-color="%23BFE2F7"/>
+      <stop offset="100%" stop-color="%239FD2F3"/>
+    </linearGradient>
+    <linearGradient id="lavieCap" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="%230263B3"/>
+      <stop offset="50%" stop-color="%232A90E2"/>
+      <stop offset="100%" stop-color="%23014B88"/>
+    </linearGradient>
+  </defs>
+  <!-- Cap -->
+  <rect x="85" y="24" width="30" height="22" rx="4" fill="url(%23lavieCap)"/>
+  <!-- Neck -->
+  <path d="M82 46 L118 46 L124 85 L76 85 Z" fill="url(%23lavieBottle)"/>
+  <!-- Body -->
+  <rect x="66" y="85" width="68" height="145" rx="14" fill="url(%23lavieBottle)"/>
+  <!-- Waist indents -->
+  <path d="M66 125 Q74 140 66 155 L66 85 Z" fill="%23A8D7F5"/>
+  <path d="M134 125 Q126 140 134 155 L134 85 Z" fill="%2394CEF1"/>
+  <!-- Label -->
+  <rect x="66" y="115" width="68" height="60" fill="%23FFFFFF" rx="3"/>
+  <circle cx="100" cy="132" r="9" fill="%23E2231A"/>
+  <text x="100" y="156" font-family="Arial, sans-serif" font-weight="900" font-size="14" fill="%2301549C" text-anchor="middle">LaVie</text>
+  <text x="100" y="167" font-family="Arial, sans-serif" font-weight="600" font-size="7" fill="%2301549C" text-anchor="middle">500ml</text>
+  <!-- Water wave effect -->
+  <path d="M67 195 Q85 190 100 195 T133 195 L133 220 Q100 232 67 220 Z" fill="%2390CBF0" opacity="0.6"/>
+</svg>`;
+
+// 2. Pocari Sweat 500ml (Deep blue iconic label with white wave)
+const pocariSvg = `data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 260" width="200" height="260">
+  <defs>
+    <linearGradient id="pocariBottle" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="%23E0EDF8"/>
+      <stop offset="50%" stop-color="%23F3F8FD"/>
+      <stop offset="100%" stop-color="%23C8DEF2"/>
+    </linearGradient>
+    <linearGradient id="pocariCap" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="%23035AA6"/>
+      <stop offset="50%" stop-color="%230477D8"/>
+      <stop offset="100%" stop-color="%23023E73"/>
+    </linearGradient>
+  </defs>
+  <!-- Cap -->
+  <rect x="85" y="24" width="30" height="22" rx="4" fill="url(%23pocariCap)"/>
+  <!-- Neck -->
+  <path d="M83 46 L117 46 L124 82 L76 82 Z" fill="url(%23pocariBottle)"/>
+  <!-- Body -->
+  <rect x="66" y="82" width="68" height="150" rx="14" fill="url(%23pocariBottle)"/>
+  <!-- Blue Label -->
+  <rect x="66" y="98" width="68" height="88" fill="%230055A5" rx="3"/>
+  <!-- White Wave -->
+  <path d="M66 122 Q85 110 105 130 T134 122 L134 136 Q115 146 95 126 T66 136 Z" fill="%23FFFFFF"/>
+  <text x="100" y="152" font-family="Arial, sans-serif" font-weight="900" font-size="10" fill="%23FFFFFF" text-anchor="middle" letter-spacing="1">POCARI</text>
+  <text x="100" y="165" font-family="Arial, sans-serif" font-weight="800" font-size="9" fill="%23FFFFFF" text-anchor="middle" letter-spacing="1">SWEAT</text>
+  <text x="100" y="178" font-family="Arial, sans-serif" font-weight="600" font-size="7" fill="%23D5EF76" text-anchor="middle">ION SUPPLY</text>
+</svg>`;
+
+// 3. Revive Chanh Muối 500ml (Sporty lime yellow-green & lemon)
+const reviveSvg = `data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 260" width="200" height="260">
+  <defs>
+    <linearGradient id="reviveBottle" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="%23F3FAE1"/>
+      <stop offset="50%" stop-color="%23FCFFF5"/>
+      <stop offset="100%" stop-color="%23E2F4B8"/>
+    </linearGradient>
+    <linearGradient id="reviveCap" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="%2384CC16"/>
+      <stop offset="50%" stop-color="%23A3E635"/>
+      <stop offset="100%" stop-color="%2365A30D"/>
+    </linearGradient>
+  </defs>
+  <!-- Cap -->
+  <rect x="85" y="24" width="30" height="22" rx="4" fill="url(%23reviveCap)"/>
+  <!-- Neck -->
+  <path d="M82 46 L118 46 L125 84 L75 84 Z" fill="url(%23reviveBottle)"/>
+  <!-- Body -->
+  <rect x="66" y="84" width="68" height="148" rx="14" fill="url(%23reviveBottle)"/>
+  <!-- Label -->
+  <rect x="66" y="104" width="68" height="82" fill="%23A3E635" rx="3"/>
+  <rect x="66" y="112" width="68" height="66" fill="%231E3A8A"/>
+  <text x="100" y="136" font-family="Arial, sans-serif" font-weight="900" font-size="12" fill="%23FFFFFF" text-anchor="middle" font-style="italic">REVIVE</text>
+  <circle cx="100" cy="153" r="10" fill="%23FACC15" stroke="%23FFFFFF" stroke-width="2"/>
+  <text x="100" y="157" font-family="Arial, sans-serif" font-weight="900" font-size="8" fill="%231E3A8A" text-anchor="middle">MUỐI</text>
+  <text x="100" y="172" font-family="Arial, sans-serif" font-weight="700" font-size="7" fill="%23FACC15" text-anchor="middle">BÙ KHOÁNG</text>
+</svg>`;
+
+// 4. Red Bull Thái 250ml (Short gold & blue energy can with red bulls)
+const redBullSvg = `data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 260" width="200" height="260">
+  <defs>
+    <linearGradient id="canTop" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="%23C4C4C4"/>
+      <stop offset="50%" stop-color="%23EBEBEB"/>
+      <stop offset="100%" stop-color="%239E9E9E"/>
+    </linearGradient>
+    <linearGradient id="goldBody" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="%23D4AF37"/>
+      <stop offset="40%" stop-color="%23FBE790"/>
+      <stop offset="80%" stop-color="%23C99700"/>
+      <stop offset="100%" stop-color="%23996E00"/>
+    </linearGradient>
+  </defs>
+  <!-- Can Rim -->
+  <rect x="68" y="55" width="64" height="14" rx="6" fill="url(%23canTop)"/>
+  <!-- Can Body -->
+  <rect x="65" y="66" width="70" height="150" rx="8" fill="url(%23goldBody)"/>
+  <!-- Blue geometric block -->
+  <path d="M65 85 L135 125 L135 175 L65 135 Z" fill="%230F3B82"/>
+  <!-- Red Sun & Bull Silhouette -->
+  <circle cx="100" cy="142" r="14" fill="%23D81E05"/>
+  <text x="100" y="172" font-family="Arial, sans-serif" font-weight="900" font-size="11" fill="%23D81E05" text-anchor="middle">Red Bull</text>
+  <text x="100" y="184" font-family="Arial, sans-serif" font-weight="800" font-size="8" fill="%230F3B82" text-anchor="middle">Krating Daeng</text>
+  <text x="100" y="204" font-family="Arial, sans-serif" font-weight="600" font-size="7" fill="%23333333" text-anchor="middle">250ml • Thái</text>
+</svg>`;
+
+// 5. Trà xanh Không Độ 455ml (Green bottle with yellow/green label and tea leaf)
+const traXanhSvg = `data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 260" width="200" height="260">
+  <defs>
+    <linearGradient id="traXanhBottle" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="%238DC63F"/>
+      <stop offset="50%" stop-color="%23BAE277"/>
+      <stop offset="100%" stop-color="%23689F18"/>
+    </linearGradient>
+    <linearGradient id="traXanhCap" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="%232D6A2A"/>
+      <stop offset="50%" stop-color="%23459A41"/>
+      <stop offset="100%" stop-color="%231E4A1C"/>
+    </linearGradient>
+  </defs>
+  <!-- Cap -->
+  <rect x="85" y="24" width="30" height="22" rx="4" fill="url(%23traXanhCap)"/>
+  <!-- Neck -->
+  <path d="M83 46 L117 46 L124 82 L76 82 Z" fill="url(%23traXanhBottle)"/>
+  <!-- Body -->
+  <rect x="66" y="82" width="68" height="150" rx="14" fill="url(%23traXanhBottle)"/>
+  <!-- Label -->
+  <rect x="66" y="104" width="68" height="82" fill="%23FEE500" rx="3"/>
+  <rect x="66" y="112" width="68" height="30" fill="%232D6A2A"/>
+  <text x="100" y="127" font-family="Arial, sans-serif" font-weight="900" font-size="9" fill="%23FFFFFF" text-anchor="middle">TRÀ XANH</text>
+  <text x="100" y="137" font-family="Arial, sans-serif" font-weight="900" font-size="11" fill="%23FEE500" text-anchor="middle">KHÔNG ĐỘ</text>
+  <!-- Big 0 Degree badge -->
+  <circle cx="100" cy="158" r="12" fill="%23E2231A"/>
+  <text x="96" y="163" font-family="Arial, sans-serif" font-weight="900" font-size="13" fill="%23FFFFFF" text-anchor="middle">0</text>
+  <text x="106" y="156" font-family="Arial, sans-serif" font-weight="900" font-size="8" fill="%23FFFFFF" text-anchor="middle">°</text>
+  <text x="100" y="180" font-family="Arial, sans-serif" font-weight="700" font-size="7" fill="%232D6A2A" text-anchor="middle">Ít đường • 455ml</text>
+</svg>`;
+
+// 6. Highlands Cà phê sữa lon 235ml (Iconic deep red & cream can)
+const highlandsSvg = `data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 260" width="200" height="260">
+  <defs>
+    <linearGradient id="canRimHighlands" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="%23C4C4C4"/>
+      <stop offset="50%" stop-color="%23EEEEEE"/>
+      <stop offset="100%" stop-color="%239E9E9E"/>
+    </linearGradient>
+    <linearGradient id="highlandsBody" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="%238B0000"/>
+      <stop offset="40%" stop-color="%23B31B1B"/>
+      <stop offset="80%" stop-color="%23780000"/>
+      <stop offset="100%" stop-color="%234A0000"/>
+    </linearGradient>
+  </defs>
+  <!-- Can Rim -->
+  <rect x="70" y="58" width="60" height="14" rx="6" fill="url(%23canRimHighlands)"/>
+  <!-- Body -->
+  <rect x="67" y="70" width="66" height="144" rx="8" fill="url(%23highlandsBody)"/>
+  <!-- Highlands Oval Badge -->
+  <ellipse cx="100" cy="118" rx="26" ry="20" fill="%23FFFFFF"/>
+  <ellipse cx="100" cy="118" rx="23" ry="17" fill="%23B31B1B"/>
+  <text x="100" y="116" font-family="Arial, sans-serif" font-weight="900" font-size="7" fill="%23FFFFFF" text-anchor="middle" letter-spacing="1">HIGHLANDS</text>
+  <text x="100" y="125" font-family="Arial, sans-serif" font-weight="800" font-size="6" fill="%23F3D999" text-anchor="middle">COFFEE</text>
+  <!-- Coffee name -->
+  <rect x="67" y="148" width="66" height="34" fill="%233A180E"/>
+  <text x="100" y="162" font-family="Arial, sans-serif" font-weight="900" font-size="9" fill="%23FFFFFF" text-anchor="middle">CÀ PHÊ SỮA</text>
+  <text x="100" y="174" font-family="Arial, sans-serif" font-weight="700" font-size="7" fill="%23F3D999" text-anchor="middle">ĐẬM ĐÀ • 235ml</text>
+</svg>`;
+
+export const MOCK_PRODUCTS: Product[] = [
+  {
+    id: 'prod-01',
+    name: 'Nước khoáng LaVie',
+    volume: '500ml',
+    priceVnd: 10000,
+    stock: 48,
+    category: 'water',
+    tag: 'Bán chạy',
+    imageSvg: lavieSvg
+  },
+  {
+    id: 'prod-02',
+    name: 'Pocari Sweat Bù Nước',
+    volume: '500ml',
+    priceVnd: 20000,
+    stock: 35,
+    category: 'isotonic',
+    tag: 'Bù điện giải',
+    imageSvg: pocariSvg
+  },
+  {
+    id: 'prod-03',
+    name: 'Revive Chanh Muối',
+    volume: '500ml',
+    priceVnd: 15000,
+    stock: 42,
+    category: 'isotonic',
+    tag: 'Thể thao',
+    imageSvg: reviveSvg
+  },
+  {
+    id: 'prod-04',
+    name: 'Bò Húc Red Bull Thái',
+    volume: '250ml',
+    priceVnd: 18000,
+    stock: 24,
+    category: 'energy',
+    tag: 'Năng lượng',
+    imageSvg: redBullSvg
+  },
+  {
+    id: 'prod-05',
+    name: 'Trà Xanh Không Độ',
+    volume: '455ml',
+    priceVnd: 15000,
+    stock: 30,
+    category: 'tea',
+    tag: 'Thanh mát',
+    imageSvg: traXanhSvg
+  },
+  {
+    id: 'prod-06',
+    name: 'Highlands Cà Phê Sữa',
+    volume: '235ml',
+    priceVnd: 22000,
+    stock: 18,
+    category: 'coffee',
+    tag: 'Tỉnh táo',
+    imageSvg: highlandsSvg
+  }
+];
+
+export const formatVnd = (price: number): string => {
+  return price.toLocaleString('vi-VN') + 'đ';
+};
