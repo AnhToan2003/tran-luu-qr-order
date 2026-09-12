@@ -1,5 +1,5 @@
 import React from 'react';
-import { formatVnd } from '../data/mockProducts';
+import { formatVnd } from '../types/product';
 
 interface FloatingCartBarProps {
   totalItems: number;

@@ -1,6 +1,7 @@
 export type OrderStatus = 'new' | 'accepted' | 'preparing' | 'delivered' | 'cancelled';
 
 export interface OrderItem {
+  imageSvg?: string;
   productId: string;
   name: string;
   volume: string;
@@ -32,12 +33,3 @@ export interface Court {
   name: string;
   isActive?: boolean;
 }
-
-export const COURTS: Court[] = Array.from({ length: 16 }, (_, i) => {
-  const num = (i + 1).toString().padStart(2, '0');
-  return {
-    id: `court-uuid-${num}`,
-    code: num,
-    name: `Sân ${num}`
-  };
-});

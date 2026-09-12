@@ -3,12 +3,25 @@ import React from 'react';
 interface CustomerHeaderProps {
   onOpenMyOrders: () => void;
   hasActiveOrder: boolean;
+  isAcceptingOrders?: boolean;
+  courtDisabledMessage?: string | null;
 }
 
 export const CustomerHeader: React.FC<CustomerHeaderProps> = ({
   onOpenMyOrders,
-  hasActiveOrder
+  hasActiveOrder,
+  isAcceptingOrders = true,
+  courtDisabledMessage = null
 }) => {
+  const isAvailable = isAcceptingOrders && !courtDisabledMessage;
+  const statusLabel = courtDisabledMessage
+    ? 'Sân tạm dừng nhận đơn'
+    : !isAcceptingOrders
+    ? 'Quầy đang tạm dừng nhận đơn'
+    : 'Quầy nước đang mở nhận đơn';
+  const dotColor = isAvailable ? 'var(--color-primary, #10B981)' : '#EF4444';
+  const textColor = isAvailable ? 'var(--color-text-muted)' : '#DC2626';
+
   return (
     <header style={{
       display: 'flex',
@@ -52,17 +65,20 @@ export const CustomerHeader: React.FC<CustomerHeaderProps> = ({
             alignItems: 'center',
             gap: '6px',
             fontSize: 'var(--font-size-xs)',
-            color: 'var(--color-text-muted)',
-            marginTop: '2px'
+            color: textColor,
+            fontWeight: isAvailable ? 500 : 700,
+            marginTop: '2px',
+            transition: 'all 0.2s ease'
           }}>
             <span style={{
               display: 'inline-block',
               width: '7px',
               height: '7px',
               borderRadius: '50%',
-              backgroundColor: 'var(--color-primary)'
+              backgroundColor: dotColor,
+              boxShadow: isAvailable ? '0 0 6px rgba(16, 185, 129, 0.4)' : '0 0 6px rgba(239, 68, 68, 0.4)'
             }} />
-            Quầy nước đang mở nhận đơn
+            {statusLabel}
           </div>
         </div>
       </div>

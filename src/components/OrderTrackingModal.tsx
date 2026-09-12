@@ -1,13 +1,11 @@
 import React from 'react';
 import { Order, OrderStatus } from '../types/order';
-import { formatVnd } from '../data/mockProducts';
+import { formatVnd } from '../types/product';
 
 interface OrderTrackingModalProps {
   order: Order;
   isOpen: boolean;
   onClose: () => void;
-  onCancelOrder?: (orderId: string) => void;
-  onEditOrder?: (order: Order) => void;
 }
 
 export const OrderTrackingModal: React.FC<OrderTrackingModalProps> = ({
@@ -26,6 +24,7 @@ export const OrderTrackingModal: React.FC<OrderTrackingModalProps> = ({
 
   const getStepStatus = (stepKey: OrderStatus) => {
     if (order.status === 'cancelled') return 'cancelled';
+    if (order.status === 'delivered') return 'completed';
     
     // Treat 'new' as accepted since counter receives immediately
     const effectiveStatus = order.status === 'new' ? 'accepted' : order.status;

@@ -1,6 +1,7 @@
-import React, { useState, useEffect, useMemo, useCallback } from 'react';
-import { Product } from '../data/mockProducts';
-import { COURTS, OrderItem, Order } from '../types/order';
+import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
+import { Product } from '../types/product';
+import { OrderItem, Order } from '../types/order';
+import { apiFetch, stableRequestId, completeRequest, ApiError } from '../lib/api';
 import { sound } from '../lib/sound';
 import { CustomerHeader } from '../components/CustomerHeader';
 import { CourtContextBadge } from '../components/CourtContextBadge';
@@ -8,16 +9,59 @@ import { ProductCard } from '../components/ProductCard';
 import { FloatingCartBar } from '../components/FloatingCartBar';
 import { CartBottomSheet } from '../components/CartBottomSheet';
 import { OrderTrackingModal } from '../components/OrderTrackingModal';
+import { OrderHistoryModal } from '../components/OrderHistoryModal';
 
 export const CustomerOrderPage: React.FC = () => {
+  const submitLock = useRef(false);
+  const [pageError, setPageError] = useState('');
+  const [myOrders, setMyOrders] = useState<Order[]>([]);
+  const [isHistoryOpen, setIsHistoryOpen] = useState(false);
   // Đọc mã sân từ URL: ?court=05 hoặc mặc định '05'
   const courtCode = useMemo<string>(() => {
     const params = new URLSearchParams(window.location.search);
     return params.get('court') || '05';
   }, []);
 
+  // Khóa lưu trữ đơn hàng cho phiên quét hiện tại (sessionStorage scoped theo sân)
+  const scanStorageKey = useMemo(() => 'tl_scan_orders_' + courtCode, [courtCode]);
+
+  // Token phiên quét định danh thiết bị & lần quét hiện tại (mỗi thiết bị / mỗi lần quét mới là 1 session riêng biệt)
+  const scanSessionToken = useMemo(() => {
+    const key = 'tl_scan_token_' + courtCode;
+    try {
+      let token = sessionStorage.getItem(key);
+      if (!token || !/^[a-f0-9]{32,64}$/i.test(token)) {
+        const array = new Uint8Array(32);
+        crypto.getRandomValues(array);
+        token = Array.from(array, b => b.toString(16).padStart(2, '0')).join('');
+        sessionStorage.setItem(key, token);
+      }
+      return token;
+    } catch {
+      return '';
+    }
+  }, [courtCode]);
+
+  const getSessionOrderIds = useCallback((): string[] => {
+    try {
+      const raw = sessionStorage.getItem(scanStorageKey);
+      return raw ? JSON.parse(raw) : [];
+    } catch {
+      return [];
+    }
+  }, [scanStorageKey]);
+
+  const saveSessionOrderId = useCallback((id: string) => {
+    try {
+      const current = getSessionOrderIds();
+      if (!current.includes(id)) {
+        sessionStorage.setItem(scanStorageKey, JSON.stringify([...current, id]));
+      }
+    } catch {}
+  }, [getSessionOrderIds, scanStorageKey]);
+
   const [products, setProducts] = useState<Product[]>([]);
-  const [isAcceptingOrders, setIsAcceptingOrders] = useState<boolean>(true);
+  const [isAcceptingOrders, setIsAcceptingOrders] = useState<boolean>(false);
   const [courtDisabledMessage, setCourtDisabledMessage] = useState<string | null>(null);
   const [isLoadingCatalog, setIsLoadingCatalog] = useState<boolean>(true);
   const [courtInfo, setCourtInfo] = useState<{ courtId: string; code: string; name: string } | null>(null);
@@ -31,58 +75,80 @@ export const CustomerOrderPage: React.FC = () => {
 
   const selectedCourt = useMemo(() => {
     if (courtInfo) return courtInfo;
-    return COURTS.find(c => c.code === courtCode) || { courtId: `court-uuid-${courtCode}`, code: courtCode, name: `Sân ${courtCode}` };
+    return { courtId: '', code: courtCode, name: 'Đang xác nhận sân…' };
   }, [courtCode, courtInfo]);
 
   // Tải danh mục nước từ MongoDB
   const fetchCatalog = useCallback(async () => {
     try {
-      const res = await fetch(`/api/catalog?court_code=${courtCode}`);
-      if (res.ok) {
-        const data = await res.json();
-        setProducts(data.products || []);
-        setIsAcceptingOrders(data.isAcceptingOrders ?? true);
-        if (data.court) {
-          setCourtInfo(data.court);
-        }
-        setCourtDisabledMessage(data.courtDisabledMessage || null);
-      } else if (res.status === 404) {
-        const err = await res.json();
-        setCourtDisabledMessage(err.message || `Không tìm thấy thông tin sân ${courtCode}`);
+      const data = await (await apiFetch('/api/catalog?court_code=' + encodeURIComponent(courtCode))).json();
+      setProducts(data.products);
+      setIsAcceptingOrders(data.isAcceptingOrders);
+      setCourtInfo(data.court);
+      setCourtDisabledMessage(data.courtDisabledMessage || null);
+      setPageError('');
+    } catch (e) {
+      setPageError((e as Error).message);
+      setIsAcceptingOrders(false);
+      if (e instanceof ApiError && e.status === 404) {
+        setProducts([]);
+        setCourtInfo(null);
       }
-    } catch (err) {
-      console.warn('[CustomerPage] Error loading catalog:', err);
     } finally {
       setIsLoadingCatalog(false);
     }
   }, [courtCode]);
 
-  useEffect(() => {
-    fetchCatalog();
-  }, [fetchCatalog]);
-
-  // Kiểm tra đơn hàng đang mở của khách
+  // Chỉ lấy và hiển thị các đơn hàng ĐANG PHỤC VỤ (chưa hoàn tất và chưa hủy) trong lần quét hiện tại
   const checkMyActiveOrders = useCallback(async () => {
     try {
-      const res = await fetch('/api/orders/my');
-      if (res.ok) {
-        const myOrders: Order[] = await res.json();
-        const active = myOrders.find(o => o.status !== 'delivered' && o.status !== 'cancelled');
-        if (active) {
-          setActiveTrackingOrder(active);
-        }
+      const res = await apiFetch('/api/orders/my?court_code=' + encodeURIComponent(courtCode), {
+        headers: scanSessionToken ? { 'x-customer-session': scanSessionToken } : undefined
+      });
+      const list: Order[] = await res.json();
+      const sessionIds = getSessionOrderIds();
+
+      // Các đơn đã giao (delivered) hoặc đã hủy (cancelled) đã hoàn tất chu trình phục vụ
+      // -> Tự động dọn dẹp khỏi bộ nhớ phiên, KHÔNG lưu lại bắt khách bấm nút thủ công
+      const activeOrders = list.filter(o => sessionIds.includes(o.id) && !['delivered', 'cancelled'].includes(o.status));
+
+      // Tự động đồng bộ sessionStorage chỉ lưu các đơn còn đang cần phục vụ
+      const activeIds = activeOrders.map(o => o.id);
+      if (activeIds.length !== sessionIds.length) {
+        try {
+          sessionStorage.setItem(scanStorageKey, JSON.stringify(activeIds));
+        } catch {}
       }
-    } catch {
-      // ignore
+
+      setMyOrders(activeOrders);
+
+      setActiveTrackingOrder(previous => {
+        if (previous) {
+          const match = activeOrders.find(o => o.id === previous.id);
+          // Nếu đơn trước đó vừa chuyển sang delivered/cancelled, giữ lại để modal hiển thị nốt bước hoàn tất
+          if (!match) {
+            const terminalMatch = list.find(o => o.id === previous.id);
+            return terminalMatch || null;
+          }
+          return match;
+        }
+        return activeOrders[0] || null;
+      });
+    } catch (e) {
+      setPageError((e as Error).message);
     }
-  }, []);
-
+  }, [courtCode, getSessionOrderIds, scanSessionToken, scanStorageKey]);
   useEffect(() => {
-    checkMyActiveOrders();
-    const interval = setInterval(checkMyActiveOrders, 5000);
-    return () => clearInterval(interval);
-  }, [checkMyActiveOrders]);
-
+    void fetchCatalog();
+    const timer = setInterval(fetchCatalog, 4000);
+    const onFocus = () => void fetchCatalog();
+    window.addEventListener('focus', onFocus);
+    return () => {
+      clearInterval(timer);
+      window.removeEventListener('focus', onFocus);
+    };
+  }, [fetchCatalog]);
+  useEffect(()=>{void checkMyActiveOrders();const timer=setInterval(checkMyActiveOrders,5000);return()=>clearInterval(timer);},[checkMyActiveOrders]);
   const totalCartVnd = useMemo(() => {
     return cartItems.reduce((sum, item) => sum + item.lineTotal, 0);
   }, [cartItems]);
@@ -93,10 +159,12 @@ export const CustomerOrderPage: React.FC = () => {
 
   // Cart operations
   const handleAddToCart = useCallback((product: Product) => {
+    if(!isAcceptingOrders || !courtInfo || product.stock<1 || submitLock.current)return;
     sound.playActionClick();
     setCartItems(prev => {
       const existing = prev.find(item => item.productId === product.id);
       if (existing) {
+        if(existing.quantity>=product.stock)return prev;
         return prev.map(item =>
           item.productId === product.id
             ? {
@@ -112,6 +180,7 @@ export const CustomerOrderPage: React.FC = () => {
         ...prev,
         {
           productId: product.id,
+          imageSvg: product.imageSvg,
           name: product.name,
           volume: product.volume,
           unitPrice: product.priceVnd,
@@ -121,10 +190,13 @@ export const CustomerOrderPage: React.FC = () => {
         }
       ];
     });
-  }, []);
+  }, [isAcceptingOrders,courtInfo]);
 
   const handleUpdateQuantity = useCallback((productId: string, newQty: number) => {
     sound.playActionClick();
+    if(submitLock.current)return;
+    const available=products.find(p=>p.id===productId)?.stock||0;
+    if(newQty>available){setPageError('Số lượng vượt tồn kho hiện tại');return;}
     if (newQty <= 0) {
       setCartItems(prev => prev.filter(i => i.productId !== productId));
     } else {
@@ -143,9 +215,10 @@ export const CustomerOrderPage: React.FC = () => {
         })
       );
     }
-  }, []);
+  }, [products]);
 
   const handleUpdateIce = useCallback((productId: string, newIce: number) => {
+    if(submitLock.current)return;
     sound.playActionClick();
     setCartItems(prev =>
       prev.map(item => {
@@ -159,52 +232,44 @@ export const CustomerOrderPage: React.FC = () => {
   }, []);
 
   const handleRemoveItem = useCallback((productId: string) => {
+    if(submitLock.current)return;
     sound.playActionClick();
     setCartItems(prev => prev.filter(i => i.productId !== productId));
   }, []);
 
   // Submit Order
-  const handleSubmitOrder = useCallback(async () => {
-    if (cartItems.length === 0) return;
-    setIsSubmittingOrder(true);
-    sound.playActionClick();
-
+  const handleSubmitOrder = useCallback(async()=>{
+    if(submitLock.current || !cartItems.length || !courtInfo || !isAcceptingOrders)return;
+    submitLock.current=true;setIsSubmittingOrder(true);setPageError('');
+    const payload={courtCode:courtInfo.code,items:cartItems.map(i=>({productId:i.productId,quantity:i.quantity,iceQuantity:i.iceQuantity}))};
+    const key='customer:'+courtInfo.code;
+    const clientRequestId=stableRequestId(key,payload);
     try {
-      const clientRequestId = `req-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
-      const res = await fetch('/api/orders', {
+      const order: Order = await (await apiFetch('/api/orders', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          clientRequestId,
-          courtCode: selectedCourt.code,
-          items: cartItems.map(i => ({
-            productId: i.productId,
-            quantity: i.quantity,
-            iceQuantity: i.iceQuantity
-          }))
-        })
-      });
-
-      if (!res.ok) {
-        const errData = await res.json();
-        alert(errData.message || 'Lỗi đặt hàng');
-        return;
-      }
-
-      const newOrder = await res.json();
+        headers: scanSessionToken ? { 'x-customer-session': scanSessionToken } : undefined,
+        body: JSON.stringify({ ...payload, clientRequestId })
+      })).json();
+      completeRequest(key);
+      saveSessionOrderId(order.id);
       setCartItems([]);
       setIsCartOpen(false);
-      setActiveTrackingOrder(newOrder);
+      setActiveTrackingOrder(order);
       setIsTrackingModalOpen(true);
-      fetchCatalog();
-    } catch (err: any) {
-      alert('Không thể kết nối đến máy chủ: ' + err.message);
+      await checkMyActiveOrders();
+      await fetchCatalog();
+    } catch(e) {
+      setPageError((e as Error).message);
+      if(e instanceof ApiError && e.status === 409) await fetchCatalog();
     } finally {
+      submitLock.current = false;
       setIsSubmittingOrder(false);
     }
-  }, [cartItems, fetchCatalog, selectedCourt.code]);
+  }, [cartItems, courtInfo, isAcceptingOrders, checkMyActiveOrders, fetchCatalog, saveSessionOrderId, scanSessionToken]);
 
-
+  const hasActiveOrder = useMemo(() => {
+    return myOrders.some(o => !['delivered', 'cancelled'].includes(o.status));
+  }, [myOrders]);
 
   return (
     <div style={{
@@ -226,14 +291,32 @@ export const CustomerOrderPage: React.FC = () => {
       }}>
         {/* Header thương hiệu */}
         <CustomerHeader
-          onOpenMyOrders={() => {
-            if (activeTrackingOrder) {
-              setIsTrackingModalOpen(true);
-            }
-          }}
-          hasActiveOrder={!!activeTrackingOrder}
+          onOpenMyOrders={() => { setIsHistoryOpen(true); void checkMyActiveOrders(); }}
+          hasActiveOrder={hasActiveOrder}
+          isAcceptingOrders={isAcceptingOrders}
+          courtDisabledMessage={courtDisabledMessage}
         />
 
+        {pageError && (
+          <div role="alert" style={{ padding: 12, background: '#fee2e2', color: '#991b1b', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <span>{pageError}</span>
+            <button onClick={() => void fetchCatalog()} style={{ cursor: 'pointer', padding: '4px 8px' }}>Thử lại</button>
+          </div>
+        )}
+
+        {/* Modal Danh sách đơn hàng trong lần quét hiện tại */}
+        <OrderHistoryModal
+          isOpen={isHistoryOpen}
+          courtCode={courtCode}
+          courtName={selectedCourt.name}
+          orders={myOrders}
+          onClose={() => setIsHistoryOpen(false)}
+          onSelectOrder={(order) => {
+            setActiveTrackingOrder(order);
+            setIsHistoryOpen(false);
+            setIsTrackingModalOpen(true);
+          }}
+        />
         {/* Ngữ cảnh vị trí Sân */}
         <CourtContextBadge courtName={selectedCourt.name} />
 
@@ -327,6 +410,8 @@ export const CustomerOrderPage: React.FC = () => {
           onRemoveItem={handleRemoveItem}
           onSubmitOrder={handleSubmitOrder}
           isSubmitting={isSubmittingOrder}
+          canSubmit={isAcceptingOrders && !!courtInfo}
+          error={pageError}
         />
 
         {/* Modal theo dõi đơn hàng */}
@@ -334,7 +419,12 @@ export const CustomerOrderPage: React.FC = () => {
           <OrderTrackingModal
             order={activeTrackingOrder}
             isOpen={isTrackingModalOpen}
-            onClose={() => setIsTrackingModalOpen(false)}
+            onClose={() => {
+              setIsTrackingModalOpen(false);
+              if (['delivered', 'cancelled'].includes(activeTrackingOrder.status)) {
+                setActiveTrackingOrder(null);
+              }
+            }}
           />
         )}
       </div>

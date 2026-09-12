@@ -61,6 +61,9 @@ export interface OrderDoc {
   cancelledAt?: Date | null;
   version: number;
   updatedAt: Date;
+  cancelReason?: string;
+  cancelledBy?: string;
+  requestFingerprint?: string;
 }
 
 export interface InventoryMovementDoc {
@@ -87,3 +90,13 @@ export interface AppSettingDoc {
   updatedAt: Date;
 }
 
+export interface AuditLogDoc {
+  _id?: ObjectId;
+  auditId: string;
+  adminUsername: string;
+  action: 'product_create' | 'product_update' | 'product_delete' | 'stock_adjustment' | 'order_cancel' | 'order_create' | 'settings_update' | 'catalog_import' | 'data_cleaned';
+  targetId?: string;
+  details: Record<string, unknown>;
+  ip?: string;
+  createdAt: Date;
+}

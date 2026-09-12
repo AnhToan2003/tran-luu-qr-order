@@ -1,5 +1,5 @@
 import React from 'react';
-import { Product, formatVnd } from '../data/mockProducts';
+import { Product, formatVnd } from '../types/product';
 
 interface ProductCardProps {
   product: Product;

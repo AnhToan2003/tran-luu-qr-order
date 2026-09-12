@@ -1,6 +1,6 @@
 import React from 'react';
 import { OrderItem } from '../types/order';
-import { formatVnd, MOCK_PRODUCTS } from '../data/mockProducts';
+import { formatVnd } from '../types/product';
 
 interface CartBottomSheetProps {
   isOpen: boolean;
@@ -13,6 +13,8 @@ interface CartBottomSheetProps {
   onRemoveItem: (productId: string) => void;
   onSubmitOrder: () => void;
   isSubmitting: boolean;
+  canSubmit: boolean;
+  error?: string;
 }
 
 export const CartBottomSheet: React.FC<CartBottomSheetProps> = ({
@@ -25,7 +27,9 @@ export const CartBottomSheet: React.FC<CartBottomSheetProps> = ({
   onUpdateIce,
   onRemoveItem,
   onSubmitOrder,
-  isSubmitting
+  isSubmitting,
+  canSubmit,
+  error
 }) => {
   if (!isOpen) return null;
 
@@ -47,6 +51,7 @@ export const CartBottomSheet: React.FC<CartBottomSheetProps> = ({
       justifyContent: 'flex-end',
       alignItems: 'center'
     }}>
+      {error&&<p role="alert" style={{position:'relative',zIndex:3,background:'#fee2e2',padding:12,color:'#991b1b'}}>{error}</p>}
       {/* Backdrop tap to close */}
       <div
         onClick={onClose}
@@ -144,7 +149,7 @@ export const CartBottomSheet: React.FC<CartBottomSheetProps> = ({
             </div>
           ) : (
             items.map((item) => {
-              const productDef = MOCK_PRODUCTS.find(p => p.id === item.productId);
+              const productDef = item.imageSvg ? {imageSvg:item.imageSvg} : null;
               return (
                 <div
                   key={item.productId}
@@ -414,7 +419,7 @@ export const CartBottomSheet: React.FC<CartBottomSheetProps> = ({
             {/* Submit Button */}
             <button
               onClick={onSubmitOrder}
-              disabled={isSubmitting}
+              disabled={isSubmitting || !canSubmit}
               style={{
                 width: '100%',
                 padding: '14px',

@@ -1,18 +1,7 @@
-// Clean SVG representations of Vietnamese badminton drinks with authentic packaging style
+import { Db, MongoClient } from 'mongodb';
+import { getCollections, connectToDatabase, DB_NAME } from './db.js';
 
-export interface Product {
-  id: string;
-  name: string;
-  volume: string;
-  priceVnd: number;
-  stock: number;
-  category: 'water' | 'isotonic' | 'energy' | 'tea' | 'coffee';
-  tag?: string;
-  isAvailable?: boolean;
-  imageSvg: string;
-}
-
-// 1. Lavie 500ml (Natural mineral water, light blue bottle, blue cap, red/white text)
+// SVG representations of authentic Vietnamese badminton drinks
 const lavieSvg = `data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 260" width="200" height="260">
   <defs>
     <linearGradient id="lavieBottle" x1="0%" y1="0%" x2="100%" y2="0%">
@@ -27,25 +16,18 @@ const lavieSvg = `data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg
       <stop offset="100%" stop-color="%23014B88"/>
     </linearGradient>
   </defs>
-  <!-- Cap -->
   <rect x="85" y="24" width="30" height="22" rx="4" fill="url(%23lavieCap)"/>
-  <!-- Neck -->
   <path d="M82 46 L118 46 L124 85 L76 85 Z" fill="url(%23lavieBottle)"/>
-  <!-- Body -->
   <rect x="66" y="85" width="68" height="145" rx="14" fill="url(%23lavieBottle)"/>
-  <!-- Waist indents -->
   <path d="M66 125 Q74 140 66 155 L66 85 Z" fill="%23A8D7F5"/>
   <path d="M134 125 Q126 140 134 155 L134 85 Z" fill="%2394CEF1"/>
-  <!-- Label -->
   <rect x="66" y="115" width="68" height="60" fill="%23FFFFFF" rx="3"/>
   <circle cx="100" cy="132" r="9" fill="%23E2231A"/>
   <text x="100" y="156" font-family="Arial, sans-serif" font-weight="900" font-size="14" fill="%2301549C" text-anchor="middle">LaVie</text>
   <text x="100" y="167" font-family="Arial, sans-serif" font-weight="600" font-size="7" fill="%2301549C" text-anchor="middle">500ml</text>
-  <!-- Water wave effect -->
   <path d="M67 195 Q85 190 100 195 T133 195 L133 220 Q100 232 67 220 Z" fill="%2390CBF0" opacity="0.6"/>
 </svg>`;
 
-// 2. Pocari Sweat 500ml (Deep blue iconic label with white wave)
 const pocariSvg = `data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 260" width="200" height="260">
   <defs>
     <linearGradient id="pocariBottle" x1="0%" y1="0%" x2="100%" y2="0%">
@@ -59,22 +41,16 @@ const pocariSvg = `data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/sv
       <stop offset="100%" stop-color="%23023E73"/>
     </linearGradient>
   </defs>
-  <!-- Cap -->
   <rect x="85" y="24" width="30" height="22" rx="4" fill="url(%23pocariCap)"/>
-  <!-- Neck -->
   <path d="M83 46 L117 46 L124 82 L76 82 Z" fill="url(%23pocariBottle)"/>
-  <!-- Body -->
   <rect x="66" y="82" width="68" height="150" rx="14" fill="url(%23pocariBottle)"/>
-  <!-- Blue Label -->
   <rect x="66" y="98" width="68" height="88" fill="%230055A5" rx="3"/>
-  <!-- White Wave -->
   <path d="M66 122 Q85 110 105 130 T134 122 L134 136 Q115 146 95 126 T66 136 Z" fill="%23FFFFFF"/>
   <text x="100" y="152" font-family="Arial, sans-serif" font-weight="900" font-size="10" fill="%23FFFFFF" text-anchor="middle" letter-spacing="1">POCARI</text>
   <text x="100" y="165" font-family="Arial, sans-serif" font-weight="800" font-size="9" fill="%23FFFFFF" text-anchor="middle" letter-spacing="1">SWEAT</text>
   <text x="100" y="178" font-family="Arial, sans-serif" font-weight="600" font-size="7" fill="%23D5EF76" text-anchor="middle">ION SUPPLY</text>
 </svg>`;
 
-// 3. Revive Chanh Muối 500ml (Sporty lime yellow-green & lemon)
 const reviveSvg = `data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 260" width="200" height="260">
   <defs>
     <linearGradient id="reviveBottle" x1="0%" y1="0%" x2="100%" y2="0%">
@@ -88,13 +64,9 @@ const reviveSvg = `data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/sv
       <stop offset="100%" stop-color="%2365A30D"/>
     </linearGradient>
   </defs>
-  <!-- Cap -->
   <rect x="85" y="24" width="30" height="22" rx="4" fill="url(%23reviveCap)"/>
-  <!-- Neck -->
   <path d="M82 46 L118 46 L125 84 L75 84 Z" fill="url(%23reviveBottle)"/>
-  <!-- Body -->
   <rect x="66" y="84" width="68" height="148" rx="14" fill="url(%23reviveBottle)"/>
-  <!-- Label -->
   <rect x="66" y="104" width="68" height="82" fill="%23A3E635" rx="3"/>
   <rect x="66" y="112" width="68" height="66" fill="%231E3A8A"/>
   <text x="100" y="136" font-family="Arial, sans-serif" font-weight="900" font-size="12" fill="%23FFFFFF" text-anchor="middle" font-style="italic">REVIVE</text>
@@ -103,7 +75,6 @@ const reviveSvg = `data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/sv
   <text x="100" y="172" font-family="Arial, sans-serif" font-weight="700" font-size="7" fill="%23FACC15" text-anchor="middle">BÙ KHOÁNG</text>
 </svg>`;
 
-// 4. Red Bull Thái 250ml (Short gold & blue energy can with red bulls)
 const redBullSvg = `data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 260" width="200" height="260">
   <defs>
     <linearGradient id="canTop" x1="0%" y1="0%" x2="100%" y2="0%">
@@ -118,20 +89,15 @@ const redBullSvg = `data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/s
       <stop offset="100%" stop-color="%23996E00"/>
     </linearGradient>
   </defs>
-  <!-- Can Rim -->
   <rect x="68" y="55" width="64" height="14" rx="6" fill="url(%23canTop)"/>
-  <!-- Can Body -->
   <rect x="65" y="66" width="70" height="150" rx="8" fill="url(%23goldBody)"/>
-  <!-- Blue geometric block -->
   <path d="M65 85 L135 125 L135 175 L65 135 Z" fill="%230F3B82"/>
-  <!-- Red Sun & Bull Silhouette -->
   <circle cx="100" cy="142" r="14" fill="%23D81E05"/>
   <text x="100" y="172" font-family="Arial, sans-serif" font-weight="900" font-size="11" fill="%23D81E05" text-anchor="middle">Red Bull</text>
   <text x="100" y="184" font-family="Arial, sans-serif" font-weight="800" font-size="8" fill="%230F3B82" text-anchor="middle">Krating Daeng</text>
   <text x="100" y="204" font-family="Arial, sans-serif" font-weight="600" font-size="7" fill="%23333333" text-anchor="middle">250ml • Thái</text>
 </svg>`;
 
-// 5. Trà xanh Không Độ 455ml (Green bottle with yellow/green label and tea leaf)
 const traXanhSvg = `data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 260" width="200" height="260">
   <defs>
     <linearGradient id="traXanhBottle" x1="0%" y1="0%" x2="100%" y2="0%">
@@ -145,25 +111,19 @@ const traXanhSvg = `data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/s
       <stop offset="100%" stop-color="%231E4A1C"/>
     </linearGradient>
   </defs>
-  <!-- Cap -->
   <rect x="85" y="24" width="30" height="22" rx="4" fill="url(%23traXanhCap)"/>
-  <!-- Neck -->
   <path d="M83 46 L117 46 L124 82 L76 82 Z" fill="url(%23traXanhBottle)"/>
-  <!-- Body -->
   <rect x="66" y="82" width="68" height="150" rx="14" fill="url(%23traXanhBottle)"/>
-  <!-- Label -->
   <rect x="66" y="104" width="68" height="82" fill="%23FEE500" rx="3"/>
   <rect x="66" y="112" width="68" height="30" fill="%232D6A2A"/>
   <text x="100" y="127" font-family="Arial, sans-serif" font-weight="900" font-size="9" fill="%23FFFFFF" text-anchor="middle">TRÀ XANH</text>
   <text x="100" y="137" font-family="Arial, sans-serif" font-weight="900" font-size="11" fill="%23FEE500" text-anchor="middle">KHÔNG ĐỘ</text>
-  <!-- Big 0 Degree badge -->
   <circle cx="100" cy="158" r="12" fill="%23E2231A"/>
   <text x="96" y="163" font-family="Arial, sans-serif" font-weight="900" font-size="13" fill="%23FFFFFF" text-anchor="middle">0</text>
   <text x="106" y="156" font-family="Arial, sans-serif" font-weight="900" font-size="8" fill="%23FFFFFF" text-anchor="middle">°</text>
   <text x="100" y="180" font-family="Arial, sans-serif" font-weight="700" font-size="7" fill="%232D6A2A" text-anchor="middle">Ít đường • 455ml</text>
 </svg>`;
 
-// 6. Highlands Cà phê sữa lon 235ml (Iconic deep red & cream can)
 const highlandsSvg = `data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 260" width="200" height="260">
   <defs>
     <linearGradient id="canRimHighlands" x1="0%" y1="0%" x2="100%" y2="0%">
@@ -178,84 +138,198 @@ const highlandsSvg = `data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000
       <stop offset="100%" stop-color="%234A0000"/>
     </linearGradient>
   </defs>
-  <!-- Can Rim -->
   <rect x="70" y="58" width="60" height="14" rx="6" fill="url(%23canRimHighlands)"/>
-  <!-- Body -->
   <rect x="67" y="70" width="66" height="144" rx="8" fill="url(%23highlandsBody)"/>
-  <!-- Highlands Oval Badge -->
   <ellipse cx="100" cy="118" rx="26" ry="20" fill="%23FFFFFF"/>
   <ellipse cx="100" cy="118" rx="23" ry="17" fill="%23B31B1B"/>
   <text x="100" y="116" font-family="Arial, sans-serif" font-weight="900" font-size="7" fill="%23FFFFFF" text-anchor="middle" letter-spacing="1">HIGHLANDS</text>
   <text x="100" y="125" font-family="Arial, sans-serif" font-weight="800" font-size="6" fill="%23F3D999" text-anchor="middle">COFFEE</text>
-  <!-- Coffee name -->
   <rect x="67" y="148" width="66" height="34" fill="%233A180E"/>
   <text x="100" y="162" font-family="Arial, sans-serif" font-weight="900" font-size="9" fill="%23FFFFFF" text-anchor="middle">CÀ PHÊ SỮA</text>
   <text x="100" y="174" font-family="Arial, sans-serif" font-weight="700" font-size="7" fill="%23F3D999" text-anchor="middle">ĐẬM ĐÀ • 235ml</text>
 </svg>`;
 
-export const MOCK_PRODUCTS: Product[] = [
+export const SAMPLE_PRODUCTS = [
   {
-    id: 'prod-01',
+    productId: 'prod-01',
     name: 'Nước khoáng LaVie',
     volume: '500ml',
     priceVnd: 10000,
     stock: 48,
-    category: 'water',
+    category: 'water' as const,
     tag: 'Bán chạy',
-    imageSvg: lavieSvg
+    imageSvg: lavieSvg,
+    isAvailable: true,
+    deletedAt: null
   },
   {
-    id: 'prod-02',
+    productId: 'prod-02',
     name: 'Pocari Sweat Bù Nước',
     volume: '500ml',
     priceVnd: 20000,
     stock: 35,
-    category: 'isotonic',
+    category: 'isotonic' as const,
     tag: 'Bù điện giải',
-    imageSvg: pocariSvg
+    imageSvg: pocariSvg,
+    isAvailable: true,
+    deletedAt: null
   },
   {
-    id: 'prod-03',
+    productId: 'prod-03',
     name: 'Revive Chanh Muối',
     volume: '500ml',
     priceVnd: 15000,
     stock: 42,
-    category: 'isotonic',
+    category: 'isotonic' as const,
     tag: 'Thể thao',
-    imageSvg: reviveSvg
+    imageSvg: reviveSvg,
+    isAvailable: true,
+    deletedAt: null
   },
   {
-    id: 'prod-04',
+    productId: 'prod-04',
     name: 'Bò Húc Red Bull Thái',
     volume: '250ml',
     priceVnd: 18000,
     stock: 24,
-    category: 'energy',
+    category: 'energy' as const,
     tag: 'Năng lượng',
-    imageSvg: redBullSvg
+    imageSvg: redBullSvg,
+    isAvailable: true,
+    deletedAt: null
   },
   {
-    id: 'prod-05',
+    productId: 'prod-05',
     name: 'Trà Xanh Không Độ',
     volume: '455ml',
     priceVnd: 15000,
     stock: 30,
-    category: 'tea',
+    category: 'tea' as const,
     tag: 'Thanh mát',
-    imageSvg: traXanhSvg
+    imageSvg: traXanhSvg,
+    isAvailable: true,
+    deletedAt: null
   },
   {
-    id: 'prod-06',
+    productId: 'prod-06',
     name: 'Highlands Cà Phê Sữa',
     volume: '235ml',
     priceVnd: 22000,
     stock: 18,
-    category: 'coffee',
+    category: 'coffee' as const,
     tag: 'Tỉnh táo',
-    imageSvg: highlandsSvg
+    imageSvg: highlandsSvg,
+    isAvailable: true,
+    deletedAt: null
   }
 ];
 
-export const formatVnd = (price: number): string => {
-  return price.toLocaleString('vi-VN') + 'đ';
-};
+export const SAMPLE_COURTS = Array.from({ length: 16 }, (_, i) => {
+  const code = (i + 1).toString().padStart(2, '0');
+  return {
+    courtId: `court-uuid-${code}`,
+    code,
+    name: `Sân ${code}`,
+    sortOrder: i + 1,
+    isActive: true,
+    deletedAt: null
+  };
+});
+
+export async function seedSampleData(db: Db, force = false): Promise<{ courtsCount: number; productsCount: number }> {
+  const now = new Date();
+  const courtsCol = db.collection('courts');
+  const productsCol = db.collection('products');
+  const settingsCol = db.collection('app_settings');
+
+  console.log('[Seed] Seeding sample data for Sân Cầu Lông Trần Lựu...');
+
+  // 1. Courts (16 courts)
+  if (force) {
+    await courtsCol.deleteMany({});
+  }
+  const existingCourts = await courtsCol.countDocuments();
+  if (existingCourts === 0 || force) {
+    const courtsToInsert = SAMPLE_COURTS.map(c => ({
+      ...c,
+      createdAt: now,
+      updatedAt: now
+    }));
+    await courtsCol.insertMany(courtsToInsert);
+    console.log(`[Seed] Seeded ${courtsToInsert.length} courts successfully (Sân 01 -> Sân 16).`);
+  } else {
+    console.log(`[Seed] Courts collection already has ${existingCourts} items. Skipping.`);
+  }
+
+  // 2. Products (from initial_catalog.json or SAMPLE_PRODUCTS)
+  if (force) {
+    await productsCol.deleteMany({});
+  }
+  const existingProducts = await productsCol.countDocuments();
+  if (existingProducts === 0 || force) {
+    let baseProducts: any[] = SAMPLE_PRODUCTS;
+    try {
+      const fs = await import('node:fs');
+      const path = await import('node:path');
+      const catalogFile = path.resolve('data/initial_catalog.json');
+      if (fs.existsSync(catalogFile)) {
+        const parsed = JSON.parse(fs.readFileSync(catalogFile, 'utf-8'));
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          baseProducts = parsed;
+          console.log(`[Seed] Loaded ${parsed.length} products from data/initial_catalog.json.`);
+        }
+      }
+    } catch {
+      // Fallback to SAMPLE_PRODUCTS
+    }
+    const productsToInsert = baseProducts.map((p: any) => ({
+      ...p,
+      version: p.version || 1,
+      createdAt: p.createdAt ? new Date(p.createdAt) : now,
+      updatedAt: now
+    }));
+    await productsCol.insertMany(productsToInsert);
+    console.log(`[Seed] Seeded ${productsToInsert.length} products successfully.`);
+  } else {
+    console.log(`[Seed] Products collection already has ${existingProducts} items. Skipping.`);
+  }
+
+  // 3. System Config
+  await settingsCol.updateOne(
+    { key: 'system_config' },
+    {
+      $set: {
+        key: 'system_config',
+        'value.isAcceptingOrders': true,
+        'value.chimeIntervalSeconds': 5,
+        'value.editWindowSeconds': 60,
+        updatedAt: now
+      }
+    },
+    { upsert: true }
+  );
+  console.log('[Seed] System configuration initialized (Orders enabled, Chime 5s).');
+
+  const finalCourts = await courtsCol.countDocuments();
+  const finalProducts = await productsCol.countDocuments();
+  return { courtsCount: finalCourts, productsCount: finalProducts };
+}
+
+// Standalone execution: npx tsx server/seedData.ts
+if (process.argv[1] && process.argv[1].endsWith('seedData.ts')) {
+  (async () => {
+    const uri = process.env.MONGO_URI || 'mongodb://localhost:27017';
+    console.log(`[Seed] Connecting to MongoDB: ${uri}`);
+    const client = new MongoClient(uri);
+    await client.connect();
+    const db = client.db(process.env.DB_NAME || DB_NAME);
+    const force = process.argv.includes('--force');
+    const result = await seedSampleData(db, force);
+    console.log(`[Seed] Done! Courts: ${result.courtsCount}, Products: ${result.productsCount}`);
+    await client.close();
+    process.exit(0);
+  })().catch(err => {
+    console.error('[Seed] Error:', err);
+    process.exit(1);
+  });
+}

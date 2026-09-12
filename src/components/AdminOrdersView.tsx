@@ -1,14 +1,12 @@
 import React from 'react';
 import { Order } from '../types/order';
-import { formatVnd } from '../data/mockProducts';
+import { formatVnd } from '../types/product';
 
 interface AdminOrdersViewProps {
   orders: Order[];
-  onAcceptOrder?: (orderId: string) => void;
   onPrepareOrder: (orderId: string) => void;
   onDeliverOrder: (orderId: string) => void;
-  onCancelOrder?: (orderId: string) => void;
-  onFastForwardOrder?: (orderId: string) => void;
+  onCancelOrder: (orderId: string, reason: string) => void;
   onOpenCreateOrderModal?: () => void;
 }
 
@@ -30,20 +28,8 @@ export const AdminOrdersView: React.FC<AdminOrdersViewProps> = ({
   const handleCancelClick = async (orderId: string) => {
     const reason = prompt('Nhập lý do hủy đơn (hoặc bấm OK để xác nhận):', 'Khách đổi ý / hết hàng');
     if (reason === null) return;
-    if (onCancelOrder) {
-      onCancelOrder(orderId);
-    } else {
-      try {
-        await fetch(`/api/orders/${orderId}/cancel`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ reason })
-        });
-        window.location.reload();
-      } catch (e) {
-        console.error(e);
-      }
-    }
+    if(!reason.trim()) return;
+    onCancelOrder(orderId,reason.trim());
   };
 
   const renderOrderCard = (order: Order, type: 'pending' | 'delivering' | 'completed') => {
@@ -268,6 +254,7 @@ export const AdminOrdersView: React.FC<AdminOrdersViewProps> = ({
             </button>
           )}
 
+          {type === 'delivering' && <button onClick={() => handleCancelClick(order.id)} style={{padding:10,color:'#b91c1c'}}>Hủy đơn chưa giao</button>}
           {type === 'completed' && (
             <div style={{
               padding: '8px 12px',
@@ -305,9 +292,6 @@ export const AdminOrdersView: React.FC<AdminOrdersViewProps> = ({
           <h2 style={{ fontSize: 'var(--font-size-lg)', fontWeight: 800, color: 'var(--color-deep)', margin: 0 }}>
             Điều Hành Đơn Gọi Nước Theo Sân
           </h2>
-          <p style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-muted)', margin: '4px 0 0' }}>
-            Nhận đơn tức thì không độ trễ. 1-click xác nhận đã giao và thu tiền trực tiếp.
-          </p>
         </div>
 
         {onOpenCreateOrderModal && (
