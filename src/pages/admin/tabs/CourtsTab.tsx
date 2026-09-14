@@ -130,14 +130,15 @@ export const CourtsTab: React.FC<CourtsTabProps> = ({
               </button>
             </div>
 
-            <div style={{ display: 'flex', gap: '6px', marginTop: 'auto', flexWrap: 'wrap' }}>
+            <div style={{ display: 'flex', gap: '6px', alignItems: 'center', flexWrap: 'wrap' }}>
               <button
                 onClick={() => onOpenQrPreview(court)}
                 style={{
                   flex: 1,
                   padding: '8px 6px',
-                  backgroundColor: 'var(--color-primary-light)',
-                  color: 'var(--color-primary)',
+                  backgroundColor: 'var(--color-bg)',
+                  border: '1px solid var(--color-border)',
+                  color: 'var(--color-deep)',
                   borderRadius: 'var(--radius-sm)',
                   fontWeight: 700,
                   fontSize: 'var(--font-size-xs)',

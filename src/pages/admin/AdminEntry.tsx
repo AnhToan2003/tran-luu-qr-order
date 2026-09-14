@@ -23,7 +23,7 @@ export const AdminEntry: React.FC=()=>{
       <label>Mật khẩu<input type="password" autoComplete="current-password" value={password} onChange={e=>setPassword(e.target.value)} required style={{display:'block',width:'100%',padding:12,border:'1px solid #ccc',borderRadius:8}} /></label>
       {error&&<p role="alert" style={{color:'#b91c1c'}}>{error}</p>}
       <button disabled={busy} style={{padding:14,color:'white',background:'#137A49',borderRadius:8}}>{busy?'Đang đăng nhập…':'Đăng nhập'}</button>
-      <a href="/order?court=05">Mở trang gọi nước</a>
+      <a href="/" style={{ fontSize: '13px', color: '#6B7280', textDecoration: 'none' }}>← Về trang gọi nước</a>
     </form>
   </main>;
 };

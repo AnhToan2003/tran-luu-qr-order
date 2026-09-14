@@ -1,6 +1,6 @@
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { Order, Court } from '../../types/order';
-import { sound } from '../../lib/sound';
+import { sound, RingtoneStyle } from '../../lib/sound';
 import { formatVnd, Product } from '../../types/product';
 const downloadCourtQrPng = async (...args: Parameters<typeof import('../../lib/qrCode').downloadCourtQrPng>) => (await import('../../lib/qrCode')).downloadCourtQrPng(...args);
 const downloadAllCourtsPdf = async (...args: Parameters<typeof import('../../lib/qrCode').downloadAllCourtsPdf>) => (await import('../../lib/qrCode')).downloadAllCourtsPdf(...args);
@@ -8,14 +8,17 @@ const generateCourtQrPng = async (...args: Parameters<typeof import('../../lib/q
 import { apiFetch, stableRequestId, completeRequest } from '../../lib/api';
 const exportOrdersToExcel = async (...args: Parameters<typeof import('../../lib/excelExport').exportOrdersToExcel>) => (await import('../../lib/excelExport')).exportOrdersToExcel(...args);
 import { AdminOrdersView } from '../../components/AdminOrdersView';
-import { ProductsTab } from './tabs/ProductsTab';
-import { CourtsTab } from './tabs/CourtsTab';
-import { ReportsTab } from './tabs/ReportsTab';
-import { HistoryTab } from './tabs/HistoryTab';
-import { BackupTab } from './tabs/BackupTab';
-import { SettingsTab } from './tabs/SettingsTab';
+import { compressImage } from '../../lib/imageUtils';
 
-type AdminTab = 'orders' | 'products' | 'courts' | 'reports' | 'history' | 'backup' | 'settings';
+const ProductsTab = React.lazy(() => import('./tabs/ProductsTab').then(m => ({ default: m.ProductsTab })));
+const CourtsTab = React.lazy(() => import('./tabs/CourtsTab').then(m => ({ default: m.CourtsTab })));
+const ReportsTab = React.lazy(() => import('./tabs/ReportsTab').then(m => ({ default: m.ReportsTab })));
+const HistoryTab = React.lazy(() => import('./tabs/HistoryTab').then(m => ({ default: m.HistoryTab })));
+const StockIntakeTab = React.lazy(() => import('./tabs/StockIntakeTab').then(m => ({ default: m.StockIntakeTab })));
+const BackupTab = React.lazy(() => import('./tabs/BackupTab').then(m => ({ default: m.BackupTab })));
+const SettingsTab = React.lazy(() => import('./tabs/SettingsTab').then(m => ({ default: m.SettingsTab })));
+
+type AdminTab = 'orders' | 'products' | 'courts' | 'reports' | 'history' | 'stock-history' | 'backup' | 'settings';
 
 export const AdminPortal: React.FC = () => {
   const [currentTab, setCurrentTab] = useState<AdminTab>('orders');
@@ -25,16 +28,113 @@ export const AdminPortal: React.FC = () => {
   const [historyBusy, setHistoryBusy] = useState(false);
   const [stockMovements, setStockMovements] = useState<Array<{operationId:string;delta:number;stockAfter:number;createdAt:string;reason:string}>>([]);
   const pendingActions = useRef(new Set<string>());
-  const runAction = async (key:string, fn:()=>Promise<void>) => {
-    if(pendingActions.current.has(key)) return;
-    pendingActions.current.add(key); setApiError('');
-    try { await fn(); } catch(e) {setApiError((e as Error).message);} finally {pendingActions.current.delete(key);}
+  const runAction = async (key: string, fn: () => Promise<void>) => {
+    if (pendingActions.current.has(key)) return;
+    pendingActions.current.add(key);
+    setApiError('');
+    let snapshot: Order[] = [];
+    setOrders(current => { snapshot = current; return current; });
+    try {
+      await fn();
+    } catch (e: any) {
+      setApiError(e.message || 'Thao tác không thành công. Hệ thống đã khôi phục trạng thái.');
+      setOrders(snapshot);
+      const remainingPending = snapshot.filter(o => o.status === 'new' || o.status === 'accepted');
+      if (remainingPending.length > 0) {
+        sound.syncPendingAlert(remainingPending, { withVoice: isVoiceActive });
+      }
+    } finally {
+      pendingActions.current.delete(key);
+    }
   };
   useEffect(()=>{const onError=(e:Event)=>setApiError((e as CustomEvent<string>).detail);window.addEventListener('api-error',onError);return()=>window.removeEventListener('api-error',onError);},[]);
   // Orders State (Polling 3.5s)
   const [orders, setOrders] = useState<Order[]>([]);
   const [isAcceptingOrders, setIsAcceptingOrders] = useState<boolean>(false);
-  const [isSoundActive, setIsSoundActive] = useState<boolean>(false);
+  const [isSoundActive, setIsSoundActive] = useState<boolean>(true);
+  const [isVoiceActive, setIsVoiceActive] = useState<boolean>(() => sound.isVoiceActive());
+  const [soundVolume, setSoundVolume] = useState<number>(() => sound.getVolume());
+  const [ringtoneStyle, setRingtoneStyle] = useState<RingtoneStyle>(() => sound.getRingtone());
+
+  const handleToggleSound = () => {
+    if (!isSoundActive) {
+      sound.enableSound();
+      setIsSoundActive(true);
+      try { localStorage.setItem('admin_sound_active', 'true'); } catch {}
+    } else {
+      setIsSoundActive(false);
+      sound.stopPendingAlert();
+      try { localStorage.setItem('admin_sound_active', 'false'); } catch {}
+    }
+  };
+
+  const handleToggleVoice = () => {
+    const next = !isVoiceActive;
+    setIsVoiceActive(next);
+    sound.setVoiceEnabled(next);
+  };
+
+  const handleSetVolume = (vol: number) => {
+    sound.setVolume(vol);
+    setSoundVolume(vol);
+  };
+
+  const handleSetRingtone = (style: RingtoneStyle) => {
+    sound.setRingtone(style);
+    setRingtoneStyle(style);
+  };
+
+  // Quản lý chớp nháy tiêu đề tab khi có đơn mới mà tab đang chạy nền
+  const titleFlashIntervalRef = useRef<any>(null);
+
+  const startTitleFlash = useCallback((orderMsg: string) => {
+    if (typeof document === 'undefined') return;
+    clearInterval(titleFlashIntervalRef.current);
+    let toggle = false;
+    const original = 'Sân Cầu Lông Trần Lựu - Quản Trị';
+    titleFlashIntervalRef.current = setInterval(() => {
+      document.title = toggle ? `🔔 ${orderMsg}` : original;
+      toggle = !toggle;
+    }, 1000);
+  }, []);
+
+  const stopTitleFlash = useCallback(() => {
+    if (typeof document === 'undefined') return;
+    clearInterval(titleFlashIntervalRef.current);
+    document.title = 'Sân Cầu Lông Trần Lựu - Quản Trị';
+  }, []);
+
+  useEffect(() => {
+    const handleFocus = () => stopTitleFlash();
+    window.addEventListener('focus', handleFocus);
+    const handleVis = () => {
+      if (document.visibilityState === 'visible') stopTitleFlash();
+    };
+    document.addEventListener('visibilitychange', handleVis);
+    return () => {
+      window.removeEventListener('focus', handleFocus);
+      document.removeEventListener('visibilitychange', handleVis);
+      clearInterval(titleFlashIntervalRef.current);
+    };
+  }, [stopTitleFlash]);
+
+  // Tự động mở khóa Web Audio Context ngay khi nhân viên thao tác lần đầu (click/chạm/phím)
+  useEffect(() => {
+    const unlockAudio = () => {
+      sound.enableSound();
+      window.removeEventListener('click', unlockAudio);
+      window.removeEventListener('keydown', unlockAudio);
+      window.removeEventListener('touchstart', unlockAudio);
+    };
+    window.addEventListener('click', unlockAudio, { once: true });
+    window.addEventListener('keydown', unlockAudio, { once: true });
+    window.addEventListener('touchstart', unlockAudio, { once: true });
+    return () => {
+      window.removeEventListener('click', unlockAudio);
+      window.removeEventListener('keydown', unlockAudio);
+      window.removeEventListener('touchstart', unlockAudio);
+    };
+  }, []);
 
   // Products State
   const [products, setProducts] = useState<Product[]>([]);
@@ -43,10 +143,14 @@ export const AdminPortal: React.FC = () => {
   const [stockModalProduct, setStockModalProduct] = useState<Product | null>(null);
   const [stockDelta, setStockDelta] = useState<number>(10);
   const [stockAdjustmentType, setStockAdjustmentType] = useState<'intake' | 'set'>('intake');
+  const [stockCostPrice, setStockCostPrice] = useState<number>(0);
+  const [stockSellingPrice, setStockSellingPrice] = useState<number>(0);
+  const [stockNote, setStockNote] = useState<string>('');
   const [productFormData, setProductFormData] = useState({
     name: '',
     volume: '500ml',
     category: 'water' as any,
+    costPriceVnd: 8000,
     priceVnd: 15000,
     stock: 20,
     tag: '',
@@ -101,9 +205,8 @@ export const AdminPortal: React.FC = () => {
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
-  // POS Order for Court State (Set Order cho Sân tại quầy)
+  // POS Order State (Tạo đơn tại quầy)
   const [isCreateOrderModalOpen, setIsCreateOrderModalOpen] = useState<boolean>(false);
-  const [posCourtCode, setPosCourtCode] = useState<string>('01');
   const [posCart, setPosCart] = useState<{ [productId: string]: { quantity: number; iceQuantity: number } }>({});
   const [isSubmittingPosOrder, setIsSubmittingPosOrder] = useState<boolean>(false);
 
@@ -114,6 +217,9 @@ export const AdminPortal: React.FC = () => {
   // Backup & Audit Logs State
   const [auditLogs, setAuditLogs] = useState<Array<{ auditId: string; adminUsername: string; action: string; targetId?: string; details: any; createdAt: string }>>([]);
   const [isAuditLogsLoading, setIsAuditLogsLoading] = useState(false);
+  const [auditLogsPage, setAuditLogsPage] = useState<number>(1);
+  const [auditLogsTotalPages, setAuditLogsTotalPages] = useState<number>(1);
+  const [auditLogsTotal, setAuditLogsTotal] = useState<number>(0);
   const [importStatusMessage, setImportStatusMessage] = useState('');
   const [isImporting, setIsImporting] = useState(false);
 
@@ -135,6 +241,7 @@ export const AdminPortal: React.FC = () => {
     rangeLabel?: string;
     ordersCount: number;
     inventoryCount: number;
+    intakeCount?: number;
     auditLogsCount: number;
     activeOrdersPreserved: number;
   } | null>(null);
@@ -146,21 +253,70 @@ export const AdminPortal: React.FC = () => {
 
   // 1. Fetch Active Orders
   const fetchActiveOrders = useCallback(async () => {
-    try {
-      const res = await apiFetch('/api/admin/orders/active');
-      if (res.ok) {
-        const data: Order[] = await res.json();
-        setOrders(data);
-      }
-    } catch {
-      // ignore
+    const res = await apiFetch('/api/admin/orders/active');
+    if (res.ok) {
+      const data: Order[] = await res.json();
+      setOrders(data);
     }
   }, []);
 
   useEffect(() => {
-    fetchActiveOrders();
-    const interval = setInterval(fetchActiveOrders, 3500);
-    return () => clearInterval(interval);
+    let isMounted = true;
+    let timerId: any = null;
+    let inFlight = false;
+    let delay = 3500;
+
+    const clearScheduledTimer = () => {
+      if (timerId !== null) {
+        clearTimeout(timerId);
+        timerId = null;
+      }
+    };
+
+    const poll = async () => {
+      clearScheduledTimer();
+      if (!isMounted) return;
+      if (document.hidden) {
+        void fetchActiveOrders();
+        timerId = setTimeout(poll, 12000);
+        return;
+      }
+      if (inFlight) return;
+      inFlight = true;
+      try {
+        await fetchActiveOrders();
+        delay = 3500;
+      } catch {
+        delay = Math.min(delay * 1.5, 20000);
+      } finally {
+        inFlight = false;
+        if (isMounted && !document.hidden) {
+          clearScheduledTimer();
+          timerId = setTimeout(poll, delay);
+        }
+      }
+    };
+
+    void poll();
+
+    const onWake = () => {
+      if (!isMounted) return;
+      if (!document.hidden && !inFlight) {
+        clearScheduledTimer();
+        delay = 3500;
+        void poll();
+      }
+    };
+
+    document.addEventListener('visibilitychange', onWake);
+    window.addEventListener('focus', onWake);
+
+    return () => {
+      isMounted = false;
+      clearScheduledTimer();
+      document.removeEventListener('visibilitychange', onWake);
+      window.removeEventListener('focus', onWake);
+    };
   }, [fetchActiveOrders]);
 
   // 2. Fetch Products
@@ -175,6 +331,84 @@ export const AdminPortal: React.FC = () => {
       console.error(e);
     }
   }, []);
+
+  // Yêu cầu quyền thông báo hệ điều hành (Web Notifications) khi tab quầy chạy nền
+  useEffect(() => {
+    if (typeof Notification !== 'undefined' && Notification.permission === 'default') {
+      Notification.requestPermission().catch(() => {});
+    }
+  }, []);
+
+  // ================= 1.1. WEBSOCKET REAL-TIME (< 50ms TỨC THÌ) =================
+  useEffect(() => {
+    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+    const wsUrl = `${protocol}//${window.location.host}/ws`;
+    let ws: WebSocket | null = null;
+    let reconnectTimer: any = null;
+    let isMounted = true;
+
+    const connect = () => {
+      try {
+        ws = new WebSocket(wsUrl);
+        ws.onopen = () => {
+          ws?.send(JSON.stringify({ type: 'subscribe', role: 'admin' }));
+        };
+        ws.onmessage = (event) => {
+          try {
+            const msg = JSON.parse(event.data);
+            if (msg.type === 'order_created' && msg.data) {
+              const newOrder: Order = msg.data;
+              // Phát âm thanh chuông đôi và đọc tiếng Việt tức thì < 50ms
+              sound.playOrderChime({ courtName: newOrder.courtName });
+              startTitleFlash(`(MỚI) ĐƠN ${newOrder.courtName || 'SÂN'}!`);
+
+              // Gửi Web Notification nếu tab đang chạy nền
+              if (typeof Notification !== 'undefined' && Notification.permission === 'granted') {
+                try {
+                  new Notification('🔔 ĐƠN GỌI NƯỚC MỚI!', {
+                    body: `Có đơn gọi nước mới tại ${newOrder.courtName || 'sân'}!`,
+                    icon: '/assets/icon.png',
+                    tag: `order-${newOrder.id}`
+                  });
+                } catch {}
+              }
+
+              // Cập nhật ngay lập tức vào danh sách đơn
+              setOrders(prev => [newOrder, ...prev.filter(o => o.id !== newOrder.id)]);
+              void fetchActiveOrders();
+            } else if (msg.type === 'order_updated' && msg.data) {
+              const updatedOrder: Order = msg.data;
+              setOrders(prev => prev.map(o => o.id === updatedOrder.id ? updatedOrder : o));
+              void fetchActiveOrders();
+            } else if (msg.type === 'stock_updated') {
+              void fetchProducts();
+            }
+          } catch {}
+        };
+        ws.onclose = () => {
+          if (isMounted) {
+            reconnectTimer = setTimeout(connect, 3000);
+          }
+        };
+        ws.onerror = () => {
+          ws?.close();
+        };
+      } catch {}
+    };
+
+    connect();
+
+    return () => {
+      isMounted = false;
+      clearTimeout(reconnectTimer);
+      ws?.close();
+    };
+  }, [fetchActiveOrders, fetchProducts]);
+
+  // Tính số lượng mặt hàng sắp hết hoặc hết hàng
+  const lowStockCount = useMemo(() => {
+    return products.filter(p => p.isAvailable && p.stock <= (p.minStockThreshold ?? 5)).length;
+  }, [products]);
 
   // 3. Fetch Courts
   const fetchCourts = useCallback(async () => {
@@ -269,20 +503,24 @@ export const AdminPortal: React.FC = () => {
   };
 
   // 6. Fetch Audit Logs
-  const fetchAuditLogs = useCallback(async () => {
+  const fetchAuditLogs = useCallback(async (pageToFetch?: number) => {
+    const p = typeof pageToFetch === 'number' ? pageToFetch : auditLogsPage;
     setIsAuditLogsLoading(true);
     try {
-      const res = await apiFetch('/api/admin/audit-logs?limit=50');
+      const res = await apiFetch(`/api/admin/audit-logs?page=${p}&limit=15`);
       if (res.ok) {
         const data = await res.json();
         setAuditLogs(data.logs || []);
+        setAuditLogsPage(data.page || p);
+        setAuditLogsTotalPages(data.totalPages || 1);
+        setAuditLogsTotal(data.total ?? (data.logs ? data.logs.length : 0));
       }
     } catch (e) {
       console.error(e);
     } finally {
       setIsAuditLogsLoading(false);
     }
-  }, []);
+  }, [auditLogsPage]);
 
   // 7. Fetch Clean Preview
   const fetchCleanPreview = useCallback(async () => {
@@ -376,31 +614,106 @@ export const AdminPortal: React.FC = () => {
     }
   }, [currentTab, fetchCourts, fetchHistory, fetchProducts, fetchReports, fetchAuditLogs, fetchCleanPreview]);
 
-  // Chuông báo quầy khi có đơn chờ phục vụ
+  // Chuông báo quầy & giọng đọc lặp lại liên tục khi có đơn chờ phục vụ
+  // Hoạt động xuyên suốt mọi tab, lặp lại cho tới khi bấm "Đem ra sân" mới ngưng hoàn toàn
   useEffect(() => {
-    if (!isSoundActive || currentTab !== 'orders') return;
+    if (!isSoundActive) {
+      sound.stopPendingAlert();
+      return;
+    }
 
-    const checkAndChime = () => {
-      const pendingCount = orders.filter(o => o.status === 'new' || o.status === 'accepted').length;
-      if (pendingCount > 0) {
-        sound.playOrderChime();
-      }
+    const pendingOrders = orders.filter(o => o.status === 'new' || o.status === 'accepted');
+    sound.syncPendingAlert(pendingOrders, { withVoice: isVoiceActive });
+  }, [isSoundActive, isVoiceActive, orders]);
+
+  // Ngắt chuông và giọng đọc khi đóng hoặc rời trang quản trị
+  useEffect(() => {
+    return () => {
+      sound.stopPendingAlert();
     };
-
-    checkAndChime();
-    const interval = setInterval(checkAndChime, 5000);
-    return () => clearInterval(interval);
-  }, [isSoundActive, orders, currentTab]);
+  }, []);
 
   // ================= ORDER ACTIONS =================
-  const handlePrepareOrder = (orderId:string) => runAction(orderId, async()=>{
-    await apiFetch('/api/admin/orders/'+orderId+'/transition',{method:'POST',body:JSON.stringify({targetStatus:'preparing'})}); await fetchActiveOrders();
+  const handlePrepareOrder = (orderId: string) => runAction(orderId, async () => {
+    // Cập nhật lạc quan ngay lập tức để chuyển cột và ngắt chuông/giọng đọc nếu không còn đơn chờ
+    setOrders(prev => {
+      const updated = prev.map(o => o.id === orderId ? { ...o, status: 'preparing' as const, preparingAt: Date.now() } : o);
+      const remainingPending = updated.filter(o => o.status === 'new' || o.status === 'accepted');
+      if (remainingPending.length === 0) {
+        sound.stopPendingAlert();
+      } else {
+        sound.syncPendingAlert(remainingPending, { withVoice: isVoiceActive });
+      }
+      return updated;
+    });
+    await apiFetch('/api/admin/orders/' + orderId + '/transition', {
+      method: 'POST',
+      body: JSON.stringify({ targetStatus: 'preparing' })
+    });
+    await fetchActiveOrders();
   });
-  const handleDeliverOrder = (orderId:string) => runAction(orderId, async()=>{
-    await apiFetch('/api/admin/orders/'+orderId+'/transition',{method:'POST',body:JSON.stringify({targetStatus:'delivered'})}); await fetchActiveOrders();
+
+  const handleDeliverOrder = (orderId: string) => runAction(orderId, async () => {
+    setOrders(prev => {
+      const updated = prev.map(o => o.id === orderId ? { ...o, status: 'delivered' as const, deliveredAt: Date.now() } : o);
+      const remainingPending = updated.filter(o => o.status === 'new' || o.status === 'accepted');
+      if (remainingPending.length === 0) {
+        sound.stopPendingAlert();
+      } else {
+        sound.syncPendingAlert(remainingPending, { withVoice: isVoiceActive });
+      }
+      return updated;
+    });
+    await apiFetch('/api/admin/orders/' + orderId + '/transition', {
+      method: 'POST',
+      body: JSON.stringify({ targetStatus: 'delivered' })
+    });
+    await fetchActiveOrders();
   });
-  const handleCancelOrder = (orderId:string, reason:string) => runAction(orderId, async()=>{
-    await apiFetch('/api/admin/orders/'+orderId+'/cancel',{method:'POST',body:JSON.stringify({reason})}); await fetchActiveOrders(); await fetchProducts();
+
+  const handleDeliverWithPayment = (orderId: string, paymentStatus: 'paid' | 'unpaid') => runAction(orderId, async () => {
+    setOrders(prev => {
+      const updated = prev.map(o => o.id === orderId ? { ...o, status: 'delivered' as const, paymentStatus, deliveredAt: Date.now() } : o);
+      const remainingPending = updated.filter(o => o.status === 'new' || o.status === 'accepted');
+      if (remainingPending.length === 0) {
+        sound.stopPendingAlert();
+      } else {
+        sound.syncPendingAlert(remainingPending, { withVoice: isVoiceActive });
+      }
+      return updated;
+    });
+    await apiFetch('/api/admin/orders/' + orderId + '/deliver-and-pay', {
+      method: 'POST',
+      body: JSON.stringify({ paymentStatus })
+    });
+    await fetchActiveOrders();
+  });
+
+  const handleCancelOrder = (orderId: string, reason: string) => runAction(orderId, async () => {
+    setOrders(prev => {
+      const updated = prev.map(o => o.id === orderId ? { ...o, status: 'cancelled' as const, cancelledAt: Date.now(), cancelReason: reason } : o);
+      const remainingPending = updated.filter(o => o.status === 'new' || o.status === 'accepted');
+      if (remainingPending.length === 0) {
+        sound.stopPendingAlert();
+      } else {
+        sound.syncPendingAlert(remainingPending, { withVoice: isVoiceActive });
+      }
+      return updated;
+    });
+    await apiFetch('/api/admin/orders/' + orderId + '/cancel', {
+      method: 'POST',
+      body: JSON.stringify({ reason })
+    });
+    await fetchActiveOrders();
+    await fetchProducts();
+  });
+
+  const handleUpdatePayment = (orderId: string, paymentStatus: 'paid' | 'unpaid') => runAction(orderId, async () => {
+    await apiFetch('/api/admin/orders/' + orderId + '/payment', {
+      method: 'POST',
+      body: JSON.stringify({ paymentStatus })
+    });
+    await fetchActiveOrders();
   });
   const refreshSettings=useCallback(async()=>{
     try {const data=await(await apiFetch('/api/admin/settings')).json();setIsAcceptingOrders(data.isAcceptingOrders);} catch { /* Error banner comes from apiFetch. */ }
@@ -500,8 +813,10 @@ export const AdminPortal: React.FC = () => {
       setShowCleanConfirmModal(false);
       const ordersDel = data.deletedOrders ?? data.cleaned?.ordersDeleted ?? 0;
       const invDel = data.deletedInventory ?? data.cleaned?.inventoryMovementsDeleted ?? 0;
+      const intakeDel = data.deletedIntake ?? data.cleaned?.stockIntakeDeleted ?? 0;
       const logsDel = data.deletedAuditLogs ?? data.cleaned?.auditLogsDeleted ?? 0;
-      setCleanSuccessMessage(`🎉 Đã dọn dẹp thành công: Xoá ${ordersDel} đơn hàng cũ, ${invDel} biến động kho, ${logsDel} dòng nhật ký. Toàn bộ hệ thống đã được tối ưu nhẹ bớt!`);
+      const intakeMsg = intakeDel > 0 ? ` (gồm ${intakeDel} phiếu nhập hàng cũ)` : '';
+      setCleanSuccessMessage(`🎉 Đã dọn dẹp thành công: Xoá ${ordersDel} đơn hàng cũ, ${invDel} biến động kho${intakeMsg}, ${logsDel} dòng nhật ký. Tồn kho và giá vốn hiện tại của các sản phẩm đang bán luôn được bảo toàn nguyên vẹn 100%!`);
       // Reset backup constraint so future cleans require fresh backup
       setHasDownloadedBackup(false);
       try { sessionStorage.removeItem('admin_backup_downloaded'); } catch {}
@@ -558,7 +873,14 @@ export const AdminPortal: React.FC = () => {
         await apiFetch(`/api/admin/products/${stockModalProduct.id}/stock`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ clientRequestId, delta: stockDelta, reason: 'stock_intake' })
+          body: JSON.stringify({
+            clientRequestId,
+            delta: stockDelta,
+            reason: 'stock_intake',
+            costPriceVnd: stockCostPrice,
+            sellingPriceVnd: stockSellingPrice,
+            note: stockNote.trim() || undefined
+          })
         });
       } else {
         await apiFetch(`/api/admin/products/${stockModalProduct.id}/stock`, {
@@ -652,12 +974,12 @@ export const AdminPortal: React.FC = () => {
   };
 
   const handleOpenQrPreview = async (court: Court) => {
-    const dataUrl = await generateCourtQrPng(court.code);
+    const dataUrl = await generateCourtQrPng(court.code, court.sig);
     setPreviewQrDataUrl(dataUrl);
     setPreviewQrCourt(court);
   };
 
-  // ================= POS ORDER ACTION =================
+  // ================= POS ORDER ACTION (TẠO ĐƠN TẠI QUẦY - THU TIỀN NGAY) =================
   const handleSubmitPosOrder = async () => {
     const items = Object.entries(posCart)
       .filter(([_, data]) => data.quantity > 0)
@@ -672,18 +994,17 @@ export const AdminPortal: React.FC = () => {
       return;
     }
 
-    if(pendingActions.current.has('pos'))return;
+    if (pendingActions.current.has('pos')) return;
     pendingActions.current.add('pos');
-    const clientRequestId=stableRequestId('pos',{courtCode:posCourtCode,items});
+    const clientRequestId = stableRequestId('pos', { items });
     setIsSubmittingPosOrder(true);
     try {
       sound.playActionClick();
-      const res = await apiFetch('/api/admin/orders/create-for-court', {
+      const res = await apiFetch('/api/admin/orders/create-pos', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           clientRequestId,
-          courtCode: posCourtCode,
           items
         })
       });
@@ -754,10 +1075,6 @@ export const AdminPortal: React.FC = () => {
               <span>{isAcceptingOrders ? 'Đang mở nhận đơn' : 'Đang tạm dừng nhận đơn'}</span>
               <span>•</span>
               <span>{courts.length} Sân thi đấu</span>
-              <span>•</span>
-              <a href="/order?court=05" target="_blank" rel="noreferrer" style={{ color: 'var(--color-accent)', textDecoration: 'underline' }}>
-                Mở màn hình khách ↗
-              </a>
             </div>
           </div>
         </div>
@@ -777,7 +1094,8 @@ export const AdminPortal: React.FC = () => {
                 backgroundColor: isQuickSettingsOpen ? 'var(--color-primary)' : 'rgba(255, 255, 255, 0.12)',
                 color: '#FFFFFF',
                 fontSize: 'var(--font-size-xs)',
-                fontWeight: 700,
+                fontWeight: 800,
+                letterSpacing: '0.3px',
                 border: isQuickSettingsOpen ? '1px solid var(--color-primary-light)' : '1px solid rgba(255, 255, 255, 0.25)',
                 cursor: 'pointer',
                 boxShadow: isQuickSettingsOpen ? '0 0 12px rgba(16, 185, 129, 0.4)' : 'none',
@@ -785,8 +1103,7 @@ export const AdminPortal: React.FC = () => {
               }}
               title="Cài đặt nhanh chuông & nhận đơn"
             >
-              <span style={{ fontSize: '15px' }}>⚙️</span>
-              <span>Cài đặt quầy</span>
+              <span>CÀI ĐẶT QUẦY</span>
               {/* LED status indicator dot */}
               <span style={{
                 width: '8px',
@@ -817,9 +1134,8 @@ export const AdminPortal: React.FC = () => {
                 color: 'var(--color-text-main)'
               }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid var(--color-border)', paddingBottom: '10px' }}>
-                  <div style={{ fontWeight: 800, fontSize: 'var(--font-size-sm)', color: 'var(--color-deep)', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                    <span>⚙️</span>
-                    <span>Cài đặt vận hành nhanh</span>
+                  <div style={{ fontWeight: 800, fontSize: 'var(--font-size-sm)', color: 'var(--color-deep)' }}>
+                    Cài đặt vận hành nhanh
                   </div>
                   <button
                     onClick={() => setIsQuickSettingsOpen(false)}
@@ -856,25 +1172,18 @@ export const AdminPortal: React.FC = () => {
                   </button>
                 </div>
 
-                {/* 2. Âm thanh thông báo */}
+                {/* 2. Âm thanh thông báo chuông quầy */}
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '8px 10px', backgroundColor: 'var(--color-bg)', borderRadius: 'var(--radius-md)' }}>
                   <div>
                     <div style={{ fontSize: 'var(--font-size-xs)', fontWeight: 700, color: 'var(--color-deep)' }}>
                       Chuông báo đơn mới
                     </div>
                     <div style={{ fontSize: '11px', color: isSoundActive ? '#16A34A' : 'var(--color-text-muted)', fontWeight: 600 }}>
-                      {isSoundActive ? '🔔 Đã bật âm chuông' : '🔕 Âm chuông đang tắt'}
+                      {isSoundActive ? 'Đã bật chuông quầy' : 'Chuông đang tắt'}
                     </div>
                   </div>
                   <button
-                    onClick={() => {
-                      if (!isSoundActive) {
-                        sound.enableSound();
-                        setIsSoundActive(true);
-                      } else {
-                        setIsSoundActive(false);
-                      }
-                    }}
+                    onClick={handleToggleSound}
                     style={{
                       padding: '6px 12px',
                       borderRadius: 'var(--radius-sm)',
@@ -890,11 +1199,110 @@ export const AdminPortal: React.FC = () => {
                   </button>
                 </div>
 
-                {/* 3. Thử chuông */}
+                {/* 3. Kiểu nhạc chuông báo đơn */}
+                <div style={{ padding: '8px 10px', backgroundColor: 'var(--color-bg)', borderRadius: 'var(--radius-md)', display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                  <div style={{ fontSize: '11px', fontWeight: 700, color: 'var(--color-deep)' }}>
+                    Nhạc chuông báo đơn:
+                  </div>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '6px' }}>
+                    {[
+                      { id: 'sound1', label: 'Sound 1' },
+                      { id: 'sound2', label: 'Sound 2' },
+                      { id: 'sound3', label: 'Sound 3' },
+                      { id: 'sound4', label: 'Sound 4' },
+                    ].map(item => (
+                      <button
+                        key={item.id}
+                        onClick={() => {
+                          handleSetRingtone(item.id as RingtoneStyle);
+                          sound.enableSound();
+                          sound.playOrderChime({ style: item.id as RingtoneStyle, withVoice: false });
+                        }}
+                        style={{
+                          padding: '6px 4px',
+                          borderRadius: 'var(--radius-sm)',
+                          backgroundColor: ringtoneStyle === item.id ? 'var(--color-primary)' : 'var(--color-surface)',
+                          color: ringtoneStyle === item.id ? '#FFFFFF' : 'var(--color-deep)',
+                          border: '1px solid var(--color-border)',
+                          fontSize: '11px',
+                          fontWeight: 700,
+                          cursor: 'pointer',
+                          textAlign: 'center'
+                        }}
+                      >
+                        {item.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* 4. Mức âm lượng chuông */}
+                <div style={{ padding: '8px 10px', backgroundColor: 'var(--color-bg)', borderRadius: 'var(--radius-md)', display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                  <div style={{ fontSize: '11px', fontWeight: 700, color: 'var(--color-deep)' }}>
+                    Âm lượng chuông:
+                  </div>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '6px' }}>
+                    {[
+                      { label: '100% Lớn', value: 1.0 },
+                      { label: '80% Vừa', value: 0.8 },
+                      { label: '50% Nhẹ', value: 0.5 }
+                    ].map(lvl => (
+                      <button
+                        key={lvl.value}
+                        onClick={() => handleSetVolume(lvl.value)}
+                        style={{
+                          padding: '5px 4px',
+                          borderRadius: 'var(--radius-sm)',
+                          backgroundColor: Math.abs(soundVolume - lvl.value) < 0.05 ? 'var(--color-primary)' : 'var(--color-surface)',
+                          color: Math.abs(soundVolume - lvl.value) < 0.05 ? '#FFFFFF' : 'var(--color-deep)',
+                          border: '1px solid var(--color-border)',
+                          fontSize: '10px',
+                          fontWeight: 700,
+                          cursor: 'pointer',
+                          textAlign: 'center'
+                        }}
+                      >
+                        {lvl.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* 5. Đọc loa thông báo giọng nói */}
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '8px 10px', backgroundColor: 'var(--color-bg)', borderRadius: 'var(--radius-md)' }}>
+                  <div>
+                    <div style={{ fontSize: 'var(--font-size-xs)', fontWeight: 700, color: 'var(--color-deep)' }}>
+                      Đọc loa thông báo
+                    </div>
+                    <div style={{ fontSize: '11px', color: isVoiceActive ? '#16A34A' : 'var(--color-text-muted)', fontWeight: 600 }}>
+                      {isVoiceActive ? 'Đang bật đọc tiếng Việt' : 'Đang tắt giọng nói'}
+                    </div>
+                  </div>
+                  <button
+                    onClick={handleToggleVoice}
+                    style={{
+                      padding: '6px 12px',
+                      borderRadius: 'var(--radius-sm)',
+                      backgroundColor: isVoiceActive ? 'var(--color-primary)' : 'var(--color-surface)',
+                      color: isVoiceActive ? '#FFFFFF' : 'var(--color-deep)',
+                      border: '1px solid var(--color-border)',
+                      fontSize: '11px',
+                      fontWeight: 700,
+                      cursor: 'pointer'
+                    }}
+                  >
+                    {isVoiceActive ? 'Đang bật' : 'Bật đọc'}
+                  </button>
+                </div>
+
+                {/* 6. Phát thử âm thanh */}
                 <button
                   onClick={() => {
                     sound.enableSound();
-                    sound.playOrderChime();
+                    sound.playOrderChime({
+                      withVoice: isVoiceActive,
+                      courtId: '05'
+                    });
                   }}
                   style={{
                     display: 'flex',
@@ -911,8 +1319,7 @@ export const AdminPortal: React.FC = () => {
                     cursor: 'pointer'
                   }}
                 >
-                  <span>🎵</span>
-                  <span>Phát thử âm thanh chuông báo</span>
+                  <span>Phát thử chuông & giọng đọc</span>
                 </button>
 
                 {/* Vạch phân cách */}
@@ -940,7 +1347,6 @@ export const AdminPortal: React.FC = () => {
                     transition: 'all 0.15s ease'
                   }}
                 >
-                  <span>🚪</span>
                   <span>Đăng xuất tài khoản</span>
                 </button>
               </div>
@@ -971,7 +1377,8 @@ export const AdminPortal: React.FC = () => {
             height: '100%',
             padding: '0 18px',
             fontSize: 'var(--font-size-sm)',
-            fontWeight: currentTab === 'orders' ? 800 : 600,
+            fontWeight: 800,
+            letterSpacing: '0.4px',
             color: currentTab === 'orders' ? 'var(--color-primary)' : 'var(--color-text-muted)',
             border: 'none',
             borderBottom: currentTab === 'orders' ? '3px solid var(--color-primary)' : '3px solid transparent',
@@ -985,7 +1392,7 @@ export const AdminPortal: React.FC = () => {
             transition: 'all 0.15s ease'
           }}
         >
-          <span>📋 Quầy điều hành</span>
+          <span>QUẦY ĐIỀU HÀNH</span>
           {orders.filter(o => o.status !== 'delivered' && o.status !== 'cancelled').length > 0 && (
             <span style={{
               backgroundColor: currentTab === 'orders' ? 'var(--color-primary)' : '#DC2626',
@@ -1008,7 +1415,8 @@ export const AdminPortal: React.FC = () => {
               height: '100%',
               padding: '0 18px',
               fontSize: 'var(--font-size-sm)',
-              fontWeight: (currentTab === 'products' || currentTab === 'courts') ? 800 : 600,
+              fontWeight: 800,
+              letterSpacing: '0.4px',
               color: (currentTab === 'products' || currentTab === 'courts') ? 'var(--color-primary)' : 'var(--color-text-muted)',
               border: 'none',
               borderBottom: (currentTab === 'products' || currentTab === 'courts') ? '3px solid var(--color-primary)' : '3px solid transparent',
@@ -1022,7 +1430,20 @@ export const AdminPortal: React.FC = () => {
               transition: 'all 0.15s ease'
             }}
           >
-            <span>🍹 Sản phẩm & QR</span>
+            <span>SẢN PHẨM & QR</span>
+            {lowStockCount > 0 && (
+              <span style={{
+                backgroundColor: '#EF4444',
+                color: '#FFFFFF',
+                fontSize: '11px',
+                fontWeight: 800,
+                padding: '1px 6px',
+                borderRadius: '10px',
+                marginLeft: '4px'
+              }}>
+                {lowStockCount}
+              </span>
+            )}
             <svg
               width="12"
               height="12"
@@ -1064,13 +1485,13 @@ export const AdminPortal: React.FC = () => {
                   border: 'none',
                   backgroundColor: currentTab === 'products' ? 'var(--color-primary-light)' : 'transparent',
                   color: currentTab === 'products' ? 'var(--color-primary)' : 'var(--color-deep)',
-                  fontWeight: currentTab === 'products' ? 700 : 500,
+                  fontWeight: 700,
                   fontSize: 'var(--font-size-xs)',
                   cursor: 'pointer',
                   textAlign: 'left'
                 }}
               >
-                <span>🥤 Sản phẩm & Tồn kho</span>
+                <span>Sản phẩm & Tồn kho</span>
                 <span style={{ fontSize: '11px', color: 'var(--color-text-muted)' }}>{products.length} món</span>
               </button>
               <button
@@ -1084,14 +1505,14 @@ export const AdminPortal: React.FC = () => {
                   border: 'none',
                   backgroundColor: currentTab === 'courts' ? 'var(--color-primary-light)' : 'transparent',
                   color: currentTab === 'courts' ? 'var(--color-primary)' : 'var(--color-deep)',
-                  fontWeight: currentTab === 'courts' ? 700 : 500,
+                  fontWeight: 700,
                   fontSize: 'var(--font-size-xs)',
                   cursor: 'pointer',
                   textAlign: 'left',
                   borderTop: '1px solid var(--color-border)'
                 }}
               >
-                <span>🏸 Sân thi đấu & Mã QR</span>
+                <span>Sân thi đấu & Mã QR</span>
                 <span style={{ fontSize: '11px', color: 'var(--color-text-muted)' }}>{courts.length} sân</span>
               </button>
             </div>
@@ -1106,10 +1527,11 @@ export const AdminPortal: React.FC = () => {
               height: '100%',
               padding: '0 18px',
               fontSize: 'var(--font-size-sm)',
-              fontWeight: (currentTab === 'reports' || currentTab === 'history') ? 800 : 600,
-              color: (currentTab === 'reports' || currentTab === 'history') ? 'var(--color-primary)' : 'var(--color-text-muted)',
+              fontWeight: 800,
+              letterSpacing: '0.4px',
+              color: (currentTab === 'reports' || currentTab === 'history' || currentTab === 'stock-history') ? 'var(--color-primary)' : 'var(--color-text-muted)',
               border: 'none',
-              borderBottom: (currentTab === 'reports' || currentTab === 'history') ? '3px solid var(--color-primary)' : '3px solid transparent',
+              borderBottom: (currentTab === 'reports' || currentTab === 'history' || currentTab === 'stock-history') ? '3px solid var(--color-primary)' : '3px solid transparent',
               marginBottom: '-1px',
               display: 'flex',
               alignItems: 'center',
@@ -1120,7 +1542,7 @@ export const AdminPortal: React.FC = () => {
               transition: 'all 0.15s ease'
             }}
           >
-            <span>📊 Thống kê & Lịch sử</span>
+            <span>THỐNG KÊ & LỊCH SỬ</span>
             <svg
               width="12"
               height="12"
@@ -1130,7 +1552,7 @@ export const AdminPortal: React.FC = () => {
                 marginLeft: '2px',
                 transition: 'transform 0.2s ease',
                 transform: activeNavDropdown === 'reports' ? 'rotate(180deg)' : 'none',
-                opacity: (currentTab === 'reports' || currentTab === 'history') ? 1 : 0.6
+                opacity: (currentTab === 'reports' || currentTab === 'history' || currentTab === 'stock-history') ? 1 : 0.6
               }}
             >
               <path fillRule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clipRule="evenodd" />
@@ -1147,7 +1569,7 @@ export const AdminPortal: React.FC = () => {
               boxShadow: '0 10px 25px rgba(0,0,0,0.15)',
               border: '1px solid var(--color-border)',
               borderTop: 'none',
-              minWidth: '220px',
+              minWidth: '230px',
               zIndex: 100,
               overflow: 'hidden'
             }}>
@@ -1162,13 +1584,13 @@ export const AdminPortal: React.FC = () => {
                   border: 'none',
                   backgroundColor: currentTab === 'reports' ? 'var(--color-primary-light)' : 'transparent',
                   color: currentTab === 'reports' ? 'var(--color-primary)' : 'var(--color-deep)',
-                  fontWeight: currentTab === 'reports' ? 700 : 500,
+                  fontWeight: 700,
                   fontSize: 'var(--font-size-xs)',
                   cursor: 'pointer',
                   textAlign: 'left'
                 }}
               >
-                <span>📈 Báo cáo doanh thu</span>
+                <span>Báo cáo doanh thu</span>
               </button>
               <button
                 onClick={() => { setCurrentTab('history'); setActiveNavDropdown(null); }}
@@ -1181,14 +1603,34 @@ export const AdminPortal: React.FC = () => {
                   border: 'none',
                   backgroundColor: currentTab === 'history' ? 'var(--color-primary-light)' : 'transparent',
                   color: currentTab === 'history' ? 'var(--color-primary)' : 'var(--color-deep)',
-                  fontWeight: currentTab === 'history' ? 700 : 500,
+                  fontWeight: 700,
                   fontSize: 'var(--font-size-xs)',
                   cursor: 'pointer',
                   textAlign: 'left',
                   borderTop: '1px solid var(--color-border)'
                 }}
               >
-                <span>📜 Lịch sử & Xuất Excel</span>
+                <span>Lịch sử đơn hàng</span>
+              </button>
+              <button
+                onClick={() => { setCurrentTab('stock-history'); setActiveNavDropdown(null); }}
+                style={{
+                  width: '100%',
+                  padding: '12px 16px',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '8px',
+                  border: 'none',
+                  backgroundColor: currentTab === 'stock-history' ? 'var(--color-primary-light)' : 'transparent',
+                  color: currentTab === 'stock-history' ? 'var(--color-primary)' : 'var(--color-deep)',
+                  fontWeight: 700,
+                  fontSize: 'var(--font-size-xs)',
+                  cursor: 'pointer',
+                  textAlign: 'left',
+                  borderTop: '1px solid var(--color-border)'
+                }}
+              >
+                <span>Lịch sử nhập hàng</span>
               </button>
             </div>
           )}
@@ -1202,7 +1644,8 @@ export const AdminPortal: React.FC = () => {
               height: '100%',
               padding: '0 18px',
               fontSize: 'var(--font-size-sm)',
-              fontWeight: (currentTab === 'backup' || currentTab === 'settings') ? 800 : 600,
+              fontWeight: 800,
+              letterSpacing: '0.4px',
               color: (currentTab === 'backup' || currentTab === 'settings') ? 'var(--color-primary)' : 'var(--color-text-muted)',
               border: 'none',
               borderBottom: (currentTab === 'backup' || currentTab === 'settings') ? '3px solid var(--color-primary)' : '3px solid transparent',
@@ -1216,7 +1659,7 @@ export const AdminPortal: React.FC = () => {
               transition: 'all 0.15s ease'
             }}
           >
-            <span>⚙️ Cài đặt</span>
+            <span>CÀI ĐẶT</span>
             <svg
               width="12"
               height="12"
@@ -1258,13 +1701,13 @@ export const AdminPortal: React.FC = () => {
                   border: 'none',
                   backgroundColor: currentTab === 'backup' ? 'var(--color-primary-light)' : 'transparent',
                   color: currentTab === 'backup' ? 'var(--color-primary)' : 'var(--color-deep)',
-                  fontWeight: currentTab === 'backup' ? 700 : 500,
+                  fontWeight: 700,
                   fontSize: 'var(--font-size-xs)',
                   cursor: 'pointer',
                   textAlign: 'left'
                 }}
               >
-                <span>💾 Sao lưu & Dữ liệu</span>
+                <span>Sao lưu & Dữ liệu</span>
               </button>
               <button
                 onClick={() => { setCurrentTab('settings'); setActiveNavDropdown(null); }}
@@ -1277,14 +1720,14 @@ export const AdminPortal: React.FC = () => {
                   border: 'none',
                   backgroundColor: currentTab === 'settings' ? 'var(--color-primary-light)' : 'transparent',
                   color: currentTab === 'settings' ? 'var(--color-primary)' : 'var(--color-deep)',
-                  fontWeight: currentTab === 'settings' ? 700 : 500,
+                  fontWeight: 700,
                   fontSize: 'var(--font-size-xs)',
                   cursor: 'pointer',
                   textAlign: 'left',
                   borderTop: '1px solid var(--color-border)'
                 }}
               >
-                <span>🛠️ Cài đặt hệ thống</span>
+                <span>Cài đặt hệ thống</span>
               </button>
             </div>
           )}
@@ -1294,6 +1737,7 @@ export const AdminPortal: React.FC = () => {
 
       {/* BODY CONTENT NỘI DUNG TỪNG TAB */}
       <div style={{ flex: 1 }}>
+        <React.Suspense fallback={<div style={{ padding: '60px 20px', textAlign: 'center', color: 'var(--color-text-muted)', fontSize: 'var(--font-size-sm)' }}>Đang tải giao diện...</div>}>
 
         {/* TAB 1: QUẦY ĐIỀU HÀNH */}
         {currentTab === 'orders' && (
@@ -1301,13 +1745,12 @@ export const AdminPortal: React.FC = () => {
             orders={orders}
             onPrepareOrder={handlePrepareOrder}
             onDeliverOrder={handleDeliverOrder}
+            onDeliverWithPayment={handleDeliverWithPayment}
             onCancelOrder={handleCancelOrder}
+            onUpdatePayment={handleUpdatePayment}
             onOpenCreateOrderModal={() => {
               setPosCart({});
-              // Refresh products & courts in case they changed
               if (products.length === 0) fetchProducts();
-              if (courts.length === 0) fetchCourts();
-              setPosCourtCode(courts[0]?.code || '01');
               setIsCreateOrderModalOpen(true);
             }}
           />
@@ -1319,7 +1762,7 @@ export const AdminPortal: React.FC = () => {
             products={products}
             onOpenAddModal={() => {
               setEditingProduct(null);
-              setProductFormData({ name: '', volume: '500ml', category: 'water', priceVnd: 15000, stock: 20, tag: '', imageSvg: '' });
+              setProductFormData({ name: '', volume: '500ml', category: 'water', costPriceVnd: 8000, priceVnd: 15000, stock: 20, tag: '', imageSvg: '' });
               setIsProductModalOpen(true);
             }}
             onOpenEditModal={(p) => {
@@ -1328,6 +1771,7 @@ export const AdminPortal: React.FC = () => {
                 name: p.name,
                 volume: p.volume,
                 category: p.category,
+                costPriceVnd: p.costPriceVnd ?? 0,
                 priceVnd: p.priceVnd,
                 stock: p.stock,
                 tag: p.tag || '',
@@ -1339,6 +1783,9 @@ export const AdminPortal: React.FC = () => {
               setStockModalProduct(p);
               setStockDelta(10);
               setStockAdjustmentType('intake');
+              setStockCostPrice(p.costPriceVnd ?? 0);
+              setStockSellingPrice(p.priceVnd);
+              setStockNote('');
             }}
             onDeleteProduct={handleDeleteProduct}
           />
@@ -1403,6 +1850,13 @@ export const AdminPortal: React.FC = () => {
           />
         )}
 
+        {/* TAB 5B: LỊCH SỬ NHẬP HÀNG & GIÁ VỐN */}
+        {currentTab === 'stock-history' && (
+          <StockIntakeTab
+            products={products}
+          />
+        )}
+
         {/* TAB 6: SAO LƯU & NHẬT KÝ KIỂM TOÁN */}
         {currentTab === 'backup' && (
           <BackupTab
@@ -1430,7 +1884,14 @@ export const AdminPortal: React.FC = () => {
             onOpenCleanConfirmModal={() => setShowCleanConfirmModal(true)}
             auditLogs={auditLogs}
             isAuditLogsLoading={isAuditLogsLoading}
-            fetchAuditLogs={fetchAuditLogs}
+            fetchAuditLogs={() => void fetchAuditLogs(1)}
+            auditLogsPage={auditLogsPage}
+            auditLogsTotalPages={auditLogsTotalPages}
+            auditLogsTotal={auditLogsTotal}
+            onAuditLogsPageChange={(newPage) => {
+              setAuditLogsPage(newPage);
+              void fetchAuditLogs(newPage);
+            }}
           />
         )}
 
@@ -1439,9 +1900,17 @@ export const AdminPortal: React.FC = () => {
           <SettingsTab
             isAcceptingOrders={isAcceptingOrders}
             onToggleAcceptingOrders={handleToggleAcceptingOrders}
+            isSoundActive={isSoundActive}
+            onToggleSound={handleToggleSound}
+            isVoiceActive={isVoiceActive}
+            onToggleVoice={handleToggleVoice}
+            soundVolume={soundVolume}
+            onSetVolume={handleSetVolume}
+            ringtoneStyle={ringtoneStyle}
+            onSetRingtone={handleSetRingtone}
           />
         )}
-
+        </React.Suspense>
       </div>
 
       {/* MODAL: THÊM / SỬA SẢN PHẨM */}
@@ -1489,21 +1958,6 @@ export const AdminPortal: React.FC = () => {
                   />
                 </div>
                 <div>
-                  <label style={{ fontSize: 'var(--font-size-xs)', fontWeight: 700, display: 'block', marginBottom: '4px' }}>Giá bán (VNĐ) *</label>
-                  <input
-                    type="number"
-                    required
-                    min="0"
-                    step="1000"
-                    value={productFormData.priceVnd}
-                    onChange={e => setProductFormData({ ...productFormData, priceVnd: Math.max(0, parseInt(e.target.value, 10) || 0) })}
-                    style={{ width: '100%', padding: '10px 12px', borderRadius: 'var(--radius-sm)', border: '1px solid var(--color-border)', fontSize: 'var(--font-size-sm)' }}
-                  />
-                </div>
-              </div>
-
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
-                <div>
                   <label style={{ fontSize: 'var(--font-size-xs)', fontWeight: 700, display: 'block', marginBottom: '4px' }}>
                     Số lượng tồn kho (chai) *
                   </label>
@@ -1517,14 +1971,38 @@ export const AdminPortal: React.FC = () => {
                     placeholder="20"
                   />
                 </div>
+              </div>
+
+              {/* Giá nhập hàng & Giá bán ra */}
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
                 <div>
-                  <label style={{ fontSize: 'var(--font-size-xs)', fontWeight: 700, display: 'block', marginBottom: '4px' }}>Nhãn nổi bật</label>
+                  <label style={{ fontSize: 'var(--font-size-xs)', fontWeight: 700, display: 'block', marginBottom: '4px', color: '#B45309' }}>
+                    Giá nhập hàng (VNĐ) *
+                  </label>
                   <input
-                    type="text"
-                    value={productFormData.tag}
-                    onChange={e => setProductFormData({ ...productFormData, tag: e.target.value })}
-                    style={{ width: '100%', padding: '10px 12px', borderRadius: 'var(--radius-sm)', border: '1px solid var(--color-border)', fontSize: 'var(--font-size-sm)' }}
-                    placeholder="VD: Bán chạy / Mát lạnh"
+                    type="number"
+                    required
+                    min="0"
+                    step="1000"
+                    value={productFormData.costPriceVnd || 0}
+                    onChange={e => setProductFormData({ ...productFormData, costPriceVnd: Math.max(0, parseInt(e.target.value, 10) || 0) })}
+                    style={{ width: '100%', padding: '10px 12px', borderRadius: 'var(--radius-sm)', border: '1px solid #FCD34D', fontSize: 'var(--font-size-sm)', backgroundColor: '#FFFBEB' }}
+                    placeholder="VD: 7000"
+                  />
+                </div>
+                <div>
+                  <label style={{ fontSize: 'var(--font-size-xs)', fontWeight: 700, display: 'block', marginBottom: '4px', color: 'var(--color-primary)' }}>
+                    Giá bán ra (VNĐ) *
+                  </label>
+                  <input
+                    type="number"
+                    required
+                    min="0"
+                    step="1000"
+                    value={productFormData.priceVnd}
+                    onChange={e => setProductFormData({ ...productFormData, priceVnd: Math.max(0, parseInt(e.target.value, 10) || 0) })}
+                    style={{ width: '100%', padding: '10px 12px', borderRadius: 'var(--radius-sm)', border: '1px solid var(--color-primary)', fontSize: 'var(--font-size-sm)', backgroundColor: 'var(--color-primary-light)' }}
+                    placeholder="VD: 15000"
                   />
                 </div>
               </div>
@@ -1605,11 +2083,21 @@ export const AdminPortal: React.FC = () => {
                       e.currentTarget.style.backgroundColor = 'var(--color-bg)';
                       const file = e.dataTransfer.files?.[0];
                       if (file && file.type.startsWith('image/')) {
-                        const reader = new FileReader();
-                        reader.onload = (loadEvt) => {
-                          setProductFormData(prev => ({ ...prev, imageSvg: loadEvt.target?.result as string }));
-                        };
-                        reader.readAsDataURL(file);
+                        if (file.type === 'image/svg+xml') {
+                          const reader = new FileReader();
+                          reader.onload = (loadEvt) => {
+                            setProductFormData(prev => ({ ...prev, imageSvg: loadEvt.target?.result as string }));
+                          };
+                          reader.readAsDataURL(file);
+                        } else {
+                          compressImage(file, 400, 400, 0.82)
+                            .then(dataUrl => {
+                              setProductFormData(prev => ({ ...prev, imageSvg: dataUrl }));
+                            })
+                            .catch(err => {
+                              alert('Không thể nén ảnh: ' + (err as Error).message);
+                            });
+                        }
                       } else {
                         alert('Vui lòng kéo thả tệp hình ảnh hợp lệ (PNG, JPG, WebP, SVG)!');
                       }
@@ -1636,11 +2124,21 @@ export const AdminPortal: React.FC = () => {
                       onChange={(e) => {
                         const file = e.target.files?.[0];
                         if (file) {
-                          const reader = new FileReader();
-                          reader.onload = (loadEvt) => {
-                            setProductFormData(prev => ({ ...prev, imageSvg: loadEvt.target?.result as string }));
-                          };
-                          reader.readAsDataURL(file);
+                          if (file.type === 'image/svg+xml') {
+                            const reader = new FileReader();
+                            reader.onload = (loadEvt) => {
+                              setProductFormData(prev => ({ ...prev, imageSvg: loadEvt.target?.result as string }));
+                            };
+                            reader.readAsDataURL(file);
+                          } else {
+                            compressImage(file, 400, 400, 0.82)
+                              .then(dataUrl => {
+                                setProductFormData(prev => ({ ...prev, imageSvg: dataUrl }));
+                              })
+                              .catch(err => {
+                                alert('Không thể nén ảnh: ' + (err as Error).message);
+                              });
+                          }
                         }
                       }}
                     />
@@ -1735,15 +2233,95 @@ export const AdminPortal: React.FC = () => {
               </button>
             </div>
 
-            <label style={{ fontSize: 'var(--font-size-xs)', fontWeight: 700, display: 'block', marginBottom: '4px' }}>
-              {stockAdjustmentType === 'intake' ? 'Số chai nhập thêm:' : 'Số chai thực tế trong kho:'}
-            </label>
-            <input
-              type="number"
-              value={stockDelta}
-              onChange={e => setStockDelta(parseInt(e.target.value, 10) || 0)}
-              style={{ width: '100%', padding: '10px', borderRadius: 'var(--radius-sm)', border: '1px solid var(--color-border)', fontSize: 'var(--font-size-base)', fontWeight: 800 }}
-            />
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+              <div>
+                <label style={{ fontSize: 'var(--font-size-xs)', fontWeight: 700, display: 'block', marginBottom: '4px' }}>
+                  {stockAdjustmentType === 'intake' ? 'Số chai nhập thêm:' : 'Số chai thực tế trong kho:'}
+                </label>
+                <input
+                  type="number"
+                  value={stockDelta}
+                  onChange={e => setStockDelta(parseInt(e.target.value, 10) || 0)}
+                  style={{ width: '100%', padding: '10px', borderRadius: 'var(--radius-sm)', border: '1px solid var(--color-border)', fontSize: 'var(--font-size-base)', fontWeight: 800 }}
+                />
+              </div>
+
+              {stockAdjustmentType === 'intake' && (
+                <>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
+                    <div>
+                      <label style={{ fontSize: '11px', fontWeight: 700, display: 'block', marginBottom: '4px', color: 'var(--color-text-muted)' }}>
+                        Giá vào / vốn (đ/chai):
+                      </label>
+                      <input
+                        type="number"
+                        step="500"
+                        value={stockCostPrice}
+                        onChange={e => setStockCostPrice(parseInt(e.target.value, 10) || 0)}
+                        style={{ width: '100%', padding: '8px 10px', borderRadius: 'var(--radius-sm)', border: '1px solid var(--color-border)', fontSize: 'var(--font-size-xs)', fontWeight: 700 }}
+                      />
+                    </div>
+                    <div>
+                      <label style={{ fontSize: '11px', fontWeight: 700, display: 'block', marginBottom: '4px', color: 'var(--color-text-muted)' }}>
+                        Giá bán ra (đ/chai):
+                      </label>
+                      <input
+                        type="number"
+                        step="500"
+                        value={stockSellingPrice}
+                        onChange={e => setStockSellingPrice(parseInt(e.target.value, 10) || 0)}
+                        style={{ width: '100%', padding: '8px 10px', borderRadius: 'var(--radius-sm)', border: '1px solid var(--color-border)', fontSize: 'var(--font-size-xs)', fontWeight: 700 }}
+                      />
+                    </div>
+                  </div>
+
+                  <div>
+                    <label style={{ fontSize: '11px', fontWeight: 700, display: 'block', marginBottom: '4px', color: 'var(--color-text-muted)' }}>
+                      Ghi chú lô nhập:
+                    </label>
+                    <input
+                      type="text"
+                      value={stockNote}
+                      onChange={e => setStockNote(e.target.value)}
+                      placeholder="VD: Nhập đại lý nước ngọt, đợt cuối tuần..."
+                      style={{ width: '100%', padding: '8px 10px', borderRadius: 'var(--radius-sm)', border: '1px solid var(--color-border)', fontSize: 'var(--font-size-xs)' }}
+                    />
+                  </div>
+
+                  {/* Tính nhanh tài chính lô nhập */}
+                  <div style={{
+                    backgroundColor: '#F8FAFC',
+                    padding: '10px 12px',
+                    borderRadius: 'var(--radius-sm)',
+                    border: '1px solid #E2E8F0',
+                    fontSize: '11px',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: '4px'
+                  }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                      <span style={{ color: 'var(--color-text-muted)' }}>Tổng vốn lô nhập:</span>
+                      <strong style={{ color: 'var(--color-deep)' }}>{formatVnd(stockCostPrice * stockDelta)}</strong>
+                    </div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                      <span style={{ color: 'var(--color-text-muted)' }}>Doanh thu kỳ vọng:</span>
+                      <strong style={{ color: 'var(--color-primary)' }}>{formatVnd(stockSellingPrice * stockDelta)}</strong>
+                    </div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', borderTop: '1px dashed #CBD5E1', paddingTop: '4px', marginTop: '2px' }}>
+                      <span style={{ color: '#15803D', fontWeight: 700 }}>Lãi dự kiến:</span>
+                      <strong style={{ color: '#15803D' }}>
+                        +{formatVnd((stockSellingPrice - stockCostPrice) * stockDelta)}
+                        {stockSellingPrice > 0 ? ` (${Math.round((((stockSellingPrice - stockCostPrice) / stockSellingPrice) * 100) * 10) / 10}%)` : ''}
+                      </strong>
+                    </div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '10px', color: 'var(--color-text-muted)' }}>
+                      <span>Tồn sau khi nhập:</span>
+                      <span>{stockModalProduct.stock} + {stockDelta} = <strong>{stockModalProduct.stock + stockDelta} chai</strong></span>
+                    </div>
+                  </div>
+                </>
+              )}
+            </div>
 
             <details style={{marginTop:12}}><summary>Lịch sử biến động kho (100 lần gần nhất)</summary><div style={{maxHeight:160,overflow:'auto'}}>{stockMovements.map(m=><p key={m.operationId}>{new Date(m.createdAt).toLocaleString('vi-VN')} · {m.delta>0?'+':''}{m.delta} chai · còn {m.stockAfter}</p>)}</div></details>
             <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px', marginTop: '16px' }}>
@@ -1855,21 +2433,21 @@ export const AdminPortal: React.FC = () => {
         </div>
       )}
 
-      {/* MODAL: TẠO ORDER CHO SÂN (QUẦY POS) */}
+      {/* MODAL: TẠO ĐƠN TẠI QUẦY (POS) */}
       {isCreateOrderModalOpen && (
         <div style={{
           position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,
           backgroundColor: 'rgba(10, 41, 28, 0.65)', backdropFilter: 'blur(4px)',
           zIndex: 150, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '16px'
         }}>
-          <div style={{ backgroundColor: 'var(--color-surface)', width: '100%', maxWidth: '580px', maxHeight: '90vh', borderRadius: 'var(--radius-xl)', padding: '24px', display: 'flex', flexDirection: 'column', boxShadow: 'var(--shadow-lg)' }}>
+          <div style={{ backgroundColor: 'var(--color-surface)', width: '100%', maxWidth: '540px', maxHeight: '90vh', borderRadius: 'var(--radius-xl)', padding: '24px', display: 'flex', flexDirection: 'column', boxShadow: 'var(--shadow-lg)' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
               <div>
-                <h3 style={{ fontSize: 'var(--font-size-lg)', fontWeight: 800, color: 'var(--color-deep)', margin: 0 }}>
-                  ➕ Tạo Đơn Cho Sân Tại Quầy (POS Order)
+                <h3 style={{ fontSize: 'var(--font-size-lg)', fontWeight: 800, color: 'var(--color-deep)', margin: 0, letterSpacing: '0.3px' }}>
+                  TẠO ĐƠN TẠI QUẦY
                 </h3>
-                <p style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-muted)', margin: '2px 0 0' }}>
-                  Ghi nhận đơn trực tiếp khi khách ra quầy gọi nước. Đơn tự động vào bước "Đã nhận".
+                <p style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-muted)', margin: '4px 0 0' }}>
+                  Khách mua và thu tiền ngay tại quầy. Đơn hàng hoàn tất tức thì.
                 </p>
               </div>
               <button
@@ -1878,33 +2456,6 @@ export const AdminPortal: React.FC = () => {
               >
                 ✕
               </button>
-            </div>
-
-            {/* Select Court */}
-            <div style={{ marginBottom: '16px' }}>
-              <label style={{ fontSize: 'var(--font-size-xs)', fontWeight: 700, display: 'block', marginBottom: '6px', color: 'var(--color-deep)' }}>
-                VỊ TRÍ SÂN THI ĐẤU:
-              </label>
-              <select
-                value={posCourtCode}
-                onChange={e => setPosCourtCode(e.target.value)}
-                style={{
-                  width: '100%',
-                  padding: '10px 14px',
-                  borderRadius: 'var(--radius-md)',
-                  border: '2px solid var(--color-primary)',
-                  fontSize: 'var(--font-size-base)',
-                  fontWeight: 800,
-                  backgroundColor: 'var(--color-primary-light)',
-                  color: 'var(--color-deep)'
-                }}
-              >
-                {courts.map(c => (
-                  <option key={c.id} value={c.code}>
-                    {c.name} (Mã {c.code}) {c.isActive === false ? '— [Tạm tắt nhận]' : ''}
-                  </option>
-                ))}
-              </select>
             </div>
 
             {/* Product selection list with counters */}
@@ -1969,7 +2520,7 @@ export const AdminPortal: React.FC = () => {
                       {/* Ice Stepper (Only visible if quantity > 0) */}
                       {itemData.quantity > 0 && (
                         <div style={{ display: 'flex', alignItems: 'center', gap: '4px', fontSize: '11px', color: '#1E40AF', backgroundColor: '#EFF6FF', padding: '2px 6px', borderRadius: '4px', border: '1px solid #BFDBFE' }}>
-                          <span>🧊 Đá:</span>
+                          <span>Đá:</span>
                           <button
                             type="button"
                             onClick={() => {
@@ -2002,7 +2553,7 @@ export const AdminPortal: React.FC = () => {
             {/* Total and Submit */}
             <div style={{ borderTop: '1px solid var(--color-border)', paddingTop: '14px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
               <div>
-                <div style={{ fontSize: '11px', color: 'var(--color-text-muted)' }}>TỔNG TIỀN:</div>
+                <div style={{ fontSize: '11px', color: 'var(--color-text-muted)', fontWeight: 700 }}>TỔNG TIỀN:</div>
                 <div style={{ fontSize: 'var(--font-size-xl)', fontWeight: 900, color: 'var(--color-primary)' }}>
                   {formatVnd(
                     Object.entries(posCart).reduce((sum, [pid, data]) => {
@@ -2016,7 +2567,7 @@ export const AdminPortal: React.FC = () => {
               <div style={{ display: 'flex', gap: '8px' }}>
                 <button
                   onClick={() => setIsCreateOrderModalOpen(false)}
-                  style={{ padding: '10px 16px', borderRadius: 'var(--radius-md)', backgroundColor: 'var(--color-bg)', border: '1px solid var(--color-border)', fontWeight: 600 }}
+                  style={{ padding: '10px 16px', borderRadius: 'var(--radius-md)', backgroundColor: 'var(--color-bg)', border: '1px solid var(--color-border)', fontWeight: 700, cursor: 'pointer' }}
                 >
                   Hủy
                 </button>
@@ -2024,17 +2575,18 @@ export const AdminPortal: React.FC = () => {
                   onClick={handleSubmitPosOrder}
                   disabled={isSubmittingPosOrder}
                   style={{
-                    padding: '10px 20px',
+                    padding: '10px 24px',
                     borderRadius: 'var(--radius-md)',
                     backgroundColor: 'var(--color-primary)',
                     color: '#FFFFFF',
                     fontWeight: 800,
                     fontSize: 'var(--font-size-sm)',
+                    letterSpacing: '0.4px',
                     border: 'none',
                     cursor: isSubmittingPosOrder ? 'not-allowed' : 'pointer'
                   }}
                 >
-                  {isSubmittingPosOrder ? 'Đang tạo...' : '🚀 XÁC NHẬN TẠO ĐƠN'}
+                  {isSubmittingPosOrder ? 'Đang tạo...' : 'TẠO ĐƠN'}
                 </button>
               </div>
             </div>
@@ -2125,14 +2677,19 @@ export const AdminPortal: React.FC = () => {
               <ul style={{ margin: 0, paddingLeft: '18px' }}>
                 {cleanIncludeOrders && <li>Lịch sử đơn hàng cũ: <strong>{cleanPreview?.ordersCount ?? 0} đơn đã xong</strong></li>}
                 {cleanIncludeAuditLogs && <li>Nhật ký thao tác (Audit Logs): <strong>{cleanPreview?.auditLogsCount ?? 0} dòng</strong></li>}
-                {cleanIncludeInventory && <li>Biến động kho cũ: <strong>{cleanPreview?.inventoryCount ?? 0} bản ghi</strong></li>}
+                {cleanIncludeInventory && (
+                  <li>
+                    Biến động kho & Lịch sử nhập hàng cũ: <strong>{cleanPreview?.inventoryCount ?? 0} bản ghi</strong>
+                    {cleanPreview?.intakeCount ? <span style={{ color: '#D97706', fontWeight: 600 }}> (gồm {cleanPreview.intakeCount} phiếu nhập kho)</span> : ''}
+                  </li>
+                )}
               </ul>
               <div style={{ marginTop: '10px', paddingTop: '8px', borderTop: '1px dashed #FCA5A5', display: 'flex', flexDirection: 'column', gap: '4px' }}>
                 <span style={{ fontWeight: 700, color: '#166534' }}>
                   ✅ Đã thỏa mãn ràng buộc: Bản sao lưu hệ thống đã được tải về máy lúc {backupDownloadedTime}.
                 </span>
                 <span style={{ fontWeight: 600, color: '#166534' }}>
-                  🛡️ Toàn bộ đơn hàng đang phục vụ tại sân và thực đơn sản phẩm luôn được bảo toàn tuyệt đối.
+                  🛡️ Toàn bộ các phần KHÔNG TÍCH, số lượng tồn kho và giá vốn của sản phẩm đang bán luôn được bảo toàn 100%. Đơn hàng đang phục vụ tại sân cũng được giữ nguyên vẹn.
                 </span>
               </div>
             </div>

@@ -3,7 +3,9 @@ export interface Product {
   name: string;
   volume: string;
   priceVnd: number;
+  costPriceVnd?: number;
   stock: number;
+  minStockThreshold?: number;
   category: 'water' | 'isotonic' | 'energy' | 'tea' | 'coffee';
   tag?: string;
   isAvailable?: boolean;

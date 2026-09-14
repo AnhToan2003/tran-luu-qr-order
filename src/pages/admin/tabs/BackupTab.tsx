@@ -27,6 +27,10 @@ interface BackupTabProps {
   auditLogs: any[];
   isAuditLogsLoading: boolean;
   fetchAuditLogs: () => void;
+  auditLogsPage?: number;
+  auditLogsTotalPages?: number;
+  auditLogsTotal?: number;
+  onAuditLogsPageChange?: (newPage: number) => void;
 }
 
 export const BackupTab: React.FC<BackupTabProps> = ({
@@ -55,6 +59,10 @@ export const BackupTab: React.FC<BackupTabProps> = ({
   auditLogs,
   isAuditLogsLoading,
   fetchAuditLogs,
+  auditLogsPage = 1,
+  auditLogsTotalPages = 1,
+  auditLogsTotal,
+  onAuditLogsPageChange,
 }) => {
   return (
     <div style={{ padding: '24px', maxWidth: '1000px', margin: '0 auto', display: 'flex', flexDirection: 'column', gap: '24px' }}>
@@ -80,7 +88,10 @@ export const BackupTab: React.FC<BackupTabProps> = ({
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
             <span style={{ fontSize: '22px' }}>💾</span>
             <div>
-              <div style={{ fontWeight: 800, fontSize: 'var(--font-size-md)', color: 'var(--color-deep)' }}>Sao lưu hệ thống</div>
+              <div style={{ fontWeight: 800, fontSize: 'var(--font-size-md)', color: 'var(--color-deep)' }}>Sao lưu toàn bộ hệ thống</div>
+              <div style={{ fontSize: '11px', color: 'var(--color-text-muted)' }}>
+                Bao gồm Danh mục món, Sân & QR, Đơn hàng, Lịch sử nhập hàng & biến động kho, Cấu hình và Nhật ký
+              </div>
             </div>
           </div>
           <button
@@ -198,11 +209,11 @@ export const BackupTab: React.FC<BackupTabProps> = ({
             </label>
             <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', alignItems: 'center' }}>
               {[
-                { id: 'all', label: '⚡ Toàn bộ đơn cũ & Nhật ký' },
+                { id: '30', label: '📅 Trước 1 tháng (Mặc định)' },
                 { id: '7', label: 'Trước 1 tuần' },
-                { id: '30', label: 'Trước 1 tháng' },
                 { id: '90', label: 'Trước 3 tháng' },
-                { id: 'custom', label: '📅 Chọn ngày cụ thể' }
+                { id: 'all', label: '⚡ Toàn bộ đơn cũ' },
+                { id: 'custom', label: '🗓️ Chọn ngày cụ thể' }
               ].map(p => (
                 <button
                   key={p.id}
@@ -234,42 +245,46 @@ export const BackupTab: React.FC<BackupTabProps> = ({
             {cleanDaysPreset === 'custom' && (
               <div style={{
                 display: 'flex',
-                alignItems: 'center',
-                gap: '12px',
+                flexDirection: 'column',
+                gap: '8px',
                 marginTop: '10px',
-                padding: '8px 12px',
+                padding: '10px 14px',
                 backgroundColor: 'var(--color-surface)',
                 borderRadius: 'var(--radius-sm)',
-                border: '1px solid var(--color-border)',
-                flexWrap: 'wrap'
+                border: '1px solid var(--color-border)'
               }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                  <label style={{ fontSize: 'var(--font-size-xs)', fontWeight: 700, color: 'var(--color-deep)' }}>Từ ngày:</label>
-                  <input
-                    type="date"
-                    value={cleanStartDate}
-                    onChange={(e) => setCleanStartDate(e.target.value)}
-                    style={{ padding: '6px 10px', borderRadius: 'var(--radius-sm)', border: '1px solid var(--color-border)', fontSize: 'var(--font-size-xs)' }}
-                  />
+                <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flexWrap: 'wrap' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                    <label style={{ fontSize: 'var(--font-size-xs)', fontWeight: 700, color: 'var(--color-deep)' }}>Từ ngày:</label>
+                    <input
+                      type="date"
+                      value={cleanStartDate}
+                      onChange={(e) => setCleanStartDate(e.target.value)}
+                      style={{ padding: '6px 10px', borderRadius: 'var(--radius-sm)', border: '1px solid var(--color-border)', fontSize: 'var(--font-size-xs)' }}
+                    />
+                  </div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                    <label style={{ fontSize: 'var(--font-size-xs)', fontWeight: 700, color: 'var(--color-deep)' }}>Đến ngày (hoặc Trước ngày):</label>
+                    <input
+                      type="date"
+                      value={cleanEndDate}
+                      onChange={(e) => setCleanEndDate(e.target.value)}
+                      style={{ padding: '6px 10px', borderRadius: 'var(--radius-sm)', border: '1px solid var(--color-border)', fontSize: 'var(--font-size-xs)' }}
+                    />
+                  </div>
+                  {(cleanStartDate || cleanEndDate) && (
+                    <button
+                      type="button"
+                      onClick={() => { setCleanStartDate(''); setCleanEndDate(''); }}
+                      style={{ padding: '4px 8px', fontSize: '11px', color: '#DC2626', background: 'none', border: '1px solid #FECACA', borderRadius: '4px', cursor: 'pointer', fontWeight: 600 }}
+                    >
+                      ✕ Xoá ngày
+                    </button>
+                  )}
                 </div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                  <label style={{ fontSize: 'var(--font-size-xs)', fontWeight: 700, color: 'var(--color-deep)' }}>Đến ngày:</label>
-                  <input
-                    type="date"
-                    value={cleanEndDate}
-                    onChange={(e) => setCleanEndDate(e.target.value)}
-                    style={{ padding: '6px 10px', borderRadius: 'var(--radius-sm)', border: '1px solid var(--color-border)', fontSize: 'var(--font-size-xs)' }}
-                  />
+                <div style={{ fontSize: '11px', color: 'var(--color-text-muted)' }}>
+                  💡 Bạn có thể chọn riêng ô <strong>"Đến ngày (hoặc Trước ngày)"</strong> để dọn dữ liệu trước mốc đó, hoặc chọn cả hai ô để dọn trong khoảng ngày.
                 </div>
-                {(cleanStartDate || cleanEndDate) && (
-                  <button
-                    type="button"
-                    onClick={() => { setCleanStartDate(''); setCleanEndDate(''); }}
-                    style={{ padding: '4px 8px', fontSize: '11px', color: 'var(--color-text-muted)', background: 'none', border: 'none', textDecoration: 'underline', cursor: 'pointer' }}
-                  >
-                    Xoá ngày
-                  </button>
-                )}
               </div>
             )}
           </div>
@@ -286,7 +301,7 @@ export const BackupTab: React.FC<BackupTabProps> = ({
                   checked={cleanIncludeOrders}
                   onChange={(e) => setCleanIncludeOrders(e.target.checked)}
                 />
-                <span>Đơn hàng cũ đã xong (Đã giao / Đã hủy)</span>
+                <span>Lịch sử đơn hàng cũ (Đã giao / Đã hủy)</span>
               </label>
 
               <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: 'var(--font-size-xs)', fontWeight: 600, cursor: 'pointer' }}>
@@ -295,7 +310,7 @@ export const BackupTab: React.FC<BackupTabProps> = ({
                   checked={cleanIncludeInventory}
                   onChange={(e) => setCleanIncludeInventory(e.target.checked)}
                 />
-                <span>Biến động kho</span>
+                <span>Biến động kho & Lịch sử nhập hàng cũ</span>
               </label>
 
               <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: 'var(--font-size-xs)', fontWeight: 600, cursor: 'pointer' }}>
@@ -328,7 +343,7 @@ export const BackupTab: React.FC<BackupTabProps> = ({
           </div>
 
           <div>
-            <div style={{ fontSize: '11px', color: 'var(--color-text-muted)', fontWeight: 600 }}>ĐƠN HÀNG DỰ KIẾN DỌN</div>
+            <div style={{ fontSize: '11px', color: 'var(--color-text-muted)', fontWeight: 600 }}>LỊCH SỬ ĐƠN HÀNG</div>
             <div style={{ fontSize: '13px', fontWeight: 800, color: cleanIncludeOrders ? '#DC2626' : 'var(--color-text-muted)', marginTop: '2px' }}>
               {cleanIncludeOrders ? `${cleanPreview?.ordersCount ?? 0} đơn` : 'Bỏ qua'}
             </div>
@@ -338,10 +353,15 @@ export const BackupTab: React.FC<BackupTabProps> = ({
           </div>
 
           <div>
-            <div style={{ fontSize: '11px', color: 'var(--color-text-muted)', fontWeight: 600 }}>BIẾN ĐỘNG KHO</div>
+            <div style={{ fontSize: '11px', color: 'var(--color-text-muted)', fontWeight: 600 }}>BIẾN ĐỘNG KHO & NHẬP HÀNG</div>
             <div style={{ fontSize: '13px', fontWeight: 800, color: cleanIncludeInventory ? '#EA580C' : 'var(--color-text-muted)', marginTop: '2px' }}>
               {cleanIncludeInventory ? `${cleanPreview?.inventoryCount ?? 0} bản ghi` : 'Bỏ qua'}
             </div>
+            {cleanIncludeInventory && typeof cleanPreview?.intakeCount === 'number' && cleanPreview.intakeCount > 0 && (
+              <div style={{ fontSize: '10px', color: '#D97706', fontWeight: 600, marginTop: '1px' }}>
+                📦 Gồm {cleanPreview.intakeCount} phiếu nhập hàng cũ
+              </div>
+            )}
           </div>
 
           <div>
@@ -351,7 +371,6 @@ export const BackupTab: React.FC<BackupTabProps> = ({
             </div>
           </div>
         </div>
-
 
         {/* Thông báo thành công nếu có */}
         {cleanSuccessMessage && (
@@ -368,11 +387,11 @@ export const BackupTab: React.FC<BackupTabProps> = ({
           </div>
         )}
 
-        {/* Action Button: Nút dọn dẹp */}
+        {/* Action Button: Nút dọn dẹp duy nhất */}
         <div style={{ paddingTop: '4px' }}>
           <button
             type="button"
-            disabled={isCleaning}
+            disabled={isCleaning || (!cleanIncludeOrders && !cleanIncludeInventory && !cleanIncludeAuditLogs)}
             onClick={() => {
               if (!hasDownloadedBackup) {
                 alert('⚠️ Để đảm bảo an toàn dữ liệu, bạn cần bấm nút "Tải Bản Sao Lưu Hệ Thống (.JSON)" ở phía trên trước khi thực hiện dọn dẹp!');
@@ -384,7 +403,9 @@ export const BackupTab: React.FC<BackupTabProps> = ({
               width: '100%',
               padding: '12px 20px',
               borderRadius: 'var(--radius-md)',
-              backgroundColor: hasDownloadedBackup ? '#DC2626' : '#64748B',
+              backgroundColor: (!cleanIncludeOrders && !cleanIncludeInventory && !cleanIncludeAuditLogs)
+                ? '#94A3B8'
+                : (hasDownloadedBackup ? '#DC2626' : '#64748B'),
               color: '#FFFFFF',
               fontWeight: 800,
               fontSize: 'var(--font-size-sm)',
@@ -518,6 +539,63 @@ export const BackupTab: React.FC<BackupTabProps> = ({
               )}
             </tbody>
           </table>
+        </div>
+
+        {/* THANH PHÂN TRANG NHẬT KÝ KIỂM TOÁN */}
+        <div style={{
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          flexWrap: 'wrap',
+          gap: '12px',
+          paddingTop: '12px',
+          borderTop: '1px solid var(--color-border)',
+          fontSize: 'var(--font-size-xs)',
+          color: 'var(--color-text-muted)'
+        }}>
+          <div>
+            Hiển thị <strong>{auditLogs.length}</strong> {auditLogsTotal !== undefined ? <>trên tổng số <strong>{auditLogsTotal}</strong> bản ghi</> : 'bản ghi'}
+          </div>
+
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <button
+              onClick={() => onAuditLogsPageChange && onAuditLogsPageChange(Math.max(1, auditLogsPage - 1))}
+              disabled={isAuditLogsLoading || auditLogsPage <= 1}
+              style={{
+                padding: '6px 12px',
+                borderRadius: 'var(--radius-sm)',
+                backgroundColor: auditLogsPage <= 1 ? '#F3F4F6' : 'var(--color-surface)',
+                border: '1px solid var(--color-border)',
+                color: auditLogsPage <= 1 ? '#9CA3AF' : 'var(--color-deep)',
+                cursor: auditLogsPage <= 1 ? 'not-allowed' : 'pointer',
+                fontWeight: 700,
+                fontSize: '11px'
+              }}
+            >
+              ← Trang trước
+            </button>
+
+            <span style={{ fontWeight: 700, fontSize: '12px', color: 'var(--color-deep)' }}>
+              Trang {auditLogsPage} / {auditLogsTotalPages}
+            </span>
+
+            <button
+              onClick={() => onAuditLogsPageChange && onAuditLogsPageChange(Math.min(auditLogsTotalPages, auditLogsPage + 1))}
+              disabled={isAuditLogsLoading || auditLogsPage >= auditLogsTotalPages}
+              style={{
+                padding: '6px 12px',
+                borderRadius: 'var(--radius-sm)',
+                backgroundColor: auditLogsPage >= auditLogsTotalPages ? '#F3F4F6' : 'var(--color-surface)',
+                border: '1px solid var(--color-border)',
+                color: auditLogsPage >= auditLogsTotalPages ? '#9CA3AF' : 'var(--color-deep)',
+                cursor: auditLogsPage >= auditLogsTotalPages ? 'not-allowed' : 'pointer',
+                fontWeight: 700,
+                fontSize: '11px'
+              }}
+            >
+              Trang sau →
+            </button>
+          </div>
         </div>
       </div>
     </div>

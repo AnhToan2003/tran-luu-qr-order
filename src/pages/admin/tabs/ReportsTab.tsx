@@ -51,11 +51,12 @@ export const ReportsTab: React.FC<ReportsTabProps> = ({
         </div>
       </div>
 
-      {/* KPI Cards (3 cards: Doanh thu, Số chai, Ly đá) */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: '16px', marginBottom: '24px' }}>
+      {/* KPI Cards: Doanh thu, Tiền vốn, Lợi nhuận gộp, Công nợ */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '16px', marginBottom: '20px' }}>
+        {/* Revenue */}
         <div style={{ backgroundColor: 'var(--color-surface)', padding: '18px', borderRadius: 'var(--radius-lg)', border: '1px solid var(--color-border)', boxShadow: 'var(--shadow-sm)' }}>
           <div style={{ fontSize: 'var(--font-size-xs)', fontWeight: 700, color: 'var(--color-text-muted)', textTransform: 'uppercase' }}>
-            Doanh thu thực thu
+            Doanh thu bán hàng
           </div>
           <div style={{ fontSize: 'var(--font-size-2xl)', fontWeight: 900, color: 'var(--color-primary)', marginTop: '6px' }}>
             {reportData ? formatVnd(reportData.totalRevenueVnd) : '0đ'}
@@ -65,28 +66,70 @@ export const ReportsTab: React.FC<ReportsTabProps> = ({
           </div>
         </div>
 
+        {/* Cost of Goods */}
         <div style={{ backgroundColor: 'var(--color-surface)', padding: '18px', borderRadius: 'var(--radius-lg)', border: '1px solid var(--color-border)', boxShadow: 'var(--shadow-sm)' }}>
           <div style={{ fontSize: 'var(--font-size-xs)', fontWeight: 700, color: 'var(--color-text-muted)', textTransform: 'uppercase' }}>
-            Tổng chai nước đã giao
+            Tiền vốn (Giá nhập)
           </div>
           <div style={{ fontSize: 'var(--font-size-2xl)', fontWeight: 900, color: 'var(--color-deep)', marginTop: '6px' }}>
-            {reportData?.totalBottlesDelivered || 0} chai
+            {reportData ? formatVnd(reportData.totalCostVnd || 0) : '0đ'}
           </div>
           <div style={{ fontSize: '11px', color: 'var(--color-text-muted)', marginTop: '4px' }}>
-            Nước giải khát tiêu thụ
+            Chi phí nhập hàng nước giải khát
           </div>
         </div>
 
-        <div style={{ backgroundColor: 'var(--color-surface)', padding: '18px', borderRadius: 'var(--radius-lg)', border: '1px solid var(--color-border)', boxShadow: 'var(--shadow-sm)' }}>
-          <div style={{ fontSize: 'var(--font-size-xs)', fontWeight: 700, color: 'var(--color-text-muted)', textTransform: 'uppercase' }}>
-            Tổng ly đá phục vụ
+        {/* Gross Profit */}
+        <div style={{
+          backgroundColor: '#f0fdf4',
+          padding: '18px',
+          borderRadius: 'var(--radius-lg)',
+          border: '1.5px solid #86efac',
+          boxShadow: 'var(--shadow-sm)'
+        }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <div style={{ fontSize: 'var(--font-size-xs)', fontWeight: 800, color: '#15803d', textTransform: 'uppercase' }}>
+              Lợi nhuận
+            </div>
+            {reportData && (
+              <span style={{ fontSize: '11px', fontWeight: 800, backgroundColor: '#dcfce7', color: '#166534', padding: '2px 6px', borderRadius: '4px' }}>
+                Biên lãi: {reportData.profitMarginPercent || 0}%
+              </span>
+            )}
           </div>
-          <div style={{ fontSize: 'var(--font-size-2xl)', fontWeight: 900, color: '#3B82F6', marginTop: '6px' }}>
-            {reportData?.totalIceServed || 0} ly
+          <div style={{ fontSize: 'var(--font-size-2xl)', fontWeight: 900, color: '#15803d', marginTop: '6px' }}>
+            {reportData ? formatVnd(reportData.totalProfitVnd || 0) : '0đ'}
           </div>
-          <div style={{ fontSize: '11px', color: 'var(--color-text-muted)', marginTop: '4px' }}>
-            Phục vụ miễn phí theo chai
+          <div style={{ fontSize: '11px', color: '#166534', marginTop: '4px' }}>
+            Giá bán trừ giá vốn
           </div>
+        </div>
+
+        {/* Unpaid Debt */}
+        <div style={{
+          backgroundColor: (reportData?.unpaidRevenueVnd || 0) > 0 ? '#fff7ed' : 'var(--color-surface)',
+          padding: '18px',
+          borderRadius: 'var(--radius-lg)',
+          border: `1.5px solid ${(reportData?.unpaidRevenueVnd || 0) > 0 ? '#fed7aa' : 'var(--color-border)'}`,
+          boxShadow: 'var(--shadow-sm)'
+        }}>
+          <div style={{ fontSize: 'var(--font-size-xs)', fontWeight: 700, color: (reportData?.unpaidRevenueVnd || 0) > 0 ? '#c2410c' : 'var(--color-text-muted)', textTransform: 'uppercase' }}>
+            Chưa thu tiền
+          </div>
+          <div style={{ fontSize: 'var(--font-size-2xl)', fontWeight: 900, color: (reportData?.unpaidRevenueVnd || 0) > 0 ? '#ea580c' : 'var(--color-text-muted)', marginTop: '6px' }}>
+            {reportData ? formatVnd(reportData.unpaidRevenueVnd || 0) : '0đ'}
+          </div>
+          <div style={{ fontSize: '11px', color: (reportData?.unpaidRevenueVnd || 0) > 0 ? '#c2410c' : 'var(--color-text-muted)', marginTop: '4px' }}>
+            {reportData?.unpaidOrdersCount || 0} đơn chưa thu tiền từ khách
+          </div>
+        </div>
+      </div>
+
+      {/* Secondary Quick Stats */}
+      <div style={{ display: 'flex', gap: '16px', marginBottom: '24px', flexWrap: 'wrap' }}>
+        <div style={{ flex: 1, minWidth: '180px', backgroundColor: 'var(--color-surface)', padding: '12px 16px', borderRadius: 'var(--radius-md)', border: '1px solid var(--color-border)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <span style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-muted)', fontWeight: 600 }}>Tổng chai đã giao:</span>
+          <span style={{ fontWeight: 800, color: 'var(--color-deep)' }}>{reportData?.totalBottlesDelivered || 0} chai</span>
         </div>
       </div>
 
@@ -116,10 +159,10 @@ export const ReportsTab: React.FC<ReportsTabProps> = ({
           </div>
         </div>
 
-        {/* Best Sellers */}
+        {/* Best Sellers with Cost & Profit */}
         <div style={{ backgroundColor: 'var(--color-surface)', padding: '18px', borderRadius: 'var(--radius-lg)', border: '1px solid var(--color-border)' }}>
           <h3 style={{ fontSize: 'var(--font-size-base)', fontWeight: 800, color: 'var(--color-deep)', marginBottom: '12px' }}>
-            Xếp hạng Nước giải khát Bán chạy nhất
+            🏆 Xếp hạng Bán chạy & Tiền lời từng loại nước
           </h3>
           <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
             {reportData?.bestSellers?.length === 0 ? (
@@ -127,18 +170,32 @@ export const ReportsTab: React.FC<ReportsTabProps> = ({
                 Chưa có dữ liệu bán hàng
               </div>
             ) : (
-              reportData?.bestSellers?.map((p: any, idx: number) => (
-                <div key={idx} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 12px', backgroundColor: 'var(--color-bg)', borderRadius: 'var(--radius-sm)' }}>
-                  <div>
-                    <span style={{ fontWeight: 800, color: 'var(--color-primary)', marginRight: '8px' }}>#{idx + 1}</span>
-                    <span style={{ fontWeight: 700 }}>{p.name}</span>
+              reportData?.bestSellers?.map((p: any, idx: number) => {
+                const profit = p.profit || (p.revenue - (p.cost || 0));
+                return (
+                  <div key={idx} style={{ padding: '10px 12px', backgroundColor: 'var(--color-bg)', borderRadius: 'var(--radius-sm)' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
+                      <div>
+                        <span style={{ fontWeight: 800, color: 'var(--color-primary)', marginRight: '8px' }}>#{idx + 1}</span>
+                        <span style={{ fontWeight: 700 }}>{p.name}</span>
+                      </div>
+                      <span style={{ fontWeight: 800, color: 'var(--color-deep)' }}>{p.bottles} chai</span>
+                    </div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 'var(--font-size-xs)', color: 'var(--color-text-muted)' }}>
+                      <span>Doanh thu: <strong style={{ color: 'var(--color-text-main)' }}>{formatVnd(p.revenue)}</strong></span>
+                      <span>Vốn: {formatVnd(p.cost || 0)}</span>
+                      <span>
+                        Lời: <strong style={{ color: '#16a34a' }}>+{formatVnd(profit)}</strong>
+                        {p.profitMargin !== undefined && (
+                          <span style={{ marginLeft: '4px', fontSize: '10px', color: '#15803d' }}>
+                            ({p.profitMargin}%)
+                          </span>
+                        )}
+                      </span>
+                    </div>
                   </div>
-                  <div style={{ textAlign: 'right' }}>
-                    <span style={{ fontWeight: 800 }}>{p.bottles} chai</span>
-                    <span style={{ fontSize: '11px', color: 'var(--color-text-muted)', marginLeft: '8px' }}>({formatVnd(p.revenue)})</span>
-                  </div>
-                </div>
-              ))
+                );
+              })
             )}
           </div>
         </div>

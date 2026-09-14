@@ -20,8 +20,10 @@ export interface ProductDoc {
   name: string;
   volume: string;
   category: 'water' | 'isotonic' | 'energy' | 'tea' | 'coffee';
+  costPriceVnd?: number;
   priceVnd: number;
   stock: number;
+  minStockThreshold?: number;
   imageSvg?: string;
   imageKey?: string;
   tag?: string;
@@ -36,6 +38,7 @@ export interface OrderItemDoc {
   productId: string;
   nameSnapshot: string;
   volumeSnapshot: string;
+  costPriceVnd?: number;
   unitPriceVnd: number;
   quantity: number;
   iceQuantity: number; // 0 <= iceQuantity <= quantity
@@ -49,6 +52,10 @@ export interface OrderDoc {
   clientRequestId: string;
   courtId: string;
   courtNameSnapshot: string;
+  customerName?: string;
+  customerPhone?: string;
+  paymentStatus?: 'unpaid' | 'paid';
+  paidAt?: Date | null;
   customerSessionHash: string;
   status: OrderStatus;
   totalVnd: number;
@@ -75,6 +82,12 @@ export interface InventoryMovementDoc {
   operationId: string;
   stockAfter: number;
   createdAt: Date;
+  productNameSnapshot?: string;
+  volumeSnapshot?: string;
+  costPriceVnd?: number;
+  sellingPriceVnd?: number;
+  totalCostVnd?: number;
+  note?: string;
 }
 
 export interface AppSettingDoc {
@@ -94,9 +107,22 @@ export interface AuditLogDoc {
   _id?: ObjectId;
   auditId: string;
   adminUsername: string;
-  action: 'product_create' | 'product_update' | 'product_delete' | 'stock_adjustment' | 'order_cancel' | 'order_create' | 'settings_update' | 'catalog_import' | 'data_cleaned';
+  action: 'product_create' | 'product_update' | 'product_delete' | 'stock_adjustment' | 'order_cancel' | 'order_create' | 'order_update' | 'settings_update' | 'catalog_import' | 'data_cleaned';
   targetId?: string;
   details: Record<string, unknown>;
   ip?: string;
   createdAt: Date;
+}
+
+export interface CustomerSessionDoc {
+  _id?: ObjectId;
+  sessionTokenHash: string;
+  courtCode: string;
+  courtId: string;
+  courtNameSnapshot: string;
+  createdAt: Date;
+  expiresAt: Date;
+  terminatedAt?: Date | null;
+  userAgent?: string;
+  ip?: string;
 }

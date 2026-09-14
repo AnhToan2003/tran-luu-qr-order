@@ -6,6 +6,7 @@ export interface OrderItem {
   name: string;
   volume: string;
   unitPrice: number;
+  costPrice?: number;
   quantity: number;
   iceQuantity: number; // 0 <= iceQuantity <= quantity
   lineTotal: number;
@@ -16,6 +17,10 @@ export interface Order {
   displayCode: string; // e.g. #TL-0501
   courtId: string;
   courtName: string; // e.g. Sân 05
+  customerName?: string;
+  customerPhone?: string;
+  paymentStatus?: 'unpaid' | 'paid';
+  paidAt?: number | null;
   items: OrderItem[];
   totalVnd: number;
   status: OrderStatus;
@@ -32,4 +37,5 @@ export interface Court {
   code: string;
   name: string;
   isActive?: boolean;
+  sig?: string;
 }

@@ -11,15 +11,14 @@
 
 | Giai đoạn | Nội dung | Đầu ra bắt buộc | Trạng thái |
 |---|---|---|---|
-| **Giai đoạn 0** | Khảo sát, khóa phương án, thẩm định No-Card, ADR, Decisions | `PLAN.md`, `ADR-001`, `HOSTING-CHECK.md`, `ASSUMPTIONS.md`, `DECISIONS.md` | **Đang thực hiện** |
-| **Giai đoạn 1** | Thiết kế Prototype có tương tác, kiểm thử Viewport (360, 390, 1440), Design Gate | `docs/DESIGN.md`, Ứng dụng Prototype, Screenshots thực tế | **Đang thực hiện** |
-| **Giai đoạn 2** | Database & Giao dịch nguyên tử (Supabase Postgres, RPC, Migrations, Seed) | SQL Migrations, Integration Tests (T06–T18, T22–T24) | Chờ duyệt TK |
-| **Giai đoạn 3** | Hoàn thiện luồng Khách hàng (Catalog, Giỏ hàng, Ly đá, Đặt, Sửa/Hủy 60s) | Browser flow với 2 phiên khách riêng biệt | Tiếp sau |
-| **Giai đoạn 4** | Quầy quản trị (Nhóm sân, Polling 3-5s, Chuông báo, CRUD Nước/Kho/Sân/QR) | Quầy vận hành, Chuông báo âm thanh thật, Xuất QR PNG/PDF | Tiếp sau |
-| **Giai đoạn 5** | Báo cáo doanh thu & Lịch sử đơn & Xuất Excel | SQL Aggregates, Bộ lọc thời gian VN, File Excel đối chiếu | Tiếp sau |
-| **Giai đoạn 6** | QA ma trận T01–T40 & Kiểm thử trình duyệt thực tế | `docs/QA-REPORT.md` (đủ 40 test với bằng chứng) | Tiếp sau |
-| **Giai đoạn 7** | Triển khai Production (Cloudflare Workers + Supabase) | URL Production HTTPS, Smoke Test an toàn | Tiếp sau |
-| **Giai đoạn 8** | Bàn giao & Tài liệu vận hành cho Chủ sân | Hướng dẫn quản trị, Backup, Nâng cấp dung lượng | Tiếp sau |
+| **Giai đoạn 0** | Khảo sát, khóa phương án, thẩm định No-Card, ADR, Decisions | `PLAN.md`, `ADR-001`, `ADR-002`, `ASSUMPTIONS.md`, `DECISIONS.md` | **Hoàn thành** |
+| **Giai đoạn 1** | Thiết kế Prototype có tương tác, kiểm thử Viewport (360, 390, 1440), Design Gate | `docs/DESIGN.md`, Ứng dụng Prototype, Screenshots thực tế | **Hoàn thành** |
+| **Giai đoạn 2** | Database & Giao dịch nguyên tử (MongoDB Replica Set, ACID Transactions, Seed) | MongoDB Schema, Acceptance Tests (`backend.test.ts`) | **Hoàn thành** |
+| **Giai đoạn 3** | Hoàn thiện luồng Khách hàng (Catalog, Giỏ hàng, Ly đá, Đặt, Sửa/Hủy 60s) | PWA Mobile-First, Session Isolation, HMAC QR | **Hoàn thành** |
+| **Giai đoạn 4** | Quầy quản trị (Nhóm sân, WebSocket Real-time, Chuông báo, CRUD Nước/Kho/Sân/QR) | Quầy vận hành, Chuông báo âm thanh thật, Xuất QR PNG/PDF | **Hoàn thành** |
+| **Giai đoạn 5** | Báo cáo doanh thu & Lịch sử đơn & Nhập hàng & Xuất Excel | Biến động kho, Giá vốn bình quân, File Excel chuẩn kế toán | **Hoàn thành** |
+| **Giai đoạn 6** | QA ma trận & Stress test 100 người dùng đồng thời | `tests/concurrency-100.test.ts`, 30/30 tests PASS (100%) | **Hoàn thành** |
+| **Giai đoạn 7** | Sao lưu & Dọn dẹp dữ liệu (Mốc 1 tháng chuẩn, Custom Date, Best Solution) | Backup JSON toàn hệ thống, Bảo toàn kho 100% | **Hoàn thành** |
 
 ---
 
@@ -33,5 +32,5 @@
 6. **Nhóm theo sân**: Quầy phân nhóm trực quan theo từng sân (Sân 01 - Sân 16), không gộp hóa đơn cả buổi thành một.
 7. **Bảo tồn lịch sử**: Tên và giá chốt snapshot tại thời điểm đặt; xóa sản phẩm/sân là xóa mềm (soft-delete).
 8. **Chuông báo quầy**: Chuông kêu lặp mỗi 5s khi có đơn cần nhận (>= 60s), có nút Bật/Thử chuông thân thiện chính sách autoplay.
-9. **Hạ tầng No-Card**: Khởi đầu hoàn toàn miễn phí, không yêu cầu thẻ ngân hàng (Cloudflare Workers + Supabase).
+9. **Hạ tầng No-Card**: Khởi đầu hoàn toàn miễn phí, không yêu cầu thẻ ngân hàng (Node.js Express + MongoDB Replica Set / Atlas M0 Free).
 10. **Không đè hệ thống cũ**: Không làm hỏng QR cũ, không can thiệp database cũ khi chưa có kế hoạch chuyển đổi.

@@ -354,7 +354,7 @@ export const HistoryTab: React.FC<HistoryTabProps> = ({
                         <div style={{ display: 'flex', flexDirection: 'column', gap: '2px', fontSize: 'var(--font-size-xs)' }}>
                           {o.items.map((i, idx) => (
                             <span key={idx}>
-                              <strong>{i.quantity}x</strong> {i.name} {i.iceQuantity > 0 && <span style={{ color: '#0284C7', fontWeight: 600 }}>(+{i.iceQuantity} đá)</span>}
+                              <strong>{i.quantity}x</strong> {i.name}
                             </span>
                           ))}
                         </div>

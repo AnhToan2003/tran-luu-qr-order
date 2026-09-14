@@ -1,20 +1,22 @@
-import QRCode from 'qrcode';
-import { jsPDF } from 'jspdf';
 import { Court } from '../types/order';
+import { computeCourtSig } from './qrUrl';
+export { computeCourtSig, getSignedCourtUrl, parseCourtUrlParams } from './qrUrl';
 
 /**
- * Tạo URL canonical cho mã QR của sân
+ * Tạo URL canonical có gắn chữ ký bảo mật cho mã QR của sân
  */
-export function getCourtOrderUrl(courtCode: string): string {
-  const origin = window.location.origin;
-  return `${origin}/order?court=${courtCode}`;
+export async function getCourtOrderUrl(courtCode: string, sig?: string): Promise<string> {
+  const origin = typeof window !== 'undefined' ? window.location.origin : 'http://localhost:3000';
+  const signature = sig || await computeCourtSig(courtCode);
+  return `${origin}/?court=${encodeURIComponent(courtCode)}${signature ? `&sig=${encodeURIComponent(signature)}` : ''}`;
 }
 
 /**
- * Sinh ảnh PNG chất lượng cao của mã QR
+ * Sinh ảnh PNG chất lượng cao của mã QR có chữ ký bảo mật (dynamic import qrcode)
  */
-export async function generateCourtQrPng(courtCode: string): Promise<string> {
-  const url = getCourtOrderUrl(courtCode);
+export async function generateCourtQrPng(courtCode: string, sig?: string): Promise<string> {
+  const QRCode = (await import('qrcode')).default;
+  const url = await getCourtOrderUrl(courtCode, sig);
   return QRCode.toDataURL(url, {
     width: 600,
     margin: 2,
@@ -29,7 +31,7 @@ export async function generateCourtQrPng(courtCode: string): Promise<string> {
  * Tải file ảnh PNG mã QR cho 1 sân
  */
 export async function downloadCourtQrPng(court: Court): Promise<void> {
-  const dataUrl = await generateCourtQrPng(court.code);
+  const dataUrl = await generateCourtQrPng(court.code, court.sig);
   const link = document.createElement('a');
   link.href = dataUrl;
   link.download = `QR_San_${court.code}_Tran_Luu.png`;
@@ -39,9 +41,10 @@ export async function downloadCourtQrPng(court: Court): Promise<void> {
 }
 
 /**
- * Tạo và tải tệp PDF dàn trang toàn bộ 16 sân chuẩn khổ A4 sẵn sàng in ấn dán sân (BR-19, BR-34)
+ * Tạo và tải tệp PDF dàn trang toàn bộ 16 sân chuẩn khổ A4 sẵn sàng in ấn dán sân (dynamic import jspdf)
  */
 export async function downloadAllCourtsPdf(courts: Court[]): Promise<void> {
+  const { jsPDF } = await import('jspdf');
   const doc = new jsPDF({
     orientation: 'portrait',
     unit: 'mm',
@@ -89,7 +92,7 @@ export async function downloadAllCourtsPdf(courts: Court[]): Promise<void> {
       doc.text(`SAN ${court.code}`, x + cardWidth / 2, y + 30, { align: 'center' });
 
       // Generate QR Image
-      const qrDataUrl = await generateCourtQrPng(court.code);
+      const qrDataUrl = await generateCourtQrPng(court.code, court.sig);
       doc.addImage(qrDataUrl, 'PNG', x + 12.5, y + 36, 60, 60);
 
       // Subtitle Instructions

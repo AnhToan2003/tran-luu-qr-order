@@ -100,3 +100,38 @@ input, select, textarea {
 ::-webkit-scrollbar-thumb:hover {
   background: var(--color-text-muted);
 }
+
+/* ================= RESPONSIVE ENHANCEMENTS ================= */
+/* Mobile touch-friendly targets */
+@media (max-width: 768px) {
+  :root {
+    --space-4: 12px;
+    --space-5: 16px;
+    --space-6: 20px;
+  }
+
+  button {
+    min-height: 38px;
+  }
+
+  /* Smooth momentum scrolling on mobile */
+  .kanban-scroll-container {
+    -webkit-overflow-scrolling: touch;
+    scroll-snap-type: x mandatory;
+  }
+}
+
+/* Very small screens (iPhone SE, Galaxy A series < 400px) */
+@media (max-width: 400px) {
+  :root {
+    --font-size-base: 0.9375rem; /* 15px */
+  }
+}
+
+/* Table horizontal responsiveness helper */
+.responsive-table-wrapper {
+  width: 100%;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+

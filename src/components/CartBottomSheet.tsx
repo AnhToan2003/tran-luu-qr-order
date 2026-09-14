@@ -1,17 +1,18 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { OrderItem } from '../types/order';
 import { formatVnd } from '../types/product';
 
 interface CartBottomSheetProps {
   isOpen: boolean;
   courtName: string;
+  sessionToken?: string;
   items: OrderItem[];
   totalVnd: number;
   onClose: () => void;
   onUpdateQuantity: (productId: string, newQty: number) => void;
   onUpdateIce: (productId: string, newIce: number) => void;
   onRemoveItem: (productId: string) => void;
-  onSubmitOrder: () => void;
+  onSubmitOrder: (customerInfo: { name: string; phone: string }) => void;
   isSubmitting: boolean;
   canSubmit: boolean;
   error?: string;
@@ -20,6 +21,7 @@ interface CartBottomSheetProps {
 export const CartBottomSheet: React.FC<CartBottomSheetProps> = ({
   isOpen,
   courtName,
+  sessionToken,
   items,
   totalVnd,
   onClose,
@@ -31,6 +33,108 @@ export const CartBottomSheet: React.FC<CartBottomSheetProps> = ({
   canSubmit,
   error
 }) => {
+  // Xóa sạch key cũ tl_customer_profile khỏi localStorage để tránh tự điền dữ liệu của người trước
+  useEffect(() => {
+    try {
+      localStorage.removeItem('tl_customer_profile');
+    } catch { }
+  }, []);
+
+  const [prevCourt, setPrevCourt] = useState<string>(courtName);
+  const storageKey = sessionToken ? `tl_session_customer_${sessionToken}` : 'tl_session_customer_info';
+
+  const [customerName, setCustomerName] = useState<string>(() => {
+    try {
+      const saved = sessionStorage.getItem(storageKey) || sessionStorage.getItem('tl_session_customer_info');
+      return saved ? JSON.parse(saved).name || '' : '';
+    } catch {
+      return '';
+    }
+  });
+
+  const [customerPhone, setCustomerPhone] = useState<string>(() => {
+    try {
+      const saved = sessionStorage.getItem(storageKey) || sessionStorage.getItem('tl_session_customer_info');
+      return saved ? JSON.parse(saved).phone || '' : '';
+    } catch {
+      return '';
+    }
+  });
+
+  let activeName = customerName;
+  let activePhone = customerPhone;
+
+  if (courtName !== prevCourt) {
+    setPrevCourt(courtName);
+    setCustomerName('');
+    setCustomerPhone('');
+    activeName = '';
+    activePhone = '';
+  }
+
+  const [validationError, setValidationError] = useState<string>('');
+
+  useEffect(() => {
+    if (isOpen) {
+      setValidationError('');
+      const originalOverflow = document.body.style.overflow;
+      document.body.style.overflow = 'hidden';
+
+      const handleKeyDown = (e: KeyboardEvent) => {
+        if (e.key === 'Escape') onClose();
+      };
+      window.addEventListener('keydown', handleKeyDown);
+
+      try {
+        const saved = sessionStorage.getItem(storageKey) || sessionStorage.getItem('tl_session_customer_info');
+        if (saved) {
+          const parsed = JSON.parse(saved);
+          if (parsed.name) setCustomerName(parsed.name);
+          if (parsed.phone) setCustomerPhone(parsed.phone);
+        }
+      } catch { }
+
+      return () => {
+        document.body.style.overflow = originalOverflow;
+        window.removeEventListener('keydown', handleKeyDown);
+      };
+    }
+  }, [isOpen, onClose, storageKey]);
+
+  const handleClearProfile = () => {
+    setCustomerName('');
+    setCustomerPhone('');
+    try {
+      sessionStorage.removeItem(storageKey);
+      sessionStorage.removeItem('tl_session_customer_info');
+    } catch { }
+  };
+
+  const handleValidateAndSubmit = () => {
+    setValidationError('');
+    const trimmedName = customerName.trim();
+    const trimmedPhone = customerPhone.trim().replace(/[\s.-]/g, '');
+
+    if (!trimmedName || trimmedName.length < 2) {
+      setValidationError('Vui lòng nhập họ và tên của bạn (tối thiểu 2 ký tự)');
+      return;
+    }
+
+    // Kiểm tra định dạng số điện thoại Việt Nam (10 chữ số, bắt đầu bằng 03, 05, 07, 08, 09 hoặc +84)
+    const phoneRegex = /^(0|\+84)(3|5|7|8|9)[0-9]{8}$/;
+    if (!phoneRegex.test(trimmedPhone)) {
+      setValidationError('Số điện thoại không hợp lệ. Vui lòng nhập đủ 10 chữ số (VD: 0901234567)');
+      return;
+    }
+
+    // Lưu trong sessionStorage của phiên hiện tại
+    try {
+      sessionStorage.setItem(storageKey, JSON.stringify({ name: trimmedName, phone: trimmedPhone }));
+    } catch { }
+
+    onSubmitOrder({ name: trimmedName, phone: trimmedPhone });
+  };
+
   if (!isOpen) return null;
 
   const totalBottles = items.reduce((sum, item) => sum + item.quantity, 0);
@@ -51,7 +155,7 @@ export const CartBottomSheet: React.FC<CartBottomSheetProps> = ({
       justifyContent: 'flex-end',
       alignItems: 'center'
     }}>
-      {error&&<p role="alert" style={{position:'relative',zIndex:3,background:'#fee2e2',padding:12,color:'#991b1b'}}>{error}</p>}
+      {error && <p role="alert" style={{ position: 'relative', zIndex: 3, background: '#fee2e2', padding: 12, color: '#991b1b' }}>{error}</p>}
       {/* Backdrop tap to close */}
       <div
         onClick={onClose}
@@ -66,7 +170,7 @@ export const CartBottomSheet: React.FC<CartBottomSheetProps> = ({
       />
 
       {/* Sheet panel */}
-      <div className="animate-slide-up" style={{
+      <div role="dialog" aria-modal="true" aria-label="Giỏ hàng gọi nước" className="animate-slide-up" style={{
         position: 'relative',
         zIndex: 2,
         width: '100%',
@@ -149,7 +253,7 @@ export const CartBottomSheet: React.FC<CartBottomSheetProps> = ({
             </div>
           ) : (
             items.map((item) => {
-              const productDef = item.imageSvg ? {imageSvg:item.imageSvg} : null;
+              const productDef = item.imageSvg ? { imageSvg: item.imageSvg } : null;
               return (
                 <div
                   key={item.productId}
@@ -282,17 +386,7 @@ export const CartBottomSheet: React.FC<CartBottomSheetProps> = ({
                     <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
                       <span style={{ fontSize: '14px' }}>🧊</span>
                       <span style={{ fontSize: 'var(--font-size-xs)', fontWeight: 600, color: 'var(--color-deep)' }}>
-                        Ly đá miễn phí:
-                      </span>
-                      <span style={{
-                        fontSize: '11px',
-                        color: 'var(--color-primary)',
-                        fontWeight: 700,
-                        backgroundColor: 'var(--color-primary-light)',
-                        padding: '1px 5px',
-                        borderRadius: '4px'
-                      }}>
-                        0đ (Tối đa {item.quantity} ly)
+                        Ly đá miễn phí
                       </span>
                     </div>
 
@@ -398,27 +492,103 @@ export const CartBottomSheet: React.FC<CartBottomSheetProps> = ({
               </div>
             </div>
 
-            {/* Clean delivery notification */}
+            {/* Customer Info Form (Required for counter collection later) */}
             <div style={{
+              backgroundColor: 'var(--color-bg)',
+              borderRadius: 'var(--radius-md)',
+              border: validationError ? '1.5px solid #EF4444' : '1px solid var(--color-border)',
+              padding: '12px 14px',
               display: 'flex',
-              alignItems: 'center',
-              gap: '8px',
-              padding: '10px 14px',
-              backgroundColor: 'var(--color-primary-light)',
-              borderRadius: 'var(--radius-sm)',
-              fontSize: 'var(--font-size-xs)',
-              color: 'var(--color-deep)',
-              lineHeight: 1.4
+              flexDirection: 'column',
+              gap: '10px'
             }}>
-              <span style={{ fontSize: '16px' }}>⚡</span>
-              <span>
-                <strong>Giao tận sân:</strong> Quầy nhận đơn ngay lập tức và mang nước ra sân cho bạn. Thanh toán trực tiếp khi nhận nước.
-              </span>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                  <span style={{ fontSize: '15px' }}>👤</span>
+                  <span style={{ fontSize: 'var(--font-size-xs)', fontWeight: 800, color: 'var(--color-deep)', textTransform: 'uppercase' }}>
+                    Thông tin người đặt
+                  </span>
+                </div>
+                {(customerName || customerPhone) && (
+                  <button
+                    type="button"
+                    onClick={handleClearProfile}
+                    style={{
+                      fontSize: '11px',
+                      color: '#DC2626',
+                      backgroundColor: '#FEE2E2',
+                      border: 'none',
+                      padding: '2px 8px',
+                      borderRadius: '4px',
+                      cursor: 'pointer',
+                      fontWeight: 700
+                    }}
+                    title="Xóa thông tin để nhập người khác"
+                  >
+                    ✕ Đổi người
+                  </button>
+                )}
+              </div>
+
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
+                <div>
+                  <label style={{ fontSize: '11px', fontWeight: 700, color: 'var(--color-text-main)', display: 'block', marginBottom: '4px' }}>
+                    Họ và tên <span style={{ color: '#DC2626' }}>*</span>
+                  </label>
+                  <input
+                    type="text"
+                    value={activeName}
+                    onChange={e => {
+                      setCustomerName(e.target.value);
+                      if (validationError) setValidationError('');
+                    }}
+                    placeholder="VD: Anh Tuấn"
+                    style={{
+                      width: '100%',
+                      padding: '8px 10px',
+                      borderRadius: 'var(--radius-sm)',
+                      border: '1px solid var(--color-border)',
+                      fontSize: 'var(--font-size-sm)',
+                      backgroundColor: 'var(--color-surface)',
+                      outline: 'none'
+                    }}
+                  />
+                </div>
+                <div>
+                  <label style={{ fontSize: '11px', fontWeight: 700, color: 'var(--color-text-main)', display: 'block', marginBottom: '4px' }}>
+                    Số điện thoại <span style={{ color: '#DC2626' }}>*</span>
+                  </label>
+                  <input
+                    type="tel"
+                    value={activePhone}
+                    onChange={e => {
+                      setCustomerPhone(e.target.value);
+                      if (validationError) setValidationError('');
+                    }}
+                    placeholder="VD: 0901234567"
+                    style={{
+                      width: '100%',
+                      padding: '8px 10px',
+                      borderRadius: 'var(--radius-sm)',
+                      border: '1px solid var(--color-border)',
+                      fontSize: 'var(--font-size-sm)',
+                      backgroundColor: 'var(--color-surface)',
+                      outline: 'none'
+                    }}
+                  />
+                </div>
+              </div>
+
+              {validationError && (
+                <div style={{ fontSize: '11px', color: '#DC2626', fontWeight: 700, backgroundColor: '#FEE2E2', padding: '6px 10px', borderRadius: '4px' }}>
+                  ⚠️ {validationError}
+                </div>
+              )}
             </div>
 
             {/* Submit Button */}
             <button
-              onClick={onSubmitOrder}
+              onClick={handleValidateAndSubmit}
               disabled={isSubmitting || !canSubmit}
               style={{
                 width: '100%',
@@ -441,7 +611,7 @@ export const CartBottomSheet: React.FC<CartBottomSheetProps> = ({
                 <span>Đang gửi đơn...</span>
               ) : (
                 <>
-                  <span>XÁC NHẬN ĐẶT GIAO TẬN SÂN</span>
+                  <span>XÁC NHẬN ĐẶT HÀNG</span>
                   <span>•</span>
                   <span>{formatVnd(totalVnd)}</span>
                 </>

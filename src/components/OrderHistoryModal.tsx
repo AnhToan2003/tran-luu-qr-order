@@ -57,6 +57,22 @@ export const OrderHistoryModal: React.FC<OrderHistoryModalProps> = ({
   onClose,
   onSelectOrder
 }) => {
+  React.useEffect(() => {
+    if (!isOpen) return;
+    const originalOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose();
+    };
+    window.addEventListener('keydown', handleKeyDown);
+
+    return () => {
+      document.body.style.overflow = originalOverflow;
+      window.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [isOpen, onClose]);
+
   if (!isOpen) return null;
 
   const totalSpent = orders.reduce((sum, o) => (o.status !== 'cancelled' ? sum + o.totalVnd : sum), 0);
@@ -292,6 +308,23 @@ export const OrderHistoryModal: React.FC<OrderHistoryModalProps> = ({
                       <span>{cfg.label}</span>
                     </span>
                   </div>
+
+                  {/* Customer Info & Payment Status */}
+                  {order.customerName && (
+                    <div style={{ fontSize: '11px', color: '#4B5563', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <span>👤 Khách: <strong style={{ color: 'var(--color-deep, #12432E)' }}>{order.customerName}</strong> {order.customerPhone ? `(${order.customerPhone})` : ''}</span>
+                      <span style={{
+                        fontSize: '10px',
+                        fontWeight: 700,
+                        padding: '1px 6px',
+                        borderRadius: '4px',
+                        backgroundColor: order.paymentStatus === 'paid' ? '#DCFCE7' : '#FEF3C7',
+                        color: order.paymentStatus === 'paid' ? '#15803D' : '#B45309'
+                      }}>
+                        {order.paymentStatus === 'paid' ? '✓ Đã thanh toán' : '⏳ Chưa thanh toán'}
+                      </span>
+                    </div>
+                  )}
 
                   {/* Middle: Items summary */}
                   <div

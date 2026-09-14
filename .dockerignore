@@ -7,3 +7,5 @@ dist-server
 scratch
 docs
 tests
+*.md
+*.tsbuildinfo

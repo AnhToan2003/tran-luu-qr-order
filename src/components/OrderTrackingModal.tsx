@@ -13,13 +13,36 @@ export const OrderTrackingModal: React.FC<OrderTrackingModalProps> = ({
   isOpen,
   onClose
 }) => {
+  React.useEffect(() => {
+    if (!isOpen) return;
+    const originalOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose();
+    };
+    window.addEventListener('keydown', handleKeyDown);
+
+    return () => {
+      document.body.style.overflow = originalOverflow;
+      window.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [isOpen, onClose]);
+
   if (!isOpen) return null;
 
   // 3-step clean customer timeline
+  const isPaid = order.paymentStatus === 'paid';
   const steps: { key: OrderStatus; label: string; desc: string }[] = [
     { key: 'accepted', label: '1. Đã tiếp nhận', desc: 'Quầy nước đã nhận đơn và đang chuẩn bị' },
     { key: 'preparing', label: '2. Đang mang ra sân', desc: 'Nhân viên đang đem nước & ly đá đến sân' },
-    { key: 'delivered', label: '3. Đã giao tận sân', desc: 'Đã nhận nước và thanh toán thành công' }
+    {
+      key: 'delivered',
+      label: '3. Đã giao tận sân',
+      desc: isPaid
+        ? 'Đã nhận nước & thanh toán hoàn tất'
+        : 'Đã nhận nước tận sân (Thanh toán sau trận)'
+    }
   ];
 
   const getStepStatus = (stepKey: OrderStatus) => {
@@ -54,7 +77,7 @@ export const OrderTrackingModal: React.FC<OrderTrackingModalProps> = ({
       justifyContent: 'center',
       padding: '16px'
     }}>
-      <div className="animate-fade-in" style={{
+      <div role="dialog" aria-modal="true" aria-label="Chi tiết đơn hàng" className="animate-fade-in" style={{
         backgroundColor: 'var(--color-surface)',
         borderRadius: 'var(--radius-xl)',
         boxShadow: 'var(--shadow-lg)',
@@ -120,6 +143,37 @@ export const OrderTrackingModal: React.FC<OrderTrackingModalProps> = ({
           </button>
         </div>
 
+        {/* Customer & Payment Reassurance Banner */}
+        {order.customerName && (
+          <div style={{
+            margin: '12px 18px 0',
+            padding: '8px 12px',
+            backgroundColor: 'var(--color-bg)',
+            borderRadius: 'var(--radius-sm)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            fontSize: 'var(--font-size-xs)',
+            border: '1px solid var(--color-border)'
+          }}>
+            <span style={{ color: 'var(--color-text-muted)' }}>
+              Khách đặt: <strong style={{ color: 'var(--color-deep)' }}>{order.customerName}</strong>
+              {order.customerPhone ? ` • ${order.customerPhone}` : ''}
+            </span>
+            <span style={{
+              fontWeight: 700,
+              padding: '3px 10px',
+              borderRadius: 'var(--radius-sm)',
+              fontSize: '11px',
+              backgroundColor: order.paymentStatus === 'paid' ? 'var(--color-primary-light)' : '#FEF3C7',
+              color: order.paymentStatus === 'paid' ? 'var(--color-primary)' : '#B45309',
+              border: `1px solid ${order.paymentStatus === 'paid' ? '#86EFAC' : '#FCD34D'}`
+            }}>
+              Tình trạng thanh toán: {order.paymentStatus === 'paid' ? 'Đã thanh toán' : 'Chưa thanh toán'}
+            </span>
+          </div>
+        )}
+
         {/* Scroll Body */}
         <div style={{ padding: '16px 18px', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '16px' }}>
 
@@ -157,34 +211,16 @@ export const OrderTrackingModal: React.FC<OrderTrackingModalProps> = ({
               <span style={{ fontSize: '24px' }}>✓</span>
               <div>
                 <div style={{ fontSize: 'var(--font-size-sm)', fontWeight: 700, color: 'var(--color-deep)' }}>
-                  Giao nước hoàn tất
+                  {isPaid ? 'Giao nước & thanh toán hoàn tất' : 'Đã giao nước tận sân (Chờ thanh toán)'}
                 </div>
-                <div style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-muted)' }}>
-                  Cảm ơn bạn đã sử dụng dịch vụ tại Sân Cầu Lông Trần Lựu!
-                </div>
-              </div>
-            </div>
-          ) : (
-            <div style={{
-              padding: '12px 14px',
-              borderRadius: 'var(--radius-md)',
-              backgroundColor: 'var(--color-primary-light)',
-              border: '1px solid var(--color-primary)',
-              display: 'flex',
-              alignItems: 'center',
-              gap: '10px'
-            }}>
-              <span style={{ fontSize: '24px' }}>⚡</span>
-              <div>
-                <div style={{ fontSize: 'var(--font-size-sm)', fontWeight: 700, color: 'var(--color-deep)' }}>
-                  Quầy nước đã nhận đơn
-                </div>
-                <div style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-muted)' }}>
-                  Nhân viên đang chuẩn bị nước mát và mang ra tận sân ngay.
+                <div style={{ fontSize: 'var(--font-size-xs)', color: isPaid ? 'var(--color-text-muted)' : '#B45309', fontWeight: isPaid ? 400 : 600 }}>
+                  {isPaid
+                    ? 'Cảm ơn bạn đã sử dụng dịch vụ tại Sân Cầu Lông Trần Lựu!'
+                    : 'Quý khách vui lòng ghé quầy thu ngân thanh toán sau khi kết thúc lượt đánh nhé!'}
                 </div>
               </div>
             </div>
-          )}
+          ) : null}
 
           {/* Timeline Status */}
           <div style={{
