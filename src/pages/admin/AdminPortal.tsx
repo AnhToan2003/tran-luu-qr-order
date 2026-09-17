@@ -151,7 +151,7 @@ export const AdminPortal: React.FC = () => {
           }
         }
       })
-      .catch(() => {});
+      .catch(() => { });
   }, [currentTab]);
 
   useEffect(() => {
@@ -1604,7 +1604,7 @@ export const AdminPortal: React.FC = () => {
         {/* NHÓM 2: QUẢN TRỊ & THỐNG KÊ */}
         <div style={{ display: 'flex', alignItems: 'stretch', gap: '6px', flexShrink: 0 }}>
           {/* 3. Nhập Hàng & Kho (Dropdown) */}
-          {(hasPermission('drink-intake') || hasPermission('sports-intake') || hasPermission('courts')) && (
+          {(hasPermission('drink-intake') || hasPermission('sports-intake')) && (
             <div data-dropdown-container="true" style={{ position: 'relative', display: 'flex', alignItems: 'stretch' }}>
               <button
                 onClick={() => setActiveNavDropdown(prev => prev === 'products' ? null : 'products')}
@@ -1615,9 +1615,9 @@ export const AdminPortal: React.FC = () => {
                   fontSize: '13px',
                   fontWeight: 900,
                   letterSpacing: '0.4px',
-                  color: (currentTab === 'drink-intake' || currentTab === 'sports-intake' || currentTab === 'products' || currentTab === 'sports-catalog' || currentTab === 'courts') ? 'var(--color-primary)' : '#0F172A',
+                  color: (currentTab === 'drink-intake' || currentTab === 'sports-intake' || currentTab === 'products' || currentTab === 'sports-catalog') ? 'var(--color-primary)' : '#0F172A',
                   border: 'none',
-                  borderBottom: (currentTab === 'drink-intake' || currentTab === 'sports-intake' || currentTab === 'products' || currentTab === 'sports-catalog' || currentTab === 'courts') ? '3px solid var(--color-primary)' : '3px solid transparent',
+                  borderBottom: (currentTab === 'drink-intake' || currentTab === 'sports-intake' || currentTab === 'products' || currentTab === 'sports-catalog') ? '3px solid var(--color-primary)' : '3px solid transparent',
                   marginBottom: '-1px',
                   display: 'flex',
                   alignItems: 'center',
@@ -1737,49 +1737,13 @@ export const AdminPortal: React.FC = () => {
                       <span style={{ fontSize: '11px', color: '#64748B', fontWeight: 700, backgroundColor: '#F1F5F9', padding: '3px 8px', borderRadius: '6px' }}>Dụng cụ & DV</span>
                     </button>
                   )}
-
-                  {/* Item 3: Sân thi đấu & Mã QR */}
-                  {hasPermission('courts') && (
-                    <button
-                      onClick={() => { setCurrentTab('courts'); setActiveNavDropdown(null); }}
-                      style={{
-                        width: '100%',
-                        padding: '10px 14px',
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'space-between',
-                        gap: '12px',
-                        border: 'none',
-                        borderRadius: '10px',
-                        backgroundColor: currentTab === 'courts' ? 'var(--color-primary-light)' : 'transparent',
-                        color: currentTab === 'courts' ? 'var(--color-primary)' : '#0F172A',
-                        fontWeight: 800,
-                        fontSize: '13px',
-                        cursor: 'pointer',
-                        textAlign: 'left',
-                        transition: 'all 0.15s ease'
-                      }}
-                      onMouseEnter={(e) => {
-                        if (currentTab !== 'courts') e.currentTarget.style.backgroundColor = '#F8FAFC';
-                      }}
-                      onMouseLeave={(e) => {
-                        if (currentTab !== 'courts') e.currentTarget.style.backgroundColor = 'transparent';
-                      }}
-                    >
-                      <div>
-                        <div>Sân Thi Đấu & Bộ Mã QR</div>
-                        <div style={{ fontSize: '11px', color: '#64748B', fontWeight: 500 }}>Danh sách sân & tải mã QR in ấn</div>
-                      </div>
-                      <span style={{ fontSize: '11px', color: '#64748B', fontWeight: 700, backgroundColor: '#F1F5F9', padding: '3px 8px', borderRadius: '6px' }}>{courts.length} sân</span>
-                    </button>
-                  )}
                 </div>
               )}
             </div>
           )}
 
           {/* 4. Thống Kê & Lịch Sử (Dropdown) */}
-          {(hasPermission('revenue-report') || hasPermission('order-history') || hasPermission('sports-order-history') || hasPermission('intake-history') || hasPermission('backup')) && (
+          {(hasPermission('revenue-report') || hasPermission('order-history') || hasPermission('sports-order-history') || hasPermission('intake-history')) && (
             <div data-dropdown-container="true" style={{ position: 'relative', display: 'flex', alignItems: 'stretch' }}>
               <button
                 onClick={() => setActiveNavDropdown(prev => prev === 'reports' ? null : 'reports')}
@@ -1887,7 +1851,7 @@ export const AdminPortal: React.FC = () => {
                       }}
                     >
                       <div>
-                        <div>Lịch Sử Đơn Nước</div>
+                        <div>Lịch Sử Bán Nước</div>
                         <div style={{ fontSize: '11px', color: '#64748B', fontWeight: 500 }}>Đơn gọi nước & thực phẩm tại sân</div>
                       </div>
                     </button>
@@ -1919,7 +1883,7 @@ export const AdminPortal: React.FC = () => {
                       }}
                     >
                       <div>
-                        <div>Lịch Sử Bán Thể Thao</div>
+                        <div>Lịch Sử Bán Đồ Thể Thao</div>
                         <div style={{ fontSize: '11px', color: '#64748B', fontWeight: 500 }}>Hóa đơn bán dụng cụ & dịch vụ sân</div>
                       </div>
                     </button>
@@ -1988,7 +1952,134 @@ export const AdminPortal: React.FC = () => {
                       </div>
                     </button>
                   )}
+                </div>
+              )}
+            </div>
+          )}
 
+          {/* 5. CÀI ĐẶT CHUNG (Dropdown: Phân quyền, Sân & Mã QR, Sao lưu) */}
+          {(hasPermission('rbac') || hasPermission('courts') || hasPermission('backup')) && (
+            <div data-dropdown-container="true" style={{ position: 'relative', display: 'flex', alignItems: 'stretch' }}>
+              <button
+                onClick={() => setActiveNavDropdown(prev => prev === 'system' ? null : 'system')}
+                onMouseEnter={() => { if (activeNavDropdown) setActiveNavDropdown('system'); }}
+                style={{
+                  height: '100%',
+                  padding: '0 16px',
+                  fontSize: '13px',
+                  fontWeight: 900,
+                  letterSpacing: '0.4px',
+                  color: (currentTab === 'rbac' || currentTab === 'courts' || currentTab === 'backup' || currentTab === 'settings') ? 'var(--color-primary)' : '#0F172A',
+                  border: 'none',
+                  borderBottom: (currentTab === 'rbac' || currentTab === 'courts' || currentTab === 'backup' || currentTab === 'settings') ? '3px solid var(--color-primary)' : '3px solid transparent',
+                  marginBottom: '-1px',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '6px',
+                  cursor: 'pointer',
+                  backgroundColor: activeNavDropdown === 'system' ? 'rgba(18, 67, 46, 0.05)' : 'transparent',
+                  borderRadius: activeNavDropdown === 'system' ? '8px 8px 0 0' : '0',
+                  whiteSpace: 'nowrap',
+                  transition: 'all 0.15s ease'
+                }}
+              >
+                <span>CÀI ĐẶT CHUNG</span>
+                <svg width="12" height="12" viewBox="0 0 20 20" fill="currentColor" style={{ marginLeft: '2px', transition: 'transform 0.2s', transform: activeNavDropdown === 'system' ? 'rotate(180deg)' : 'none' }}>
+                  <path fillRule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clipRule="evenodd" />
+                </svg>
+              </button>
+
+              {activeNavDropdown === 'system' && (
+                <div
+                  className="animate-nav-dropdown"
+                  style={{
+                    position: 'absolute',
+                    top: 'calc(100% + 4px)',
+                    right: 0,
+                    backgroundColor: '#FFFFFF',
+                    borderRadius: '14px',
+                    boxShadow: '0 20px 32px -4px rgba(15, 23, 42, 0.16), 0 8px 16px -2px rgba(15, 23, 42, 0.08), 0 0 0 1px rgba(15, 23, 42, 0.06)',
+                    border: '1px solid var(--color-border)',
+                    minWidth: '310px',
+                    zIndex: 1000,
+                    padding: '6px',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: '2px'
+                  }}
+                >
+                  {/* Item 1: Phân Quyền & Tài Khoản */}
+                  {hasPermission('rbac') && (
+                    <button
+                      onClick={() => { setCurrentTab('rbac'); setActiveNavDropdown(null); }}
+                      style={{
+                        width: '100%',
+                        padding: '10px 14px',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'space-between',
+                        gap: '12px',
+                        border: 'none',
+                        borderRadius: '10px',
+                        backgroundColor: (currentTab === 'rbac' || currentTab === 'settings') ? 'var(--color-primary-light)' : 'transparent',
+                        color: (currentTab === 'rbac' || currentTab === 'settings') ? 'var(--color-primary)' : '#0F172A',
+                        fontWeight: 800,
+                        fontSize: '13px',
+                        cursor: 'pointer',
+                        textAlign: 'left',
+                        transition: 'all 0.15s ease'
+                      }}
+                      onMouseEnter={(e) => {
+                        if (currentTab !== 'rbac' && currentTab !== 'settings') e.currentTarget.style.backgroundColor = '#F8FAFC';
+                      }}
+                      onMouseLeave={(e) => {
+                        if (currentTab !== 'rbac' && currentTab !== 'settings') e.currentTarget.style.backgroundColor = 'transparent';
+                      }}
+                    >
+                      <div>
+                        <div>Phân Quyền & Tài Khoản</div>
+                        <div style={{ fontSize: '11px', color: '#64748B', fontWeight: 500 }}>Phân quyền vai trò & tài khoản nhân viên</div>
+                      </div>
+                    </button>
+                  )}
+
+                  {/* Item 2: Sân Thi Đấu & Bộ Mã QR */}
+                  {hasPermission('courts') && (
+                    <button
+                      onClick={() => { setCurrentTab('courts'); setActiveNavDropdown(null); }}
+                      style={{
+                        width: '100%',
+                        padding: '10px 14px',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'space-between',
+                        gap: '12px',
+                        border: 'none',
+                        borderRadius: '10px',
+                        backgroundColor: currentTab === 'courts' ? 'var(--color-primary-light)' : 'transparent',
+                        color: currentTab === 'courts' ? 'var(--color-primary)' : '#0F172A',
+                        fontWeight: 800,
+                        fontSize: '13px',
+                        cursor: 'pointer',
+                        textAlign: 'left',
+                        transition: 'all 0.15s ease'
+                      }}
+                      onMouseEnter={(e) => {
+                        if (currentTab !== 'courts') e.currentTarget.style.backgroundColor = '#F8FAFC';
+                      }}
+                      onMouseLeave={(e) => {
+                        if (currentTab !== 'courts') e.currentTarget.style.backgroundColor = 'transparent';
+                      }}
+                    >
+                      <div>
+                        <div>Sân Thi Đấu & Bộ Mã QR</div>
+                        <div style={{ fontSize: '11px', color: '#64748B', fontWeight: 500 }}>Danh sách sân & tải mã QR in ấn</div>
+                      </div>
+                      <span style={{ fontSize: '11px', color: '#64748B', fontWeight: 700, backgroundColor: '#F1F5F9', padding: '3px 8px', borderRadius: '6px' }}>{courts.length} sân</span>
+                    </button>
+                  )}
+
+                  {/* Item 3: Sao Lưu & Nhật Ký Hệ Thống */}
                   {hasPermission('backup') && (
                     <button
                       onClick={() => { setCurrentTab('backup'); setActiveNavDropdown(null); }}
@@ -1997,6 +2088,8 @@ export const AdminPortal: React.FC = () => {
                         padding: '10px 14px',
                         display: 'flex',
                         alignItems: 'center',
+                        justifyContent: 'space-between',
+                        gap: '12px',
                         border: 'none',
                         borderRadius: '10px',
                         backgroundColor: currentTab === 'backup' ? 'var(--color-primary-light)' : 'transparent',
@@ -2023,33 +2116,6 @@ export const AdminPortal: React.FC = () => {
                 </div>
               )}
             </div>
-          )}
-
-          {/* 5. PHÂN QUYỀN & TÀI KHOẢN (RBAC) */}
-          {hasPermission('rbac') && (
-            <button
-              onClick={() => { setCurrentTab('rbac'); setActiveNavDropdown(null); }}
-              style={{
-                height: '100%',
-                padding: '0 18px',
-                fontSize: '13px',
-                fontWeight: 900,
-                letterSpacing: '0.4px',
-                color: (currentTab === 'rbac' || currentTab === 'settings') ? 'var(--color-primary)' : '#0F172A',
-                border: 'none',
-                borderBottom: (currentTab === 'rbac' || currentTab === 'settings') ? '3px solid var(--color-primary)' : '3px solid transparent',
-                marginBottom: '-1px',
-                display: 'flex',
-                alignItems: 'center',
-                cursor: 'pointer',
-                backgroundColor: (currentTab === 'rbac' || currentTab === 'settings') ? 'rgba(18, 67, 46, 0.05)' : 'transparent',
-                borderRadius: (currentTab === 'rbac' || currentTab === 'settings') ? '8px 8px 0 0' : '0',
-                whiteSpace: 'nowrap',
-                transition: 'all 0.15s ease'
-              }}
-            >
-              <span>PHÂN QUYỀN & TÀI KHOẢN</span>
-            </button>
           )}
         </div>
       </nav>
@@ -2979,38 +3045,38 @@ export const AdminPortal: React.FC = () => {
                               </div>
                             </div>
 
-                          {/* Stepper */}
-                          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                            {/* Quantity Stepper */}
-                            <div style={{ display: 'flex', alignItems: 'center', backgroundColor: 'var(--color-surface)', borderRadius: 'var(--radius-sm)', border: '1.5px solid var(--color-border)' }}>
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  const newQty = Math.max(0, itemData.quantity - 1);
-                                  setPosCart(prev => ({ ...prev, [p.id]: { quantity: newQty, iceQuantity: 0 } }));
-                                }}
-                                style={{ width: '32px', height: '32px', border: 'none', background: 'transparent', fontWeight: 900, fontSize: '16px', cursor: 'pointer', color: '#0F172A' }}
-                              >
-                                -
-                              </button>
-                              <span style={{ width: '28px', textAlign: 'center', fontWeight: 900, fontSize: '15px', color: '#0F172A' }}>
-                                {itemData.quantity}
-                              </span>
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  const newQty = itemData.quantity + 1;
-                                  setPosCart(prev => ({ ...prev, [p.id]: { quantity: newQty, iceQuantity: 0 } }));
-                                }}
-                                style={{ width: '32px', height: '32px', border: 'none', background: 'transparent', fontWeight: 900, fontSize: '16px', cursor: 'pointer', color: 'var(--color-primary)' }}
-                              >
-                                +
-                              </button>
+                            {/* Stepper */}
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                              {/* Quantity Stepper */}
+                              <div style={{ display: 'flex', alignItems: 'center', backgroundColor: 'var(--color-surface)', borderRadius: 'var(--radius-sm)', border: '1.5px solid var(--color-border)' }}>
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    const newQty = Math.max(0, itemData.quantity - 1);
+                                    setPosCart(prev => ({ ...prev, [p.id]: { quantity: newQty, iceQuantity: 0 } }));
+                                  }}
+                                  style={{ width: '32px', height: '32px', border: 'none', background: 'transparent', fontWeight: 900, fontSize: '16px', cursor: 'pointer', color: '#0F172A' }}
+                                >
+                                  -
+                                </button>
+                                <span style={{ width: '28px', textAlign: 'center', fontWeight: 900, fontSize: '15px', color: '#0F172A' }}>
+                                  {itemData.quantity}
+                                </span>
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    const newQty = itemData.quantity + 1;
+                                    setPosCart(prev => ({ ...prev, [p.id]: { quantity: newQty, iceQuantity: 0 } }));
+                                  }}
+                                  style={{ width: '32px', height: '32px', border: 'none', background: 'transparent', fontWeight: 900, fontSize: '16px', cursor: 'pointer', color: 'var(--color-primary)' }}
+                                >
+                                  +
+                                </button>
+                              </div>
                             </div>
                           </div>
-                        </div>
-                      );
-                    })}
+                        );
+                      })}
                   </div>
 
                   {/* Bước 1: Thanh Footer Tiếp tục */}
