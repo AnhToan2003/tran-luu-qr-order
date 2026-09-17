@@ -10,7 +10,6 @@ interface CartBottomSheetProps {
   totalVnd: number;
   onClose: () => void;
   onUpdateQuantity: (productId: string, newQty: number) => void;
-  onUpdateIce: (productId: string, newIce: number) => void;
   onRemoveItem: (productId: string) => void;
   onSubmitOrder: (customerInfo: { name: string; phone: string }) => void;
   isSubmitting: boolean;
@@ -26,7 +25,6 @@ export const CartBottomSheet: React.FC<CartBottomSheetProps> = ({
   totalVnd,
   onClose,
   onUpdateQuantity,
-  onUpdateIce,
   onRemoveItem,
   onSubmitOrder,
   isSubmitting,
@@ -138,7 +136,6 @@ export const CartBottomSheet: React.FC<CartBottomSheetProps> = ({
   if (!isOpen) return null;
 
   const totalBottles = items.reduce((sum, item) => sum + item.quantity, 0);
-  const totalIce = items.reduce((sum, item) => sum + item.iceQuantity, 0);
 
   return (
     <div style={{
@@ -195,18 +192,18 @@ export const CartBottomSheet: React.FC<CartBottomSheetProps> = ({
         }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
             <span style={{
-              fontSize: 'var(--font-size-lg)',
-              fontWeight: 800,
-              color: 'var(--color-deep)'
+              fontSize: '18px',
+              fontWeight: 900,
+              color: '#0F172A'
             }}>
               Giỏ hàng của bạn
             </span>
             <span style={{
-              backgroundColor: 'var(--color-deep)',
-              color: 'var(--color-accent)',
-              fontSize: '12px',
-              fontWeight: 700,
-              padding: '2px 8px',
+              backgroundColor: '#0F172A',
+              color: '#F8FAFC',
+              fontSize: '13px',
+              fontWeight: 800,
+              padding: '3px 10px',
               borderRadius: 'var(--radius-sm)'
             }}>
               {courtName}
@@ -220,12 +217,12 @@ export const CartBottomSheet: React.FC<CartBottomSheetProps> = ({
               height: '32px',
               borderRadius: '50%',
               backgroundColor: 'var(--color-bg)',
-              color: 'var(--color-text-muted)',
+              color: '#0F172A',
               fontSize: '18px',
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
-              fontWeight: 700
+              fontWeight: 800
             }}
             aria-label="Đóng giỏ hàng"
           >
@@ -246,10 +243,10 @@ export const CartBottomSheet: React.FC<CartBottomSheetProps> = ({
             <div style={{
               padding: '40px 20px',
               textAlign: 'center',
-              color: 'var(--color-text-muted)'
+              color: '#334155'
             }}>
-              <p style={{ fontSize: 'var(--font-size-base)', fontWeight: 600 }}>Giỏ hàng đang trống</p>
-              <p style={{ fontSize: 'var(--font-size-sm)', marginTop: '4px' }}>Hãy chọn đồ uống mát lạnh cho buổi chơi cầu nhé!</p>
+              <p style={{ fontSize: '16px', fontWeight: 800, color: '#0F172A' }}>Giỏ hàng đang trống</p>
+              <p style={{ fontSize: '14px', marginTop: '6px', fontWeight: 600, color: '#334155' }}>Hãy chọn đồ uống mát lạnh cho buổi chơi cầu nhé!</p>
             </div>
           ) : (
             items.map((item) => {
@@ -260,7 +257,7 @@ export const CartBottomSheet: React.FC<CartBottomSheetProps> = ({
                   style={{
                     backgroundColor: 'var(--color-bg)',
                     borderRadius: 'var(--radius-md)',
-                    border: '1px solid var(--color-border)',
+                    border: '1.5px solid var(--color-border)',
                     padding: '12px',
                     display: 'flex',
                     flexDirection: 'column',
@@ -293,9 +290,9 @@ export const CartBottomSheet: React.FC<CartBottomSheetProps> = ({
                     {/* Name & Unit Price */}
                     <div style={{ flex: 1, minWidth: 0 }}>
                       <div style={{
-                        fontSize: 'var(--font-size-sm)',
-                        fontWeight: 700,
-                        color: 'var(--color-text-main)',
+                        fontSize: '15px',
+                        fontWeight: 800,
+                        color: '#0F172A',
                         whiteSpace: 'nowrap',
                         overflow: 'hidden',
                         textOverflow: 'ellipsis'
@@ -303,10 +300,11 @@ export const CartBottomSheet: React.FC<CartBottomSheetProps> = ({
                         {item.name}
                       </div>
                       <div style={{
-                        fontSize: 'var(--font-size-xs)',
-                        color: 'var(--color-text-muted)'
+                        fontSize: '13px',
+                        fontWeight: 600,
+                        color: '#334155'
                       }}>
-                        {item.volume} • {formatVnd(item.unitPrice)}
+                        {item.volume} • <span style={{ fontWeight: 800, color: '#0F172A' }}>{formatVnd(item.unitPrice)}</span>
                       </div>
                     </div>
 
@@ -316,7 +314,7 @@ export const CartBottomSheet: React.FC<CartBottomSheetProps> = ({
                       alignItems: 'center',
                       backgroundColor: 'var(--color-surface)',
                       borderRadius: 'var(--radius-sm)',
-                      border: '1px solid var(--color-border)'
+                      border: '1.5px solid var(--color-border)'
                     }}>
                       <button
                         onClick={() => onUpdateQuantity(item.productId, item.quantity - 1)}
@@ -327,17 +325,18 @@ export const CartBottomSheet: React.FC<CartBottomSheetProps> = ({
                           alignItems: 'center',
                           justifyContent: 'center',
                           color: 'var(--color-primary)',
-                          fontWeight: 800,
-                          fontSize: '16px'
+                          fontWeight: 900,
+                          fontSize: '18px'
                         }}
                       >
                         −
                       </button>
                       <span style={{
-                        minWidth: '24px',
+                        minWidth: '26px',
                         textAlign: 'center',
-                        fontWeight: 700,
-                        fontSize: 'var(--font-size-sm)'
+                        fontWeight: 900,
+                        fontSize: '15px',
+                        color: '#0F172A'
                       }}>
                         {item.quantity}
                       </span>
@@ -350,8 +349,8 @@ export const CartBottomSheet: React.FC<CartBottomSheetProps> = ({
                           alignItems: 'center',
                           justifyContent: 'center',
                           color: 'var(--color-primary)',
-                          fontWeight: 800,
-                          fontSize: '16px'
+                          fontWeight: 900,
+                          fontSize: '18px'
                         }}
                       >
                         +
@@ -363,9 +362,12 @@ export const CartBottomSheet: React.FC<CartBottomSheetProps> = ({
                       onClick={() => onRemoveItem(item.productId)}
                       style={{
                         padding: '6px',
-                        color: 'var(--color-text-subtle)',
+                        color: '#64748B',
                         fontSize: '16px',
-                        lineHeight: 1
+                        lineHeight: 1,
+                        background: 'none',
+                        border: 'none',
+                        cursor: 'pointer'
                       }}
                       title="Xóa món này"
                     >
@@ -373,72 +375,6 @@ export const CartBottomSheet: React.FC<CartBottomSheetProps> = ({
                     </button>
                   </div>
 
-                  {/* Bottom Row: Free Ice selector for this drink (0 to quantity) */}
-                  <div style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'space-between',
-                    padding: '6px 10px',
-                    backgroundColor: 'var(--color-surface)',
-                    borderRadius: 'var(--radius-sm)',
-                    border: '1px dashed var(--color-border)'
-                  }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                      <span style={{ fontSize: '14px' }}>🧊</span>
-                      <span style={{ fontSize: 'var(--font-size-xs)', fontWeight: 600, color: 'var(--color-deep)' }}>
-                        Ly đá miễn phí
-                      </span>
-                    </div>
-
-                    {/* Ice Stepper: 0 <= iceQuantity <= item.quantity */}
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-                      <button
-                        onClick={() => onUpdateIce(item.productId, Math.max(0, item.iceQuantity - 1))}
-                        disabled={item.iceQuantity <= 0}
-                        style={{
-                          width: '26px',
-                          height: '26px',
-                          borderRadius: '4px',
-                          backgroundColor: item.iceQuantity <= 0 ? 'var(--color-bg)' : 'var(--color-primary-light)',
-                          color: item.iceQuantity <= 0 ? 'var(--color-text-subtle)' : 'var(--color-primary)',
-                          fontWeight: 700,
-                          fontSize: '14px',
-                          display: 'flex',
-                          alignItems: 'center',
-                          justifyContent: 'center'
-                        }}
-                      >
-                        −
-                      </button>
-                      <span style={{
-                        minWidth: '22px',
-                        textAlign: 'center',
-                        fontSize: 'var(--font-size-xs)',
-                        fontWeight: 700,
-                        color: 'var(--color-text-main)'
-                      }}>
-                        {item.iceQuantity} ly
-                      </span>
-                      <button
-                        onClick={() => onUpdateIce(item.productId, Math.min(item.quantity, item.iceQuantity + 1))}
-                        disabled={item.iceQuantity >= item.quantity}
-                        style={{
-                          width: '26px',
-                          height: '26px',
-                          borderRadius: '4px',
-                          backgroundColor: item.iceQuantity >= item.quantity ? 'var(--color-bg)' : 'var(--color-primary-light)',
-                          color: item.iceQuantity >= item.quantity ? 'var(--color-text-subtle)' : 'var(--color-primary)',
-                          fontWeight: 700,
-                          fontSize: '14px',
-                          display: 'flex',
-                          alignItems: 'center',
-                          justifyContent: 'center'
-                        }}
-                      >
-                        +
-                      </button>
-                    </div>
-                  </div>
                 </div>
               );
             })
@@ -461,32 +397,28 @@ export const CartBottomSheet: React.FC<CartBottomSheetProps> = ({
               display: 'flex',
               flexDirection: 'column',
               gap: '6px',
-              fontSize: 'var(--font-size-sm)',
-              color: 'var(--color-text-muted)'
+              fontSize: '13px',
+              color: '#334155'
             }}>
               <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                <span>Tổng số chai nước ({totalBottles} chai):</span>
-                <span style={{ fontWeight: 600, color: 'var(--color-text-main)' }}>{formatVnd(totalVnd)}</span>
+                <span style={{ fontWeight: 600 }}>Tổng số lượng món ({totalBottles}):</span>
+                <span style={{ fontWeight: 800, color: '#0F172A' }}>{formatVnd(totalVnd)}</span>
               </div>
               <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                <span>Tổng số ly đá ({totalIce} ly):</span>
-                <span style={{ fontWeight: 700, color: 'var(--color-primary)' }}>0đ (Miễn phí)</span>
-              </div>
-              <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                <span>Địa điểm giao:</span>
-                <span style={{ fontWeight: 700, color: 'var(--color-deep)' }}>{courtName}</span>
+                <span style={{ fontWeight: 600 }}>Địa điểm giao:</span>
+                <span style={{ fontWeight: 900, color: '#0F172A' }}>{courtName}</span>
               </div>
               <div style={{
                 display: 'flex',
                 justifyContent: 'space-between',
                 paddingTop: '8px',
                 borderTop: '1px dashed var(--color-border)',
-                fontSize: 'var(--font-size-base)',
-                fontWeight: 800,
-                color: 'var(--color-deep)'
+                fontSize: '15px',
+                fontWeight: 900,
+                color: '#0F172A'
               }}>
                 <span>Tổng cần thanh toán:</span>
-                <span style={{ fontSize: 'var(--font-size-xl)', color: 'var(--color-primary)' }}>
+                <span style={{ fontSize: '22px', fontWeight: 900, color: '#059669' }}>
                   {formatVnd(totalVnd)}
                 </span>
               </div>
@@ -496,7 +428,7 @@ export const CartBottomSheet: React.FC<CartBottomSheetProps> = ({
             <div style={{
               backgroundColor: 'var(--color-bg)',
               borderRadius: 'var(--radius-md)',
-              border: validationError ? '1.5px solid #EF4444' : '1px solid var(--color-border)',
+              border: validationError ? '2px solid #EF4444' : '1.5px solid var(--color-border)',
               padding: '12px 14px',
               display: 'flex',
               flexDirection: 'column',
@@ -505,7 +437,7 @@ export const CartBottomSheet: React.FC<CartBottomSheetProps> = ({
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
                   <span style={{ fontSize: '15px' }}>👤</span>
-                  <span style={{ fontSize: 'var(--font-size-xs)', fontWeight: 800, color: 'var(--color-deep)', textTransform: 'uppercase' }}>
+                  <span style={{ fontSize: '12px', fontWeight: 900, color: '#0F172A', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
                     Thông tin người đặt
                   </span>
                 </div>
@@ -518,10 +450,10 @@ export const CartBottomSheet: React.FC<CartBottomSheetProps> = ({
                       color: '#DC2626',
                       backgroundColor: '#FEE2E2',
                       border: 'none',
-                      padding: '2px 8px',
+                      padding: '3px 8px',
                       borderRadius: '4px',
                       cursor: 'pointer',
-                      fontWeight: 700
+                      fontWeight: 800
                     }}
                     title="Xóa thông tin để nhập người khác"
                   >
@@ -532,7 +464,7 @@ export const CartBottomSheet: React.FC<CartBottomSheetProps> = ({
 
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
                 <div>
-                  <label style={{ fontSize: '11px', fontWeight: 700, color: 'var(--color-text-main)', display: 'block', marginBottom: '4px' }}>
+                  <label style={{ fontSize: '12px', fontWeight: 800, color: '#0F172A', display: 'block', marginBottom: '4px' }}>
                     Họ và tên <span style={{ color: '#DC2626' }}>*</span>
                   </label>
                   <input
@@ -547,15 +479,17 @@ export const CartBottomSheet: React.FC<CartBottomSheetProps> = ({
                       width: '100%',
                       padding: '8px 10px',
                       borderRadius: 'var(--radius-sm)',
-                      border: '1px solid var(--color-border)',
-                      fontSize: 'var(--font-size-sm)',
+                      border: '1.5px solid var(--color-border)',
+                      fontSize: '13px',
+                      fontWeight: 600,
+                      color: '#0F172A',
                       backgroundColor: 'var(--color-surface)',
                       outline: 'none'
                     }}
                   />
                 </div>
                 <div>
-                  <label style={{ fontSize: '11px', fontWeight: 700, color: 'var(--color-text-main)', display: 'block', marginBottom: '4px' }}>
+                  <label style={{ fontSize: '12px', fontWeight: 800, color: '#0F172A', display: 'block', marginBottom: '4px' }}>
                     Số điện thoại <span style={{ color: '#DC2626' }}>*</span>
                   </label>
                   <input
@@ -570,8 +504,10 @@ export const CartBottomSheet: React.FC<CartBottomSheetProps> = ({
                       width: '100%',
                       padding: '8px 10px',
                       borderRadius: 'var(--radius-sm)',
-                      border: '1px solid var(--color-border)',
-                      fontSize: 'var(--font-size-sm)',
+                      border: '1.5px solid var(--color-border)',
+                      fontSize: '13px',
+                      fontWeight: 600,
+                      color: '#0F172A',
                       backgroundColor: 'var(--color-surface)',
                       outline: 'none'
                     }}
@@ -580,7 +516,7 @@ export const CartBottomSheet: React.FC<CartBottomSheetProps> = ({
               </div>
 
               {validationError && (
-                <div style={{ fontSize: '11px', color: '#DC2626', fontWeight: 700, backgroundColor: '#FEE2E2', padding: '6px 10px', borderRadius: '4px' }}>
+                <div style={{ fontSize: '12px', color: '#DC2626', fontWeight: 800, backgroundColor: '#FEE2E2', padding: '8px 12px', borderRadius: '6px' }}>
                   ⚠️ {validationError}
                 </div>
               )}
@@ -593,18 +529,20 @@ export const CartBottomSheet: React.FC<CartBottomSheetProps> = ({
               style={{
                 width: '100%',
                 padding: '14px',
-                backgroundColor: isSubmitting ? 'var(--color-text-muted)' : 'var(--color-primary)',
+                backgroundColor: isSubmitting ? '#94A3B8' : 'var(--color-primary)',
                 color: '#FFFFFF',
                 borderRadius: 'var(--radius-md)',
-                fontSize: 'var(--font-size-base)',
-                fontWeight: 800,
-                letterSpacing: '0.2px',
+                fontSize: '15px',
+                fontWeight: 900,
+                letterSpacing: '0.02em',
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'center',
                 gap: '8px',
                 boxShadow: 'var(--shadow-md)',
-                transition: 'var(--transition-fast)'
+                transition: 'var(--transition-fast)',
+                border: 'none',
+                cursor: isSubmitting || !canSubmit ? 'not-allowed' : 'pointer'
               }}
             >
               {isSubmitting ? (

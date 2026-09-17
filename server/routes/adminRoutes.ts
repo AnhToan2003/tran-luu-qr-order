@@ -1,8 +1,8 @@
 import { Router } from 'express';
 import { randomUUID, createHash } from 'node:crypto';
 import { z } from 'zod';
-import { requireAdmin } from '../auth.js';
-import { getCollections, transaction } from '../db.js';
+import { requireAdmin, hashPassword, requirePermission, revokeUserSessions, revokeRoleSessions } from '../auth.js';
+import { getCollections, transaction, snapshotRead } from '../db.js';
 import { ApiError } from '../errors.js';
 import { OrderService } from '../services/orderService.js';
 import { orderJson, productJson } from '../serialize.js';
@@ -10,7 +10,9 @@ import { dateRange, vietnamDate } from '../time.js';
 import { courtCode, id, productFields, productPatch, stock, items as itemsSchema } from '../validation.js';
 import { signCourtCode } from '../services/qrSign.js';
 import { broadcastEvent } from '../websocket.js';
-import type { AuditLogDoc, OrderDoc, OrderItemDoc } from '../types.js';
+import { cacheDel, invalidateCatalogCache } from '../redis.js';
+import type { AuditLogDoc, OrderDoc, OrderItemDoc, RoleDoc, AdminUserDoc } from '../types.js';
+import { migrateBackupToV2 } from '../utils/backupMigration.js';
 
 export const adminRouter = Router();
 adminRouter.use(requireAdmin);
@@ -39,19 +41,83 @@ async function recordAuditLog(
 }
 
 adminRouter.get('/settings', async (_req, res) => res.json((await getCollections().appSettings.findOne({ key: 'system_config' }))?.value));
-adminRouter.patch('/settings', async (req, res) => {
+adminRouter.patch('/settings', requirePermission(['orders', 'rbac']), async (req, res) => {
   const value = z.object({ isAcceptingOrders: z.boolean() }).strict().parse(req.body);
   await getCollections().appSettings.updateOne({ key: 'system_config' }, { $set: { 'value.isAcceptingOrders': value.isAcceptingOrders, updatedAt: new Date() } });
   await recordAuditLog(res.locals.admin, 'settings_update', 'system_config', { isAcceptingOrders: value.isAcceptingOrders }, req.ip);
   res.json(value);
 });
 
-adminRouter.get('/orders/active', async (_req, res) => {
+adminRouter.get('/categories', async (_req, res) => {
   const c = getCollections();
-  const open = await c.orders.find({ status: { $in: ['new', 'accepted', 'preparing'] } }).sort({ createdAt: 1 }).toArray();
-  // Bao gồm tất cả các đơn nợ chưa thanh toán từ mọi ngày trước + đơn đã thanh toán giao trong hôm nay
-  // Giới hạn 1000 để tránh response khổng lồ khi có nhiều nợ cũ tích lũy
+  const doc = await c.appSettings.findOne({ key: 'drink_categories' });
+  const defaultCategories: Array<{ id: string; name: string }> = [
+    { id: 'water', name: 'Nước suối' },
+    { id: 'isotonic', name: 'Bù khoáng & Điện giải' },
+    { id: 'soda', name: 'Nước ngọt có gas' },
+    { id: 'energy', name: 'Nước tăng lực' },
+    { id: 'tea', name: 'Trà & Cà phê' },
+    { id: 'juice', name: 'Nước ép & Sữa' },
+    { id: 'food', name: 'Mì ly & Đồ ăn' }
+  ];
+  let categories: Array<{ id: string; name: string }> = Array.isArray(doc?.value) ? [...doc.value] : [...defaultCategories];
+
+  const existingProductCats = await c.products.distinct('category', { deletedAt: null });
+  for (const cat of existingProductCats) {
+    if (cat && !categories.some(c => c.id === cat || c.name.toLowerCase() === String(cat).toLowerCase())) {
+      categories.push({ id: String(cat), name: String(cat) });
+    }
+  }
+  res.json({ categories });
+});
+
+adminRouter.post('/categories', requirePermission('drink-intake'), async (req, res) => {
+  const { name } = z.object({ name: z.string().trim().min(1, 'Tên hạng mục không được rỗng').max(60) }).parse(req.body);
+  const c = getCollections();
+  const doc = await c.appSettings.findOne({ key: 'drink_categories' });
+  const defaultCategories: Array<{ id: string; name: string }> = [
+    { id: 'water', name: 'Nước suối' },
+    { id: 'isotonic', name: 'Bù khoáng & Điện giải' },
+    { id: 'soda', name: 'Nước ngọt có gas' },
+    { id: 'energy', name: 'Nước tăng lực' },
+    { id: 'tea', name: 'Trà & Cà phê' },
+    { id: 'juice', name: 'Nước ép & Sữa' },
+    { id: 'food', name: 'Mì ly & Đồ ăn' }
+  ];
+  let categories: Array<{ id: string; name: string }> = Array.isArray(doc?.value) ? [...doc.value] : [...defaultCategories];
+
+  const existing = categories.find(c => c.name.toLowerCase() === name.toLowerCase());
+  if (existing) {
+    return res.json({ category: existing, categories });
+  }
+
+  const id = name
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-z0-9]+/g, '_')
+    .replace(/^_+|_+$/g, '') || `cat_${Date.now()}`;
+
+  const newCat = { id, name };
+  categories.push(newCat);
+  await c.appSettings.updateOne(
+    { key: 'drink_categories' },
+    { $set: { value: categories, updatedAt: new Date() } },
+    { upsert: true }
+  );
+  await recordAuditLog(res.locals.admin, 'category_create', id, { name }, req.ip);
+  res.status(201).json({ category: newCat, categories });
+});
+
+adminRouter.get('/orders/active', requirePermission('orders'), async (_req, res) => {
+  const c = getCollections();
+  const open = await c.orders.find({
+    orderType: { $ne: 'sports_pos' },
+    status: { $in: ['new', 'accepted', 'preparing'] }
+  }).sort({ createdAt: 1 }).toArray();
+  // Bao gồm tất cả các đơn nước nợ chưa thanh toán + đơn nước đã thanh toán giao trong hôm nay
   const delivered = await c.orders.find({
+    orderType: { $ne: 'sports_pos' },
     $or: [
       { status: 'delivered', paymentStatus: { $ne: 'paid' } },
       { status: 'delivered', paymentStatus: 'paid', deliveredAt: dateRange('today') }
@@ -60,36 +126,119 @@ adminRouter.get('/orders/active', async (_req, res) => {
   res.json([...open, ...delivered].map(orderJson));
 });
 
-adminRouter.post('/orders/:id/payment', async (req, res) => {
-  const { paymentStatus } = z.object({ paymentStatus: z.enum(['paid', 'unpaid']) }).strict().parse(req.body);
-  const updated = await OrderService.updatePayment(id.parse(req.params.id), paymentStatus);
-  await recordAuditLog(res.locals.admin, 'order_update', req.params.id, { paymentStatus }, req.ip);
+adminRouter.post('/orders/:id/payment', requirePermission(['orders', 'sports-pos']), async (req, res) => {
+  const { paymentStatus, paymentMethod, reason } = z.object({
+    paymentStatus: z.enum(['paid', 'unpaid']),
+    paymentMethod: z.enum(['cash', 'transfer']).optional(),
+    reason: z.string().trim().max(300).optional()
+  }).strict().parse(req.body);
+  const orderId = id.parse(req.params.id);
+  const c = getCollections();
+  const existing = await c.orders.findOne({ orderId });
+  if (!existing) throw new ApiError(404, 'NOT_FOUND', 'Không tìm thấy đơn');
+
+  const perms = (res.locals.permissions as string[]) || [];
+  const isAdmin = perms.includes('*') || res.locals.roleId === 'admin';
+  if (existing.orderType === 'sports_pos') {
+    if (!isAdmin && !perms.includes('sports-pos')) {
+      throw new ApiError(403, 'FORBIDDEN', 'Bạn không có quyền thao tác trên đơn hàng thể thao (yêu cầu quyền sports-pos)');
+    }
+  } else {
+    if (!isAdmin && !perms.includes('orders')) {
+      throw new ApiError(403, 'FORBIDDEN', 'Bạn không có quyền thao tác trên đơn hàng nước (yêu cầu quyền orders)');
+    }
+  }
+
+  const updated = await OrderService.updatePayment(orderId, paymentStatus, paymentMethod, res.locals.admin, reason);
+  await recordAuditLog(res.locals.admin, 'payment_status_update', orderId, {
+    paymentStatus,
+    paymentMethod: updated.paymentMethod,
+    reason: reason || null
+  }, req.ip);
   res.json(orderJson(updated));
 });
 
-adminRouter.post('/orders/:id/transition', async (req, res) => {
+adminRouter.post('/orders/:id/transition', requirePermission(['orders', 'sports-pos']), async (req, res) => {
   const { targetStatus } = z.object({ targetStatus: z.enum(['preparing', 'delivered']) }).strict().parse(req.body);
-  res.json(orderJson(await OrderService.transition(id.parse(req.params.id), targetStatus)));
+  const orderId = id.parse(req.params.id);
+  const c = getCollections();
+  const existing = await c.orders.findOne({ orderId });
+  if (!existing) throw new ApiError(404, 'NOT_FOUND', 'Không tìm thấy đơn');
+
+  const perms = (res.locals.permissions as string[]) || [];
+  const isAdmin = perms.includes('*') || res.locals.roleId === 'admin';
+  if (existing.orderType === 'sports_pos') {
+    if (!isAdmin && !perms.includes('sports-pos')) {
+      throw new ApiError(403, 'FORBIDDEN', 'Bạn không có quyền thao tác trên đơn hàng thể thao (yêu cầu quyền sports-pos)');
+    }
+  } else {
+    if (!isAdmin && !perms.includes('orders')) {
+      throw new ApiError(403, 'FORBIDDEN', 'Bạn không có quyền thao tác trên đơn hàng nước (yêu cầu quyền orders)');
+    }
+  }
+
+  res.json(orderJson(await OrderService.transition(orderId, targetStatus)));
 });
 
-adminRouter.post('/orders/:id/deliver-and-pay', async (req, res) => {
-  const { paymentStatus } = z.object({ paymentStatus: z.enum(['paid', 'unpaid']) }).strict().parse(req.body);
-  const order = await OrderService.deliverAndPay(id.parse(req.params.id), paymentStatus);
-  await recordAuditLog(res.locals.admin, 'order_update', req.params.id, { action: 'deliver_and_pay', paymentStatus, totalVnd: order.totalVnd }, req.ip);
+adminRouter.post('/orders/:id/deliver-and-pay', requirePermission(['orders', 'sports-pos']), async (req, res) => {
+  const { paymentStatus, paymentMethod, reason } = z.object({
+    paymentStatus: z.enum(['paid', 'unpaid']),
+    paymentMethod: z.enum(['cash', 'transfer']).optional(),
+    reason: z.string().trim().max(300).optional()
+  }).strict().parse(req.body);
+  const orderId = id.parse(req.params.id);
+  const c = getCollections();
+  const existing = await c.orders.findOne({ orderId });
+  if (!existing) throw new ApiError(404, 'NOT_FOUND', 'Không tìm thấy đơn');
+
+  const perms = (res.locals.permissions as string[]) || [];
+  const isAdmin = perms.includes('*') || res.locals.roleId === 'admin';
+  if (existing.orderType === 'sports_pos') {
+    if (!isAdmin && !perms.includes('sports-pos')) {
+      throw new ApiError(403, 'FORBIDDEN', 'Bạn không có quyền thao tác trên đơn hàng thể thao (yêu cầu quyền sports-pos)');
+    }
+  } else {
+    if (!isAdmin && !perms.includes('orders')) {
+      throw new ApiError(403, 'FORBIDDEN', 'Bạn không có quyền thao tác trên đơn hàng nước (yêu cầu quyền orders)');
+    }
+  }
+
+  const order = await OrderService.deliverAndPay(orderId, paymentStatus, paymentMethod, res.locals.admin, reason);
+  await recordAuditLog(res.locals.admin, 'order_update', orderId, { action: 'deliver_and_pay', paymentStatus, paymentMethod, totalVnd: order.totalVnd, reason: reason || null }, req.ip);
   res.json(orderJson(order));
 });
 
-adminRouter.post('/orders/:id/cancel', async (req, res) => {
+adminRouter.post('/orders/:id/cancel', requirePermission(['orders', 'sports-pos']), async (req, res) => {
   const { reason } = z.object({ reason: z.string().trim().min(1).max(300) }).strict().parse(req.body);
-  const cancelled = await OrderService.cancel(id.parse(req.params.id), reason, res.locals.admin);
-  await recordAuditLog(res.locals.admin, 'order_cancel', req.params.id, { reason, courtName: cancelled.courtNameSnapshot, totalVnd: cancelled.totalVnd }, req.ip);
+  const orderId = id.parse(req.params.id);
+  const c = getCollections();
+  const existing = await c.orders.findOne({ orderId });
+  if (!existing) throw new ApiError(404, 'NOT_FOUND', 'Không tìm thấy đơn');
+
+  const perms = (res.locals.permissions as string[]) || [];
+  const isAdmin = perms.includes('*') || res.locals.roleId === 'admin';
+  if (existing.orderType === 'sports_pos') {
+    if (!isAdmin && !perms.includes('sports-pos')) {
+      throw new ApiError(403, 'FORBIDDEN', 'Bạn không có quyền thao tác trên đơn hàng thể thao (yêu cầu quyền sports-pos)');
+    }
+  } else {
+    if (!isAdmin && !perms.includes('orders')) {
+      throw new ApiError(403, 'FORBIDDEN', 'Bạn không có quyền thao tác trên đơn hàng nước (yêu cầu quyền orders)');
+    }
+  }
+
+  const cancelled = await OrderService.cancel(orderId, reason, res.locals.admin);
+  await recordAuditLog(res.locals.admin, 'order_cancel', orderId, { reason, courtName: cancelled.courtNameSnapshot, totalVnd: cancelled.totalVnd }, req.ip);
   res.json(orderJson(cancelled));
 });
 
-adminRouter.post('/orders/create-pos', async (req, res) => {
+adminRouter.post('/orders/create-pos', requirePermission('orders'), async (req, res) => {
   const schema = z.object({
     clientRequestId: id,
-    items: itemsSchema
+    items: itemsSchema,
+    paymentStatus: z.enum(['paid', 'unpaid']).optional(),
+    paymentMethod: z.enum(['cash', 'transfer']).optional(),
+    courtId: z.string().optional()
   }).strict();
 
   const input = schema.parse(req.body);
@@ -117,6 +266,20 @@ adminRouter.post('/orders/create-pos', async (req, res) => {
   }
 
   try {
+    let targetCourtId = 'counter';
+    let targetCourtName = 'Tại quầy';
+    if (input.courtId && input.courtId !== 'counter') {
+      const foundCourt = await c.courts.findOne({ $or: [{ courtId: input.courtId }, { code: input.courtId }], deletedAt: null });
+      if (foundCourt) {
+        targetCourtId = foundCourt.courtId;
+        targetCourtName = foundCourt.name;
+      }
+    }
+
+    const isPaid = (input.paymentStatus || 'paid') === 'paid';
+    const paymentStatus = isPaid ? 'paid' : 'unpaid';
+    const paymentMethod = isPaid ? (input.paymentMethod || 'cash') : null;
+
     const order = await transaction(async session => {
       const duplicate = await c.orders.findOne(existingQuery, { session });
       if (duplicate) return check(duplicate);
@@ -159,7 +322,7 @@ adminRouter.post('/orders/create-pos', async (req, res) => {
           costPriceVnd: product.costPriceVnd || 0,
           sellingPriceVnd: product.priceVnd,
           totalCostVnd: (product.costPriceVnd || 0) * item.quantity,
-          note: 'Bán trực tiếp tại quầy POS'
+          note: `Bán trực tiếp tại quầy POS (${targetCourtName})`
         }, { session });
       }
 
@@ -176,16 +339,17 @@ adminRouter.post('/orders/create-pos', async (req, res) => {
       const newOrder: OrderDoc = {
         orderId,
         displayCode,
-        courtId: 'counter',
-        courtNameSnapshot: 'Tại quầy',
-        customerName: 'Khách tại quầy',
+        courtId: targetCourtId,
+        courtNameSnapshot: targetCourtName,
+        customerName: targetCourtId === 'counter' ? 'Khách tại quầy' : `Khách tại ${targetCourtName}`,
         customerPhone: '',
         customerSessionHash: `admin:${res.locals.admin}`,
         clientRequestId: input.clientRequestId,
         requestFingerprint: fingerprint,
         status: 'delivered',
-        paymentStatus: 'paid',
-        paidAt: now,
+        paymentStatus,
+        paymentMethod,
+        paidAt: isPaid ? now : null,
         totalVnd,
         items: orderItems,
         createdAt: now,
@@ -203,17 +367,26 @@ adminRouter.post('/orders/create-pos', async (req, res) => {
     });
 
     await recordAuditLog(res.locals.admin, 'order_create', order.orderId, {
-      courtName: 'Tại quầy (POS)',
+      courtName: targetCourtName,
       totalVnd: order.totalVnd,
       status: 'delivered',
-      paymentStatus: 'paid'
+      paymentStatus: order.paymentStatus,
+      paymentMethod: order.paymentMethod
     }, req.ip);
+
+    broadcastEvent({
+      type: 'order_created',
+      data: order,
+      sessionHash: order.customerSessionHash,
+      timestamp: new Date().toISOString()
+    });
 
     broadcastEvent({
       type: 'stock_updated',
       timestamp: new Date().toISOString()
     });
 
+    await invalidateCatalogCache();
     res.status(201).json(orderJson(order));
   } catch (error) {
     if ((error as { code?: number }).code === 11000) {
@@ -223,68 +396,78 @@ adminRouter.post('/orders/create-pos', async (req, res) => {
     throw error;
   }
 });
-adminRouter.post('/orders/create-for-court',async(req,res)=>{
-  const order = await OrderService.placeOrder(`admin:${res.locals.admin}`,req.body);
+adminRouter.post('/orders/create-for-court', requirePermission('orders'), async (req, res) => {
+  const order = await OrderService.placeOrder(`admin:${res.locals.admin}`, req.body);
   await recordAuditLog(res.locals.admin, 'order_create', order.orderId, { courtName: order.courtNameSnapshot, totalVnd: order.totalVnd }, req.ip);
   res.status(201).json(orderJson(order));
 });
 
-adminRouter.get('/products',async(_req,res)=>res.json((await getCollections().products.find({deletedAt:null}).sort({category:1,name:1}).toArray()).map(productJson)));
-adminRouter.post('/products',async(req,res)=>{
+adminRouter.get('/products', async (_req, res) => {
+  res.json((await getCollections().products.find({ deletedAt: null }).sort({ category: 1, name: 1 }).toArray()).map(productJson));
+});
+
+adminRouter.post('/products', requirePermission('drink-intake'), async (req, res) => {
   const input = productFields.strict().parse(req.body);
   const now = new Date();
-  const product = {...input,productId:randomUUID(),createdAt:now,updatedAt:now,deletedAt:null,version:1};
-  await transaction(async session=>{
+  const product = { ...input, productId: randomUUID(), createdAt: now, updatedAt: now, deletedAt: null, version: 1 };
+  await transaction(async session => {
     const c = getCollections();
-    await c.products.insertOne(product,{session});
-    if(product.stock) await c.inventoryMovements.insertOne({
-      productId:product.productId,
-      delta:product.stock,
-      reason:'stock_intake',
-      operationId:randomUUID(),
-      stockAfter:product.stock,
-      createdAt:now,
+    await c.products.insertOne(product, { session });
+    if (product.stock) await c.inventoryMovements.insertOne({
+      productId: product.productId,
+      delta: product.stock,
+      reason: 'stock_intake',
+      operationId: randomUUID(),
+      stockAfter: product.stock,
+      createdAt: now,
       productNameSnapshot: product.name,
       volumeSnapshot: product.volume,
       costPriceVnd: product.costPriceVnd ?? 0,
       sellingPriceVnd: product.priceVnd,
       totalCostVnd: (product.costPriceVnd ?? 0) * product.stock,
       note: 'Khởi tạo sản phẩm mới'
-    },{session});
+    }, { session });
   });
   await recordAuditLog(res.locals.admin, 'product_create', product.productId, { name: product.name, priceVnd: product.priceVnd, stock: product.stock }, req.ip);
+  await invalidateCatalogCache();
   res.status(201).json(productJson(product));
 });
-adminRouter.patch('/products/:id',async(req,res)=>{
+
+adminRouter.patch('/products/:id', requirePermission('drink-intake'), async (req, res) => {
   const input = productPatch.parse(req.body);
   const productId = id.parse(req.params.id);
-  const updated = await transaction(async session=>{
+  const updated = await transaction(async session => {
     const c = getCollections();
-    const current = await c.products.findOne({productId,deletedAt:null},{session});
-    if(!current) throw new ApiError(404,'NOT_FOUND','Không tìm thấy sản phẩm');
-    const {expectedStock,...fields} = input;
-    if(fields.stock !== undefined && expectedStock !== current.stock) throw new ApiError(409,'STOCK_CHANGED','Tồn kho vừa thay đổi. Vui lòng tải lại trước khi điều chỉnh.');
+    const current = await c.products.findOne({ productId, deletedAt: null }, { session });
+    if (!current) throw new ApiError(404, 'NOT_FOUND', 'Không tìm thấy sản phẩm');
+    const { expectedStock, ...fields } = input;
+    if (fields.stock !== undefined && expectedStock !== current.stock) throw new ApiError(409, 'STOCK_CHANGED', 'Tồn kho vừa thay đổi. Vui lòng tải lại trước khi điều chỉnh.');
     const now = new Date();
-    const result = await c.products.findOneAndUpdate({productId,version:current.version},{$set:{...fields,updatedAt:now},$inc:{version:1}},{session,returnDocument:'after'});
-    if(!result) throw new ApiError(409,'CONFLICT','Sản phẩm vừa thay đổi');
-    if(fields.stock !== undefined && fields.stock !== current.stock) await c.inventoryMovements.insertOne({productId,delta:fields.stock-current.stock,reason:'stock_adjustment',operationId:randomUUID(),stockAfter:fields.stock,createdAt:now},{session});
+    const result = await c.products.findOneAndUpdate({ productId, version: current.version }, { $set: { ...fields, updatedAt: now }, $inc: { version: 1 } }, { session, returnDocument: 'after' });
+    if (!result) throw new ApiError(409, 'CONFLICT', 'Sản phẩm vừa thay đổi');
+    if (fields.stock !== undefined && fields.stock !== current.stock) await c.inventoryMovements.insertOne({ productId, delta: fields.stock - current.stock, reason: 'stock_adjustment', operationId: randomUUID(), stockAfter: fields.stock, createdAt: now }, { session });
     return result;
   });
   await recordAuditLog(res.locals.admin, 'product_update', productId, { name: updated.name, changes: input }, req.ip);
   broadcastEvent({ type: 'stock_updated', data: { productId, stock: updated.stock }, timestamp: new Date().toISOString() });
+  await invalidateCatalogCache();
   res.json(productJson(updated));
 });
-adminRouter.delete('/products/:id',async(req,res)=>{
+
+adminRouter.delete('/products/:id', requirePermission('drink-intake'), async (req, res) => {
   const productId = id.parse(req.params.id);
-  const updated = await getCollections().products.findOneAndUpdate({productId,deletedAt:null},{$set:{deletedAt:new Date(),isAvailable:false,updatedAt:new Date()},$inc:{version:1}},{returnDocument:'after'});
-  if(!updated) throw new ApiError(404,'NOT_FOUND','Không tìm thấy sản phẩm');
+  const updated = await getCollections().products.findOneAndUpdate({ productId, deletedAt: null }, { $set: { deletedAt: new Date(), isAvailable: false, updatedAt: new Date() }, $inc: { version: 1 } }, { returnDocument: 'after' });
+  if (!updated) throw new ApiError(404, 'NOT_FOUND', 'Không tìm thấy sản phẩm');
   await recordAuditLog(res.locals.admin, 'product_delete', productId, { name: updated.name }, req.ip);
-  res.json({id:updated.productId});
+  await invalidateCatalogCache();
+  res.json({ id: updated.productId });
 });
-adminRouter.get('/products/:id/movements',async(req,res)=>{
-  res.json(await getCollections().inventoryMovements.find({productId:id.parse(req.params.id)}).sort({createdAt:-1}).limit(100).toArray());
+
+adminRouter.get('/products/:id/movements', requirePermission('intake-history'), async (req, res) => {
+  res.json(await getCollections().inventoryMovements.find({ productId: id.parse(req.params.id) }).sort({ createdAt: -1 }).limit(100).toArray());
 });
-adminRouter.post('/products/:id/stock',async(req,res)=>{
+
+adminRouter.post('/products/:id/stock', requirePermission('drink-intake'), async (req, res) => {
   const input = z.object({
     clientRequestId: id,
     delta: z.number().int().min(-1_000_000).max(1_000_000).optional(),
@@ -292,23 +475,47 @@ adminRouter.post('/products/:id/stock',async(req,res)=>{
     expectedStock: stock.optional(),
     costPriceVnd: z.number().int().min(0).max(100_000_000).optional(),
     sellingPriceVnd: z.number().int().min(0).max(100_000_000).optional(),
+    responsiblePerson: z.string().trim().max(100).optional(),
+    transferDate: z.string().optional(),
     note: z.string().trim().max(200).optional(),
-    reason: z.enum(['stock_intake','stock_adjustment','quick_restock']).default('stock_intake')
+    reason: z.enum(['stock_intake', 'stock_adjustment', 'quick_restock']).default('stock_intake')
   }).strict()
-    .refine(v=>(v.delta !== undefined)!==(v.setAbsoluteStock !== undefined),'Chọn nhập kho hoặc đặt tồn kho').parse(req.body);
+    .refine(v => (v.delta !== undefined) !== (v.setAbsoluteStock !== undefined), 'Chọn nhập kho hoặc đặt tồn kho').parse(req.body);
   const productId = id.parse(req.params.id);
   const operationId = `stock:${res.locals.admin}:${input.clientRequestId}`;
-  const result = await transaction(async session=>{
+  const fingerprint = createHash('sha256').update(JSON.stringify({
+    productId,
+    delta: input.delta,
+    setAbsoluteStock: input.setAbsoluteStock,
+    expectedStock: input.expectedStock,
+    costPriceVnd: input.costPriceVnd,
+    sellingPriceVnd: input.sellingPriceVnd,
+    responsiblePerson: input.responsiblePerson || '',
+    transferDate: input.transferDate || '',
+    note: input.note || '',
+    reason: input.reason
+  })).digest('hex');
+
+  const result = await transaction(async session => {
     const c = getCollections();
-    const receipt = await c.inventoryMovements.findOne({operationId},{session});
-    if(receipt) {
-      if(receipt.productId !== productId) throw new ApiError(409,'REQUEST_CONFLICT','Mã yêu cầu đã được sử dụng');
-      return {id:productId,stock:receipt.stockAfter};
+    const receipt = await c.inventoryMovements.findOne({ operationId }, { session });
+    if (receipt) {
+      if (receipt.productId !== productId) throw new ApiError(409, 'REQUEST_CONFLICT', 'Mã yêu cầu đã được sử dụng cho sản phẩm khác');
+      if ((receipt as any).requestFingerprint && (receipt as any).requestFingerprint !== fingerprint) {
+        throw new ApiError(409, 'REQUEST_CONFLICT', 'Mã yêu cầu đã được sử dụng cho một nội dung khác');
+      }
+      if (input.delta !== undefined && receipt.delta !== input.delta) {
+        throw new ApiError(409, 'REQUEST_CONFLICT', 'Mã yêu cầu đã được sử dụng cho một nội dung khác');
+      }
+      if (input.costPriceVnd !== undefined && receipt.costPriceVnd !== undefined && receipt.costPriceVnd !== input.costPriceVnd) {
+        throw new ApiError(409, 'REQUEST_CONFLICT', 'Mã yêu cầu đã được sử dụng cho một nội dung khác');
+      }
+      return { id: productId, stock: receipt.stockAfter };
     }
-    const current = await c.products.findOne({productId,deletedAt:null},{session});
-    if(!current) throw new ApiError(404,'NOT_FOUND','Không tìm thấy sản phẩm');
-    if(input.setAbsoluteStock !== undefined && current.stock !== input.expectedStock) throw new ApiError(409,'STOCK_CHANGED','Tồn kho đã thay đổi. Vui lòng tải lại.');
-    const nextStock = stock.parse(input.setAbsoluteStock ?? current.stock+input.delta!);
+    const current = await c.products.findOne({ productId, deletedAt: null }, { session });
+    if (!current) throw new ApiError(404, 'NOT_FOUND', 'Không tìm thấy sản phẩm');
+    if (input.setAbsoluteStock !== undefined && current.stock !== input.expectedStock) throw new ApiError(409, 'STOCK_CHANGED', 'Tồn kho đã thay đổi. Vui lòng tải lại.');
+    const nextStock = stock.parse(input.setAbsoluteStock ?? current.stock + input.delta!);
     const now = new Date();
     const delta = nextStock - current.stock;
 
@@ -320,7 +527,7 @@ adminRouter.post('/products/:id/stock',async(req,res)=>{
       productUpdate.priceVnd = input.sellingPriceVnd;
     }
 
-    await c.products.updateOne({productId},{$set:productUpdate,$inc:{version:1}},{session});
+    await c.products.updateOne({ productId }, { $set: productUpdate, $inc: { version: 1 } }, { session });
 
     const activeCostPrice = input.costPriceVnd ?? current.costPriceVnd ?? 0;
     const activeSellingPrice = input.sellingPriceVnd ?? current.priceVnd;
@@ -332,22 +539,164 @@ adminRouter.post('/products/:id/stock',async(req,res)=>{
       reason: input.reason,
       operationId,
       stockAfter: nextStock,
+      requestFingerprint: fingerprint,
       createdAt: now,
       productNameSnapshot: current.name,
       volumeSnapshot: current.volume,
       costPriceVnd: activeCostPrice,
       sellingPriceVnd: activeSellingPrice,
       totalCostVnd,
+      responsiblePerson: input.responsiblePerson,
+      transferDate: input.transferDate ? new Date(input.transferDate) : now,
       note: input.note
-    },{session});
-    return {id:productId,stock:nextStock,costPriceVnd:activeCostPrice,sellingPriceVnd:activeSellingPrice};
+    } as any, { session });
+    return { id: productId, stock: nextStock, costPriceVnd: activeCostPrice, sellingPriceVnd: activeSellingPrice };
   });
   await recordAuditLog(res.locals.admin, 'stock_adjustment', productId, { reason: input.reason, stockAfter: result.stock }, req.ip);
   broadcastEvent({ type: 'stock_updated', data: { productId, stock: result.stock }, timestamp: new Date().toISOString() });
+  await invalidateCatalogCache();
   res.json(result);
 });
 
-adminRouter.get('/inventory/intake-history', async (req, res) => {
+adminRouter.post('/inventory/batch-intake', requirePermission('drink-intake'), async (req, res) => {
+  const schema = z.object({
+    clientRequestId: id.optional(),
+    items: z.array(z.object({
+      productId: id,
+      delta: z.number().int().positive().max(1_000_000),
+      costPriceVnd: z.number().int().min(0).max(100_000_000).optional(),
+      sellingPriceVnd: z.number().int().min(0).max(100_000_000).optional()
+    })).min(1, 'Cần ít nhất một món có số lượng nhập lớn hơn 0'),
+    transferDate: z.string().optional(),
+    responsiblePerson: z.string().trim().max(100).optional(),
+    note: z.string().trim().max(200).optional()
+  });
+  const input = schema.parse(req.body);
+  const c = getCollections();
+
+  // F06: Idempotency check with payload fingerprint verification
+  const fingerprint = createHash('sha256').update(JSON.stringify({
+    items: [...input.items].sort((a, b) => a.productId.localeCompare(b.productId)).map(i => ({
+      productId: i.productId,
+      delta: i.delta,
+      costPriceVnd: i.costPriceVnd,
+      sellingPriceVnd: i.sellingPriceVnd
+    })),
+    transferDate: input.transferDate || '',
+    responsiblePerson: input.responsiblePerson || '',
+    note: input.note || ''
+  })).digest('hex');
+
+  if (input.clientRequestId) {
+    const existingBatch = await c.appSettings.findOne({ key: `idempotency:drink_batch:${input.clientRequestId}` });
+    if (existingBatch) {
+      if (existingBatch.fingerprint && existingBatch.fingerprint !== fingerprint) {
+        throw new ApiError(409, 'REQUEST_CONFLICT', 'Mã yêu cầu đã được sử dụng cho một nội dung khác');
+      }
+      if (existingBatch.value) {
+        return res.json(existingBatch.value);
+      }
+    }
+  }
+
+  // F06: All-or-nothing validation upfront
+  const productIds = Array.from(new Set(input.items.map(i => i.productId)));
+  const existingProducts = await c.products.find({ productId: { $in: productIds }, deletedAt: null }).toArray();
+  if (existingProducts.length !== productIds.length) {
+    const foundIds = new Set(existingProducts.map(p => p.productId));
+    const missing = productIds.filter(pid => !foundIds.has(pid));
+    throw new ApiError(404, 'PRODUCT_NOT_FOUND', `Một hoặc nhiều sản phẩm không tồn tại hoặc đã bị xóa: ${missing.join(', ')}`);
+  }
+
+  const intakeBatchId = `batch-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+  const now = new Date();
+  const parsedTransferDate = input.transferDate ? new Date(input.transferDate) : now;
+
+  const result = await transaction(async session => {
+    if (input.clientRequestId) {
+      const duplicate = await c.appSettings.findOne({ key: `idempotency:drink_batch:${input.clientRequestId}` }, { session });
+      if (duplicate) {
+        if (duplicate.fingerprint && duplicate.fingerprint !== fingerprint) {
+          throw new ApiError(409, 'REQUEST_CONFLICT', 'Mã yêu cầu đã được sử dụng cho một nội dung khác');
+        }
+        if (duplicate.value) return duplicate.value;
+      }
+    }
+
+    const updatedProducts: Array<{ id: string; name: string; stock: number; delta: number; costPriceVnd: number; totalCostVnd: number }> = [];
+
+    for (const item of input.items) {
+      const productUpdate: Record<string, any> = { updatedAt: now };
+      if (item.costPriceVnd !== undefined) {
+        productUpdate.costPriceVnd = item.costPriceVnd;
+      }
+      if (item.sellingPriceVnd !== undefined) {
+        productUpdate.priceVnd = item.sellingPriceVnd;
+      }
+
+      const updated = await c.products.findOneAndUpdate(
+        { productId: item.productId, deletedAt: null },
+        { $inc: { stock: item.delta, version: 1 }, $set: productUpdate },
+        { session, returnDocument: 'after' }
+      );
+      if (!updated) {
+        throw new ApiError(404, 'PRODUCT_NOT_FOUND', `Sản phẩm ${item.productId} không tồn tại`);
+      }
+
+      const nextStock = updated.stock;
+      const activeCostPrice = item.costPriceVnd ?? updated.costPriceVnd ?? 0;
+      const activeSellingPrice = item.sellingPriceVnd ?? updated.priceVnd;
+      const totalCostVnd = item.delta * activeCostPrice;
+      const operationId = `stock:${res.locals.admin}:${intakeBatchId}:${item.productId}`;
+
+      await c.inventoryMovements.insertOne({
+        productId: item.productId,
+        delta: item.delta,
+        reason: 'stock_intake',
+        operationId,
+        stockAfter: nextStock,
+        requestFingerprint: fingerprint,
+        createdAt: now,
+        productNameSnapshot: updated.name,
+        volumeSnapshot: updated.volume,
+        costPriceVnd: activeCostPrice,
+        sellingPriceVnd: activeSellingPrice,
+        totalCostVnd,
+        responsiblePerson: input.responsiblePerson,
+        transferDate: parsedTransferDate,
+        note: input.note ? `${input.note} (Lô ${intakeBatchId})` : `Nhập hàng theo lô (${intakeBatchId})`
+      } as any, { session });
+
+      updatedProducts.push({
+        id: item.productId,
+        name: updated.name,
+        stock: nextStock,
+        delta: item.delta,
+        costPriceVnd: activeCostPrice,
+        totalCostVnd
+      });
+    }
+
+    const batchResult = { intakeBatchId, count: updatedProducts.length, items: updatedProducts };
+    if (input.clientRequestId) {
+      await c.appSettings.updateOne(
+        { key: `idempotency:drink_batch:${input.clientRequestId}` },
+        { $set: { value: batchResult, fingerprint, updatedAt: now } },
+        { session, upsert: true }
+      );
+    }
+    return batchResult;
+  });
+
+  for (const p of result.items) {
+    broadcastEvent({ type: 'stock_updated', data: { productId: p.id, stock: p.stock }, timestamp: new Date().toISOString() });
+  }
+  await invalidateCatalogCache();
+  await recordAuditLog(res.locals.admin, 'batch_stock_intake', result.intakeBatchId, { count: result.count }, req.ip);
+  res.json(result);
+});
+
+adminRouter.get('/inventory/intake-history', requirePermission('intake-history'), async (req, res) => {
   const c = getCollections();
   const page = Math.max(parseInt(String(req.query.page || '1'), 10) || 1, 1);
   const limit = Math.min(Math.max(parseInt(String(req.query.limit || '50'), 10) || 50, 1), 500);
@@ -482,38 +831,40 @@ adminRouter.get('/courts', async (_req, res) => {
     sig: signCourtCode(c.code)
   })));
 });
-adminRouter.post('/courts',async(req,res)=>{
-  const input = z.object({code:courtCode,name:z.string().trim().min(1).max(100)}).strict().parse(req.body);
+adminRouter.post('/courts', requirePermission('courts'), async (req, res) => {
+  const input = z.object({ code: courtCode, name: z.string().trim().min(1).max(100) }).strict().parse(req.body);
   const c = getCollections();
-  const existing = await c.courts.findOne({code:input.code});
-  if(existing) throw new ApiError(409,'DUPLICATE_CODE','Mã sân đã tồn tại trong hệ thống, vui lòng dùng mã khác');
+  const existing = await c.courts.findOne({ code: input.code });
+  if (existing) throw new ApiError(409, 'DUPLICATE_CODE', 'Mã sân đã tồn tại trong hệ thống, vui lòng dùng mã khác');
   const now = new Date();
-  const court = {...input,courtId:randomUUID(),sortOrder:Number(input.code),isActive:true,deletedAt:null,createdAt:now,updatedAt:now};
+  const court = { ...input, courtId: randomUUID(), sortOrder: Number(input.code), isActive: true, deletedAt: null, createdAt: now, updatedAt: now };
   await c.courts.insertOne(court);
-  res.status(201).json({id:court.courtId,...input,isActive:true});
+  res.status(201).json({ id: court.courtId, ...input, isActive: true });
 });
-adminRouter.patch('/courts/:id',async(req,res)=>{
-  const input = z.object({name:z.string().trim().min(1).max(100).optional(),isActive:z.boolean().optional()}).strict().parse(req.body);
-  const result = await getCollections().courts.findOneAndUpdate({courtId:id.parse(req.params.id),deletedAt:null},{$set:{...input,updatedAt:new Date()}},{returnDocument:'after'});
-  if(!result) throw new ApiError(404,'NOT_FOUND','Không tìm thấy sân');
-  res.json({id:result.courtId,code:result.code,name:result.name,isActive:result.isActive});
+adminRouter.patch('/courts/:id', requirePermission('courts'), async (req, res) => {
+  const input = z.object({ name: z.string().trim().min(1).max(100).optional(), isActive: z.boolean().optional() }).strict().parse(req.body);
+  const result = await getCollections().courts.findOneAndUpdate({ courtId: id.parse(req.params.id), deletedAt: null }, { $set: { ...input, updatedAt: new Date() } }, { returnDocument: 'after' });
+  if (!result) throw new ApiError(404, 'NOT_FOUND', 'Không tìm thấy sân');
+  res.json({ id: result.courtId, code: result.code, name: result.name, isActive: result.isActive });
 });
-adminRouter.delete('/courts/:id',async(req,res)=>{
+adminRouter.delete('/courts/:id', requirePermission('courts'), async (req, res) => {
   const courtId = id.parse(req.params.id);
-  await transaction(async session=>{
+  await transaction(async session => {
     const c = getCollections();
-    const court = await c.courts.findOneAndUpdate({courtId,deletedAt:null},{$set:{deletedAt:new Date(),isActive:false,updatedAt:new Date()}},{session});
-    if(!court) throw new ApiError(404,'NOT_FOUND','Không tìm thấy sân');
-    if(await c.orders.countDocuments({courtId,status:{$in:['new','accepted','preparing']}},{session})) throw new ApiError(409,'COURT_HAS_ACTIVE_ORDERS','Sân đang có đơn chưa hoàn tất');
+    const court = await c.courts.findOneAndUpdate({ courtId, deletedAt: null }, { $set: { deletedAt: new Date(), isActive: false, updatedAt: new Date() } }, { session });
+    if (!court) throw new ApiError(404, 'NOT_FOUND', 'Không tìm thấy sân');
+    if (await c.orders.countDocuments({ courtId, status: { $in: ['new', 'accepted', 'preparing'] } }, { session })) throw new ApiError(409, 'COURT_HAS_ACTIVE_ORDERS', 'Sân đang có đơn chưa hoàn tất');
   });
-  res.json({courtId});
+  res.json({ courtId });
 });
 
-adminRouter.get('/reports/history',async(req,res)=>{
+adminRouter.get('/reports/history', requirePermission(['order-history', 'sports-order-history']), async (req, res) => {
   const query = z.object({
     courtId: id.optional(),
-    status: z.enum(['all','new','accepted','preparing','delivered','cancelled']).optional(),
+    status: z.enum(['all','new','accepted','preparing','delivered','cancelled','paid_cash','paid_transfer']).optional(),
     paymentStatus: z.enum(['all','unpaid','paid']).optional(),
+    paymentMethod: z.enum(['all','cash','transfer']).optional(),
+    orderType: z.enum(['all','drinks','sports_pos']).optional().default('all'),
     timePreset: z.string().optional(),
     startDate: z.string().optional(),
     endDate: z.string().optional(),
@@ -524,10 +875,61 @@ adminRouter.get('/reports/history',async(req,res)=>{
     cursor: id.optional()
   }).parse(req.query);
 
+  const perms: string[] = res.locals.permissions || [];
+  const envAdminUser = process.env.ADMIN_USERNAME || 'admin';
+  const isSuperAdmin = perms.includes('*') || (res.locals.admin === envAdminUser && !res.locals.userId) || res.locals.roleId === 'admin';
+  const canDrinks = isSuperAdmin || perms.includes('order-history');
+  const canSports = isSuperAdmin || perms.includes('sports-order-history');
+
+  if (!canDrinks && !canSports) {
+    throw new ApiError(403, 'FORBIDDEN', 'Bạn không có quyền truy cập lịch sử đơn hàng');
+  }
+
+  if (!canDrinks && canSports) {
+    if (query.orderType === 'drinks') {
+      throw new ApiError(403, 'FORBIDDEN', 'Bạn không có quyền xem lịch sử đơn nước');
+    }
+    query.orderType = 'sports_pos';
+  } else if (canDrinks && !canSports) {
+    if (query.orderType === 'sports_pos') {
+      throw new ApiError(403, 'FORBIDDEN', 'Bạn không có quyền xem lịch sử đơn thể thao');
+    }
+    query.orderType = 'drinks';
+  }
+
   const baseFilter: Record<string,unknown> = {};
   if(query.courtId && query.courtId !== 'all') baseFilter.courtId = query.courtId;
-  if(query.status && query.status !== 'all') baseFilter.status = query.status;
-  if(query.paymentStatus && query.paymentStatus !== 'all') baseFilter.paymentStatus = query.paymentStatus;
+
+  if (query.orderType === 'drinks') {
+    baseFilter.orderType = { $ne: 'sports_pos' };
+  } else if (query.orderType === 'sports_pos') {
+    baseFilter.orderType = 'sports_pos';
+  }
+
+  if (query.status === 'paid_cash') {
+    baseFilter.status = 'delivered';
+    baseFilter.paymentStatus = 'paid';
+    baseFilter.paymentMethod = { $in: ['cash', null, undefined] };
+  } else if (query.status === 'paid_transfer') {
+    baseFilter.status = 'delivered';
+    baseFilter.paymentStatus = 'paid';
+    baseFilter.paymentMethod = 'transfer';
+  } else if (query.status && query.status !== 'all') {
+    baseFilter.status = query.status;
+  }
+
+  if (query.paymentMethod && query.paymentMethod !== 'all') {
+    if (query.paymentMethod === 'cash') {
+      baseFilter.paymentMethod = { $in: ['cash', null, undefined] };
+    } else {
+      baseFilter.paymentMethod = query.paymentMethod;
+    }
+    baseFilter.paymentStatus = 'paid';
+  }
+
+  if (query.paymentStatus && query.paymentStatus !== 'all' && !baseFilter.paymentStatus) {
+    baseFilter.paymentStatus = query.paymentStatus;
+  }
 
   if (query.startDate || query.endDate) {
     const dateFilter: Record<string, Date> = {};
@@ -618,27 +1020,156 @@ adminRouter.get('/reports/history',async(req,res)=>{
     }
   });
 });
-adminRouter.get('/reports/summary',async(req,res)=>{
-  const timeFilter = z.enum(['today','yesterday','7days','month','all']).default('today').parse(req.query.timeFilter);
+adminRouter.get('/reports/summary', requirePermission('revenue-report'), async (req, res) => {
+  const timeFilter = z.enum(['today', 'yesterday', '7days', 'month', 'all']).default('today').parse(req.query.timeFilter);
+  const categoryFilter = z.enum(['all', 'drinks', 'sports', 'service']).default('all').parse(req.query.categoryFilter || 'all');
   const c = getCollections();
-  const pipeline = [{$match:{status:'delivered',deliveredAt:dateRange(timeFilter)}},{$facet:{
-    totals:[{$group:{_id:null,revenue:{$sum:'$totalVnd'},orders:{$sum:1}}}],
-    courts:[{$group:{_id:'$courtId',name:{$last:'$courtNameSnapshot'},revenue:{$sum:'$totalVnd'},ordersCount:{$sum:1}}},{$sort:{revenue:-1}}],
-    products:[{$unwind:'$items'},{$group:{
-      _id:'$items.productId',
-      name:{$last:'$items.nameSnapshot'},
-      bottles:{$sum:'$items.quantity'},
-      ice:{$sum:'$items.iceQuantity'},
-      revenue:{$sum:'$items.lineTotalVnd'},
-      cost:{$sum:{$multiply:[{$ifNull:['$items.costPriceVnd',0]},'$items.quantity']}}
-    }},{$sort:{revenue:-1}}]
-  }}];
-  const [[summary], [pending], [unpaid]] = await Promise.all([
+
+  const matchStage: any = { status: 'delivered', deliveredAt: dateRange(timeFilter) };
+  if (categoryFilter === 'drinks') {
+    matchStage.orderType = { $ne: 'sports_pos' };
+  } else if (categoryFilter === 'sports' || categoryFilter === 'service') {
+    matchStage.orderType = 'sports_pos';
+  }
+
+  const pipeline = [{ $match: matchStage }, {
+    $facet: {
+      totals: [{
+        $group: {
+          _id: null,
+          orders: { $sum: 1 },
+          deliveredRevenue: { $sum: '$totalVnd' },
+          paidRevenue: {
+            $sum: { $cond: [{ $eq: ['$paymentStatus', 'paid'] }, '$totalVnd', 0] }
+          },
+          unpaidDebt: {
+            $sum: { $cond: [{ $ne: ['$paymentStatus', 'paid'] }, '$totalVnd', 0] }
+          },
+          unpaidOrdersCount: {
+            $sum: { $cond: [{ $ne: ['$paymentStatus', 'paid'] }, 1, 0] }
+          }
+        }
+      }],
+      courts: [
+        {
+          $group: {
+            _id: '$courtId',
+            name: { $last: '$courtNameSnapshot' },
+            revenue: { $sum: '$totalVnd' },
+            paidRevenue: {
+              $sum: { $cond: [{ $eq: ['$paymentStatus', 'paid'] }, '$totalVnd', 0] }
+            },
+            ordersCount: { $sum: 1 }
+          }
+        },
+        { $sort: { revenue: -1 } }
+      ],
+      products: [
+        { $unwind: '$items' },
+        ...(categoryFilter !== 'all' ? [{
+          $match: {
+            'items.itemType': categoryFilter === 'drinks' ? { $in: ['drink', null] } : categoryFilter
+          }
+        }] : []),
+        {
+          $group: {
+            _id: '$items.productId',
+            name: { $last: '$items.nameSnapshot' },
+            unit: { $last: '$items.volumeSnapshot' },
+            itemType: { $last: { $ifNull: ['$items.itemType', 'drink'] } },
+            quantity: { $sum: '$items.quantity' },
+            ice: { $sum: '$items.iceQuantity' },
+            revenue: { $sum: '$items.lineTotalVnd' },
+            cost: { $sum: { $multiply: [{ $ifNull: ['$items.costPriceVnd', 0] }, '$items.quantity'] } }
+          }
+        },
+        { $sort: { revenue: -1 } }
+      ],
+      breakdown: [
+        { $unwind: '$items' },
+        {
+          $group: {
+            _id: { $ifNull: ['$items.itemType', 'drink'] },
+            revenue: { $sum: '$items.lineTotalVnd' },
+            paidRevenue: {
+              $sum: { $cond: [{ $eq: ['$paymentStatus', 'paid'] }, '$items.lineTotalVnd', 0] }
+            },
+            cost: { $sum: { $multiply: [{ $ifNull: ['$items.costPriceVnd', 0] }, '$items.quantity'] } },
+            quantity: { $sum: '$items.quantity' }
+          }
+        }
+      ],
+      paymentMethods: [
+        { $match: { paymentStatus: 'paid' } },
+        {
+          $group: {
+            _id: { $ifNull: ['$paymentMethod', 'cash'] },
+            revenue: { $sum: '$totalVnd' },
+            count: { $sum: 1 }
+          }
+        }
+      ],
+      paymentMethodsByDomain: [
+        { $match: { paymentStatus: 'paid' } },
+        { $unwind: '$items' },
+        {
+          $group: {
+            _id: {
+              itemType: { $ifNull: ['$items.itemType', 'drink'] },
+              method: { $ifNull: ['$paymentMethod', 'cash'] }
+            },
+            revenue: { $sum: '$items.lineTotalVnd' },
+            quantity: { $sum: '$items.quantity' }
+          }
+        }
+      ]
+    }
+  }];
+
+  const paidInPeriodMatch: any = {
+    paymentStatus: 'paid',
+    paidAt: dateRange(timeFilter)
+  };
+  if (categoryFilter === 'drinks') {
+    paidInPeriodMatch.orderType = { $ne: 'sports_pos' };
+  } else if (categoryFilter === 'sports' || categoryFilter === 'service') {
+    paidInPeriodMatch.orderType = 'sports_pos';
+  }
+
+  const [[summary], [pending], [unpaid], [collectedInPeriod]] = await Promise.all([
     c.orders.aggregate(pipeline).toArray(),
-    c.orders.aggregate([{$match:{status:{$in:['new','accepted','preparing']}}},{$group:{_id:null,total:{$sum:'$totalVnd'},count:{$sum:1}}}]).toArray(),
-    c.orders.aggregate([{$match:{paymentStatus:'unpaid',status:{$ne:'cancelled'}}},{$group:{_id:null,total:{$sum:'$totalVnd'},count:{$sum:1}}}]).toArray()
+    c.orders.aggregate([{ $match: { status: { $in: ['new', 'accepted', 'preparing'] } } }, { $group: { _id: null, total: { $sum: '$totalVnd' }, count: { $sum: 1 } } }]).toArray(),
+    c.orders.aggregate([{ $match: { paymentStatus: 'unpaid', status: { $ne: 'cancelled' } } }, { $group: { _id: null, total: { $sum: '$totalVnd' }, count: { $sum: 1 } } }]).toArray(),
+    c.orders.aggregate([
+      { $match: paidInPeriodMatch },
+      {
+        $facet: {
+          methods: [
+            {
+              $group: {
+                _id: { $ifNull: ['$paymentMethod', 'cash'] },
+                revenue: { $sum: '$totalVnd' },
+                count: { $sum: 1 }
+              }
+            }
+          ],
+          domains: [
+            { $unwind: '$items' },
+            {
+              $group: {
+                _id: {
+                  itemType: { $ifNull: ['$items.itemType', 'drink'] },
+                  method: { $ifNull: ['$paymentMethod', 'cash'] }
+                },
+                revenue: { $sum: '$items.lineTotalVnd' }
+              }
+            }
+          ]
+        }
+      }
+    ]).toArray()
   ]);
-  
+
   const rawProducts = summary?.products || [];
   const products = rawProducts.map((p: any) => {
     const cost = p.cost || 0;
@@ -653,23 +1184,118 @@ adminRouter.get('/reports/summary',async(req,res)=>{
     };
   });
 
-  const totalRevenueVnd = summary?.totals[0]?.revenue || 0;
+  const domainPmList = summary?.paymentMethodsByDomain || [];
+  const getDomainMethodRevenue = (domain: string, method: string) => {
+    return domainPmList.find((p: any) => p._id?.itemType === domain && p._id?.method === method)?.revenue || 0;
+  };
+
+  const periodMethods = collectedInPeriod?.methods || [];
+  const periodDomains = collectedInPeriod?.domains || [];
+  const getPeriodDomainRevenue = (domain: string, method: string) => {
+    return periodDomains.find((p: any) => p._id?.itemType === domain && p._id?.method === method)?.revenue || 0;
+  };
+
+  // Thu tiền thực tế theo ngày thanh toán trong kỳ (strictly không fallback theo deliveredAt để bảo đảm tính chuẩn xác tài chính)
+  const periodCash = periodMethods.find((p: any) => p._id === 'cash')?.revenue;
+  const periodTransfer = periodMethods.find((p: any) => p._id === 'transfer')?.revenue;
+
+  const totalPaidCash = periodCash ?? 0;
+  const totalPaidTransfer = periodTransfer ?? 0;
+
+  let cashRevenue = totalPaidCash;
+  let transferRevenue = totalPaidTransfer;
+  let collectedRevenue = totalPaidCash + totalPaidTransfer;
+  let deliveredRevenue = summary?.totals[0]?.deliveredRevenue || 0;
+  let unpaidDebtVnd = summary?.totals[0]?.unpaidDebt || 0;
+
+  if (categoryFilter !== 'all') {
+    const domainKey = categoryFilter === 'drinks' ? 'drink' : categoryFilter;
+    const catPeriodCash = getPeriodDomainRevenue(domainKey, 'cash') ?? 0;
+    const catPeriodTransfer = getPeriodDomainRevenue(domainKey, 'transfer') ?? 0;
+    cashRevenue = catPeriodCash;
+    transferRevenue = catPeriodTransfer;
+    collectedRevenue = cashRevenue + transferRevenue;
+    deliveredRevenue = products.reduce((acc: number, p: any) => acc + (p.revenue || 0), 0);
+    unpaidDebtVnd = Math.max(0, deliveredRevenue - collectedRevenue);
+  }
+
+  // Doanh thu đơn đã giao (tương thích ngược) & Doanh thu thực thu
+  const totalRevenueVnd = deliveredRevenue;
   const totalCostVnd = products.reduce((acc: number, p: any) => acc + (p.cost || 0), 0);
   const totalProfitVnd = totalRevenueVnd - totalCostVnd;
   const overallMargin = totalRevenueVnd > 0 ? Math.round((totalProfitVnd / totalRevenueVnd) * 1000) / 10 : 0;
 
+  // Tổng hợp phân bổ theo nhóm — chuẩn hóa công thức đồng nhất giữa tổng thể và nhóm con
+  const breakdownRows = summary?.breakdown || [];
+  const drinksStat = breakdownRows.find((b: any) => b._id === 'drink') || { revenue: 0, paidRevenue: 0, cost: 0, quantity: 0 };
+  const sportsStat = breakdownRows.find((b: any) => b._id === 'sports') || { revenue: 0, paidRevenue: 0, cost: 0, quantity: 0 };
+  const serviceStat = breakdownRows.find((b: any) => b._id === 'service') || { revenue: 0, paidRevenue: 0, cost: 0, quantity: 0 };
+
+  const drinksRevenue = drinksStat.revenue || 0;
+  const drinksCost = drinksStat.cost || 0;
+  const drinksProfit = drinksRevenue - drinksCost;
+
+  const sportsRevenue = sportsStat.revenue || 0;
+  const sportsCost = sportsStat.cost || 0;
+  const sportsProfit = sportsRevenue - sportsCost;
+
+  const serviceRevenue = serviceStat.revenue || 0;
+  const serviceCost = serviceStat.cost || 0;
+  const serviceProfit = serviceRevenue - serviceCost;
+
   res.json({
     timeFilter,
+    categoryFilter,
     totalRevenueVnd,
+    collectedRevenue,
+    deliveredRevenue,
+    unpaidDebtVnd,
     totalCostVnd,
     totalProfitVnd,
+    totalCashProfitVnd: collectedRevenue - totalCostVnd,
     profitMarginPercent: overallMargin,
+    cashRevenue,
+    transferRevenue,
     totalOrdersDelivered: summary?.totals[0]?.orders || 0,
     uncollectedRevenueVnd: pending?.total || 0,
     totalOrdersUncollected: pending?.count || 0,
     unpaidRevenueVnd: unpaid?.total || 0,
     unpaidOrdersCount: unpaid?.count || 0,
-    totalBottlesDelivered: products.reduce((n:number,p:{bottles:number})=>n+p.bottles,0),
+    periodUnpaidOrdersCount: summary?.totals[0]?.unpaidOrdersCount || 0,
+    totalItemsDelivered: products.reduce((n: number, p: { quantity: number }) => n + p.quantity, 0),
+    totalBottlesDelivered: drinksStat.quantity || 0,
+    breakdown: {
+      drinks: {
+        revenue: drinksRevenue,
+        collectedRevenue: drinksStat.paidRevenue || (getDomainMethodRevenue('drink', 'cash') + getDomainMethodRevenue('drink', 'transfer')),
+        cost: drinksCost,
+        profit: drinksProfit,
+        cashProfit: (drinksStat.paidRevenue || 0) - drinksCost,
+        quantity: drinksStat.quantity || 0,
+        cashRevenue: getDomainMethodRevenue('drink', 'cash'),
+        transferRevenue: getDomainMethodRevenue('drink', 'transfer')
+      },
+      sports: {
+        revenue: sportsRevenue,
+        collectedRevenue: sportsStat.paidRevenue || (getDomainMethodRevenue('sports', 'cash') + getDomainMethodRevenue('sports', 'transfer')),
+        cost: sportsCost,
+        profit: sportsProfit,
+        cashProfit: (sportsStat.paidRevenue || 0) - sportsCost,
+        quantity: sportsStat.quantity || 0,
+        cashRevenue: getDomainMethodRevenue('sports', 'cash'),
+        transferRevenue: getDomainMethodRevenue('sports', 'transfer')
+      },
+      service: {
+        revenue: serviceRevenue,
+        collectedRevenue: serviceStat.paidRevenue || (getDomainMethodRevenue('service', 'cash') + getDomainMethodRevenue('service', 'transfer')),
+        cost: serviceCost,
+        profit: serviceProfit,
+        cashProfit: (serviceStat.paidRevenue || 0) - serviceCost,
+        quantity: serviceStat.quantity || 0,
+        cashRevenue: getDomainMethodRevenue('service', 'cash'),
+        transferRevenue: getDomainMethodRevenue('service', 'transfer')
+      }
+    },
     byCourt: summary?.courts || [],
     bestSellers: products
   });
@@ -787,18 +1413,23 @@ function parseCleanDateFilter(input: {
   };
 }
 
-adminRouter.get('/backup/full', async (_req, res) => {
+adminRouter.get('/backup/full', requirePermission('backup'), async (_req, res) => {
   const c = getCollections();
 
-  const [products, courts, orders, settings, auditLogs, inventoryMovements, orderSequences] = await Promise.all([
-    c.products.find({ deletedAt: null }).sort({ category: 1, name: 1 }).toArray(),
-    c.courts.find({ deletedAt: null }).sort({ sortOrder: 1 }).toArray(),
-    c.orders.find({}).sort({ createdAt: -1 }).toArray(),
-    c.appSettings.findOne({ key: 'system_config' }),
-    c.auditLogs.find({}).sort({ createdAt: -1 }).toArray(),
-    c.inventoryMovements.find({}).sort({ createdAt: -1 }).toArray(),
-    c.appSettings.find({ key: { $regex: '^order_sequence:' } }).toArray()
-  ]);
+  const [products, courts, orders, settings, auditLogs, inventoryMovements, orderSequences, sportsItems, sportsMovements, roles, users] = await snapshotRead(async (session) => {
+    const p = await c.products.find({ deletedAt: null }, { session }).sort({ category: 1, name: 1 }).toArray();
+    const ct = await c.courts.find({ deletedAt: null }, { session }).sort({ sortOrder: 1 }).toArray();
+    const ord = await c.orders.find({}, { session }).sort({ createdAt: -1 }).toArray();
+    const st = await c.appSettings.findOne({ key: 'system_config' }, { session });
+    const al = await c.auditLogs.find({}, { session }).sort({ createdAt: -1 }).toArray();
+    const im = await c.inventoryMovements.find({}, { session }).sort({ createdAt: -1 }).toArray();
+    const seq = await c.appSettings.find({ key: { $regex: '^order_sequence' } }, { session }).toArray();
+    const si = await c.sportsItems.find({ deletedAt: null }, { session }).sort({ category: 1, name: 1 }).toArray();
+    const sm = await c.sportsMovements.find({}, { session }).sort({ createdAt: -1 }).toArray();
+    const r = await c.roles.find({}, { session }).sort({ isSystem: -1, createdAt: 1 }).toArray();
+    const u = await c.adminUsers.find({}, { projection: { passwordHash: 0 }, session }).sort({ createdAt: -1 }).toArray();
+    return [p, ct, ord, st, al, im, seq, si, sm, r, u];
+  });
 
   const fullBackup = {
     system: 'Sân Cầu Lông Trần Lựu',
@@ -808,16 +1439,93 @@ adminRouter.get('/backup/full', async (_req, res) => {
     exportedAt: new Date().toISOString(),
     stats: {
       productsCount: products.length,
+      sportsItemsCount: sportsItems.length,
       courtsCount: courts.length,
       ordersCount: orders.length,
+      rolesCount: roles.length,
+      usersCount: users.length,
       auditLogsCount: auditLogs.length,
       inventoryCount: inventoryMovements.length,
+      sportsMovementsCount: sportsMovements.length,
       stockIntakeCount: inventoryMovements.filter(m => ['stock_intake', 'quick_restock', 'stock_adjustment'].includes(m.reason)).length,
       orderSequencesCount: orderSequences.length
     },
     products: products.map(productJson),
+    sportsItems: sportsItems.map(item => ({
+      itemId: item.itemId,
+      name: item.name,
+      category: item.category,
+      unit: item.unit,
+      costPriceVnd: item.costPriceVnd,
+      priceVnd: item.priceVnd,
+      stock: item.stock,
+      minStockThreshold: item.minStockThreshold ?? 5,
+      isService: item.isService,
+      isAvailable: item.isAvailable,
+      imageSvg: item.imageSvg || '',
+      tag: item.tag || ''
+    })),
     courts: courts.map(court => ({ courtId: court.courtId, code: court.code, name: court.name, isActive: court.isActive, sortOrder: court.sortOrder })),
-    orders: orders.map(orderJson),
+    orders: orders.map(o => ({
+      id: o.orderId,
+      orderId: o.orderId,
+      displayCode: o.displayCode,
+      clientRequestId: o.clientRequestId,
+      requestFingerprint: o.requestFingerprint || null,
+      orderType: o.orderType || 'drinks',
+      courtId: o.courtId,
+      courtName: o.courtNameSnapshot,
+      customerName: o.customerName || '',
+      customerPhone: o.customerPhone || '',
+      customerSessionHash: o.customerSessionHash,
+      paymentStatus: o.paymentStatus || 'unpaid',
+      paymentMethod: o.paymentMethod || null,
+      paidAt: o.paidAt ? o.paidAt.toISOString() : null,
+      paymentHistory: (o.paymentHistory || []).map((p: any) => ({
+        from: p.from,
+        to: p.to,
+        paymentStatus: p.to || p.paymentStatus,
+        paymentMethod: p.paymentMethod || null,
+        changedBy: p.changedBy || 'system',
+        reason: p.reason || null,
+        at: p.at ? p.at.toISOString() : (p.changedAt ? p.changedAt.toISOString() : new Date().toISOString())
+      })),
+      status: o.status,
+      totalVnd: o.totalVnd,
+      createdAt: o.createdAt.toISOString(),
+      editableUntil: o.editableUntil.toISOString(),
+      acceptedAt: o.acceptedAt ? o.acceptedAt.toISOString() : null,
+      preparingAt: o.preparingAt ? o.preparingAt.toISOString() : null,
+      deliveredAt: o.deliveredAt ? o.deliveredAt.toISOString() : null,
+      cancelledAt: o.cancelledAt ? o.cancelledAt.toISOString() : null,
+      cancelReason: o.cancelReason,
+      items: o.items.map(i => ({
+        productId: i.productId,
+        name: i.nameSnapshot,
+        volume: i.volumeSnapshot,
+        unitPrice: i.unitPriceVnd,
+        costPrice: i.costPriceVnd ?? 0,
+        quantity: i.quantity,
+        iceQuantity: i.iceQuantity,
+        lineTotal: i.lineTotalVnd,
+        itemType: i.itemType || (o.orderType === 'sports_pos' ? 'sports' : 'drink')
+      }))
+    })),
+    roles: roles.map(r => ({
+      roleId: r.roleId,
+      name: r.name,
+      description: r.description || '',
+      permissions: r.permissions,
+      isSystem: r.isSystem || false
+    })),
+    users: users.map(u => ({
+      userId: u.userId,
+      username: u.username,
+      fullName: u.fullName,
+      roleId: u.roleId,
+      customPermissions: u.customPermissions || [],
+      isActive: u.isActive
+    })),
     orderSequences: orderSequences.map(s => ({
       key: s.key,
       value: {
@@ -828,6 +1536,20 @@ adminRouter.get('/backup/full', async (_req, res) => {
     })),
     auditLogs,
     inventoryMovements,
+    sportsMovements: sportsMovements.map(m => ({
+      operationId: m.operationId,
+      itemId: m.itemId,
+      itemNameSnapshot: m.itemNameSnapshot,
+      unitSnapshot: m.unitSnapshot,
+      delta: m.delta,
+      costPriceVnd: m.costPriceVnd,
+      sellingPriceVnd: m.sellingPriceVnd,
+      totalCostVnd: m.totalCostVnd,
+      stockAfter: m.stockAfter,
+      reason: m.reason,
+      note: m.note || '',
+      createdAt: m.createdAt
+    })),
     settings: settings?.value || null
   };
 
@@ -836,16 +1558,47 @@ adminRouter.get('/backup/full', async (_req, res) => {
   res.json(fullBackup);
 });
 
-adminRouter.post('/catalog/import', async (req, res) => {
-  const body = req.body;
-  if (!body || typeof body !== 'object') {
+adminRouter.post('/catalog/import', requirePermission('backup'), async (req, res) => {
+  const { data: body, migrated, fromVersion } = migrateBackupToV2(req.body);
+
+  const backupImportSchema = z.object({
+    schemaVersion: z.string().optional(),
+    system: z.string().optional(),
+    products: z.array(z.record(z.string(), z.unknown())).optional(),
+    sportsItems: z.array(z.record(z.string(), z.unknown())).optional(),
+    courts: z.array(z.record(z.string(), z.unknown())).optional(),
+    orders: z.array(z.record(z.string(), z.unknown())).optional(),
+    roles: z.array(z.record(z.string(), z.unknown())).optional(),
+    users: z.array(z.record(z.string(), z.unknown())).optional(),
+    orderSequences: z.array(z.record(z.string(), z.unknown())).optional(),
+    inventoryMovements: z.array(z.record(z.string(), z.unknown())).optional(),
+    sportsMovements: z.array(z.record(z.string(), z.unknown())).optional(),
+    auditLogs: z.array(z.record(z.string(), z.unknown())).optional(),
+    settings: z.record(z.string(), z.unknown()).optional().nullable()
+  }).passthrough();
+
+  const parsedBackup = backupImportSchema.safeParse(body);
+  if (!parsedBackup.success) {
     throw new ApiError(400, 'INVALID_IMPORT', 'Định dạng tệp JSON không hợp lệ');
   }
 
   const c = getCollections();
   const now = new Date();
 
-  // Tiền kiểm tra (Pre-validation) trước khi ghi vào bất kỳ collection nào
+  const rawProducts = Array.isArray(body) ? body : Array.isArray(body.products) ? body.products : null;
+  const hasRoles = Array.isArray(body.roles) && body.roles.length > 0;
+  const hasUsers = Array.isArray(body.users) && body.users.length > 0;
+
+  // 1. Chống tự leo quyền (Privilege Escalation): Bắt buộc kiểm tra quyền rbac nếu payload chứa roles hoặc users
+  if (hasRoles || hasUsers) {
+    const callerPerms = (res.locals.permissions as string[]) || [];
+    const canManageRbac = callerPerms.includes('*') || callerPerms.includes('rbac') || res.locals.roleId === 'admin';
+    if (!canManageRbac) {
+      throw new ApiError(403, 'FORBIDDEN', 'Bạn không có quyền khôi phục vai trò (roles) hoặc tài khoản người dùng (users). Cần quyền rbac.');
+    }
+  }
+
+  // 2. Tiền kiểm tra All-or-Nothing: Không âm thầm bỏ qua (continue) bản ghi lỗi
   if (Array.isArray(body.courts) && body.courts.length > 0) {
     const seenCodes = new Set<string>();
     for (const item of body.courts) {
@@ -863,6 +1616,76 @@ adminRouter.post('/catalog/import', async (req, res) => {
     }
   }
 
+  if (rawProducts && rawProducts.length > 0) {
+    rawProducts.forEach((item: any, idx: number) => {
+      const parsed = productFields.partial({ imageSvg: true, tag: true, isAvailable: true }).safeParse(item);
+      if (!parsed.success) {
+        const details = parsed.error.issues.map(i => `${i.path.join('.')}: ${i.message}`).join(', ');
+        throw new ApiError(400, 'INVALID_IMPORT_DATA', `Dữ liệu sản phẩm tại dòng ${idx + 1} (${item?.name || 'không tên'}) không hợp lệ: ${details}`);
+      }
+    });
+  }
+
+  if (Array.isArray(body.sportsItems) && body.sportsItems.length > 0) {
+    const sportsItemImportSchema = z.object({
+      name: z.string().trim().min(1, 'Tên sản phẩm/dịch vụ không được để trống'),
+      category: z.string().trim().min(1, 'Hạng mục không được để trống'),
+      unit: z.string().optional(),
+      costPriceVnd: z.coerce.number().min(0, 'Giá vốn không được âm').optional(),
+      priceVnd: z.coerce.number().min(0, 'Giá bán không được âm').optional(),
+      stock: z.coerce.number().min(0, 'Tồn kho không được âm').optional(),
+      minStockThreshold: z.coerce.number().min(0, 'Ngưỡng cảnh báo tồn kho không được âm').optional(),
+      isService: z.boolean().optional(),
+      isAvailable: z.boolean().optional(),
+      imageSvg: z.string().optional(),
+      tag: z.string().optional()
+    });
+
+    body.sportsItems.forEach((item: any, idx: number) => {
+      const parsed = sportsItemImportSchema.safeParse(item);
+      if (!parsed.success) {
+        const details = parsed.error.issues.map(i => `${i.path.join('.')}: ${i.message}`).join(', ');
+        throw new ApiError(400, 'INVALID_IMPORT_DATA', `Mặt hàng thể thao tại dòng ${idx + 1} (${item?.name || 'không tên'}) không hợp lệ: ${details}`);
+      }
+    });
+  }
+
+  if (Array.isArray(body.roles) && body.roles.length > 0) {
+    body.roles.forEach((r: any, idx: number) => {
+      if (!r.roleId || !r.name || !Array.isArray(r.permissions)) {
+        throw new ApiError(400, 'INVALID_IMPORT_DATA', `Dữ liệu vai trò tại dòng ${idx + 1} không hợp lệ (cần roleId, name, permissions)`);
+      }
+    });
+  }
+
+  if (Array.isArray(body.users) && body.users.length > 0) {
+    const userImportSchema = z.object({
+      userId: z.string().trim().min(1, 'UserId không hợp lệ'),
+      username: z.string().trim().min(1, 'Username không hợp lệ'),
+      roleId: z.string().trim().min(1, 'RoleId không hợp lệ')
+    });
+
+    const existingRoles = await c.roles.find({}, { projection: { roleId: 1 } }).toArray();
+    const allowedRoleIds = new Set<string>(existingRoles.map(r => r.roleId));
+    allowedRoleIds.add('admin');
+    if (Array.isArray(body.roles)) {
+      body.roles.forEach((r: any) => {
+        if (r && r.roleId) allowedRoleIds.add(r.roleId);
+      });
+    }
+
+    body.users.forEach((u: any, idx: number) => {
+      const parsed = userImportSchema.safeParse(u);
+      if (!parsed.success) {
+        const details = parsed.error.issues.map(i => `${i.path.join('.')}: ${i.message}`).join(', ');
+        throw new ApiError(400, 'INVALID_IMPORT_DATA', `Dữ liệu người dùng tại dòng ${idx + 1} (${u?.username || 'không tên'}) không hợp lệ: ${details}`);
+      }
+      if (!allowedRoleIds.has(u.roleId)) {
+        throw new ApiError(400, 'INVALID_IMPORT_DATA', `Người dùng "${u.username}" tại dòng ${idx + 1} có roleId "${u.roleId}" không tồn tại trong hệ thống hoặc tệp nhập`);
+      }
+    });
+  }
+
   let importedProducts = 0;
   let importedCourts = 0;
   let importedOrders = 0;
@@ -870,6 +1693,11 @@ adminRouter.post('/catalog/import', async (req, res) => {
   let importedSettings = 0;
   let importedMovements = 0;
   let importedAudit = 0;
+  let importedSportsItems = 0;
+  let importedSportsMovements = 0;
+  let importedRoles = 0;
+  let importedUsers = 0;
+  const temporaryCredentials: Array<{ username: string; userId: string; tempPassword: string }> = [];
 
   // Thực thi khôi phục trong transaction để bảo đảm tính nguyên tử (atomic rollback nếu gặp lỗi)
   await transaction(async session => {
@@ -953,12 +1781,15 @@ adminRouter.post('/catalog/import', async (req, res) => {
             orderId,
             displayCode: o.displayCode || `TL-${orderId.slice(-4)}`,
             clientRequestId: o.clientRequestId || randomUUID(),
+            requestFingerprint: o.requestFingerprint || null,
+            orderType: o.orderType || 'drinks',
             courtId: o.courtId,
             courtNameSnapshot: o.courtName || o.courtNameSnapshot || '',
             customerName: o.customerName || '',
             customerPhone: o.customerPhone || '',
             customerSessionHash: o.customerSessionHash || 'restored',
             paymentStatus: o.paymentStatus || 'unpaid',
+            paymentMethod: o.paymentMethod || null,
             paidAt: o.paidAt ? new Date(o.paidAt) : null,
             status: o.status || 'delivered',
             totalVnd: Number(o.totalVnd) || 0,
@@ -971,7 +1802,8 @@ adminRouter.post('/catalog/import', async (req, res) => {
               costPriceVnd: Number(i.costPrice || i.costPriceVnd) || 0,
               quantity: Number(i.quantity) || 1,
               iceQuantity: Number(i.iceQuantity) || 0,
-              lineTotalVnd: Number(i.lineTotal || i.lineTotalVnd) || 0
+              lineTotalVnd: Number(i.lineTotal || i.lineTotalVnd) || 0,
+              itemType: i.itemType || (o.orderType === 'sports_pos' ? 'sports' : 'drink')
             })),
             createdAt: o.createdAt ? new Date(o.createdAt) : now,
             updatedAt: o.updatedAt ? new Date(o.updatedAt) : now,
@@ -980,7 +1812,16 @@ adminRouter.post('/catalog/import', async (req, res) => {
             preparingAt: o.preparingAt ? new Date(o.preparingAt) : null,
             deliveredAt: o.deliveredAt ? new Date(o.deliveredAt) : null,
             cancelledAt: o.cancelledAt ? new Date(o.cancelledAt) : null,
-            cancelReason: o.cancelReason || null
+            cancelReason: o.cancelReason || null,
+            paymentHistory: Array.isArray(o.paymentHistory) ? o.paymentHistory.map((p: any) => ({
+              from: p.from,
+              to: p.to || p.paymentStatus,
+              paymentStatus: p.to || p.paymentStatus,
+              paymentMethod: p.paymentMethod || null,
+              changedBy: p.changedBy || 'import',
+              reason: p.reason || null,
+              at: p.at ? new Date(p.at) : (p.changedAt ? new Date(p.changedAt) : now)
+            })) : []
           }, { session });
           importedOrders++;
         }
@@ -1078,10 +1919,145 @@ adminRouter.post('/catalog/import', async (req, res) => {
         }
       }
     }
+
+    // 8. Khôi phục hàng thể thao & dịch vụ nếu có
+    if (Array.isArray(body.sportsItems) && body.sportsItems.length > 0) {
+      for (const item of body.sportsItems) {
+        if (!item.name || !item.category) continue;
+        const itemId = item.itemId || item.id || randomUUID();
+        await c.sportsItems.updateOne(
+          { itemId },
+          {
+            $set: {
+              name: item.name,
+              category: item.category,
+              unit: item.unit || 'Cái',
+              costPriceVnd: typeof item.costPriceVnd === 'number'
+                ? Math.max(0, item.costPriceVnd)
+                : (!isNaN(Number(item.costPriceVnd)) ? Math.max(0, Number(item.costPriceVnd)) : 0),
+              priceVnd: typeof item.priceVnd === 'number'
+                ? Math.max(0, item.priceVnd)
+                : (!isNaN(Number(item.priceVnd)) ? Math.max(0, Number(item.priceVnd)) : 0),
+              minStockThreshold: item.minStockThreshold !== undefined && item.minStockThreshold !== null && !isNaN(Number(item.minStockThreshold))
+                ? Math.max(0, Number(item.minStockThreshold))
+                : 5,
+              isService: Boolean(item.isService || item.category === 'service'),
+              isAvailable: item.isAvailable !== false,
+              imageSvg: item.imageSvg || '',
+              tag: item.tag || '',
+              deletedAt: null,
+              updatedAt: now
+            },
+            $setOnInsert: {
+              itemId,
+              stock: item.stock !== undefined && item.stock !== null && !isNaN(Number(item.stock))
+                ? Math.max(0, Number(item.stock))
+                : 0,
+              createdAt: now
+            }
+          },
+          { session, upsert: true }
+        );
+        importedSportsItems++;
+      }
+    }
+
+    // 9. Khôi phục lịch sử biến động thể thao nếu có
+    if (Array.isArray(body.sportsMovements) && body.sportsMovements.length > 0) {
+      for (const mov of body.sportsMovements) {
+        if (mov.operationId && mov.itemId) {
+          const existing = await c.sportsMovements.findOne({ operationId: mov.operationId }, { session });
+          if (!existing) {
+            await c.sportsMovements.insertOne({
+              operationId: mov.operationId,
+              itemId: mov.itemId,
+              itemNameSnapshot: mov.itemNameSnapshot || mov.itemName || '',
+              unitSnapshot: mov.unitSnapshot || mov.unit || 'Cái',
+              delta: Number(mov.delta) || 0,
+              costPriceVnd: Number(mov.costPriceVnd) || 0,
+              sellingPriceVnd: Number(mov.sellingPriceVnd) || 0,
+              totalCostVnd: Number(mov.totalCostVnd) || 0,
+              stockAfter: Number(mov.stockAfter) || 0,
+              reason: mov.reason || 'stock_intake',
+              note: mov.note || '',
+              createdAt: mov.createdAt ? new Date(mov.createdAt) : now
+            }, { session });
+            importedSportsMovements++;
+          }
+        }
+      }
+    }
+
+    // 10. Khôi phục vai trò (roles) nếu có
+    if (Array.isArray(body.roles) && body.roles.length > 0) {
+      for (const r of body.roles) {
+        if (!r.roleId || !r.name || !Array.isArray(r.permissions)) continue;
+        await c.roles.updateOne(
+          { roleId: r.roleId },
+          {
+            $set: {
+              name: String(r.name),
+              description: r.description ? String(r.description) : '',
+              permissions: r.permissions,
+              isSystem: Boolean(r.isSystem),
+              updatedAt: now
+            },
+            $setOnInsert: {
+              roleId: r.roleId,
+              createdAt: now
+            }
+          },
+          { session, upsert: true }
+        );
+        importedRoles++;
+      }
+    }
+
+    // 11. Khôi phục tài khoản người dùng (users) nếu có (yêu cầu quyền rbac đã kiểm tra ở trên)
+    if (Array.isArray(body.users) && body.users.length > 0) {
+      for (const u of body.users) {
+        if (!u.userId || !u.username || !u.roleId) continue;
+        const updateSet: Record<string, any> = {
+          username: String(u.username).trim().toLowerCase(),
+          fullName: u.fullName ? String(u.fullName).trim() : 'Người dùng hệ thống',
+          roleId: String(u.roleId).trim(),
+          customPermissions: Array.isArray(u.customPermissions) ? u.customPermissions : [],
+          isActive: u.isActive !== false,
+          updatedAt: now
+        };
+        const existingUser = await c.adminUsers.findOne({ userId: u.userId }, { session });
+        if (!existingUser) {
+          const tempPassword = 'Temp@' + randomUUID().replace(/-/g, '').slice(0, 8);
+          updateSet.passwordHash = hashPassword(tempPassword);
+          updateSet.mustChangePassword = true;
+          updateSet.createdAt = now;
+          await c.adminUsers.insertOne({
+            userId: u.userId,
+            ...updateSet
+          } as any, { session });
+          temporaryCredentials.push({ username: u.username, userId: u.userId, tempPassword });
+        } else {
+          await c.adminUsers.updateOne({ userId: u.userId }, { $set: updateSet }, { session });
+        }
+        importedUsers++;
+      }
+    }
   });
 
+  // Thu hồi session và WebSocket nếu vai trò hoặc tài khoản được khôi phục/chỉnh sửa
+  if (importedRoles > 0 && Array.isArray(body.roles)) {
+    for (const r of body.roles) {
+      if (r.roleId) await revokeRoleSessions(r.roleId);
+    }
+  }
+  if (importedUsers > 0 && Array.isArray(body.users)) {
+    for (const u of body.users) {
+      if (u.userId) await revokeUserSessions(u.userId);
+    }
+  }
+
   // Nếu không có bất kỳ dữ liệu nào được import
-  if (importedProducts === 0 && importedCourts === 0 && importedOrders === 0 && importedSequences === 0 && importedSettings === 0 && importedMovements === 0 && importedAudit === 0) {
+  if (importedProducts === 0 && importedCourts === 0 && importedOrders === 0 && importedSequences === 0 && importedSettings === 0 && importedMovements === 0 && importedAudit === 0 && importedSportsItems === 0 && importedSportsMovements === 0 && importedRoles === 0 && importedUsers === 0) {
     if (body.archiveType === 'periodic_cleanup') {
       const stats = body.stats;
       const count = (stats?.ordersCount || 0) + (body.orders?.length || 0);
@@ -1101,29 +2077,43 @@ adminRouter.post('/catalog/import', async (req, res) => {
   }
 
   const summaryParts: string[] = [];
-  if (importedProducts > 0) summaryParts.push(`${importedProducts} sản phẩm`);
+  if (importedProducts > 0) summaryParts.push(`${importedProducts} sản phẩm nước`);
+  if (importedSportsItems > 0) summaryParts.push(`${importedSportsItems} mặt hàng/dịch vụ thể thao`);
   if (importedCourts > 0) summaryParts.push(`${importedCourts} sân`);
   if (importedOrders > 0) summaryParts.push(`${importedOrders} đơn hàng`);
   if (importedSequences > 0) summaryParts.push(`${importedSequences} bộ đếm mã đơn`);
   if (importedSettings > 0) summaryParts.push('cấu hình hệ thống');
-  if (importedMovements > 0) summaryParts.push(`${importedMovements} biến động kho / phiếu nhập`);
+  if (importedMovements > 0) summaryParts.push(`${importedMovements} biến động kho nước`);
+  if (importedSportsMovements > 0) summaryParts.push(`${importedSportsMovements} biến động kho thể thao`);
   if (importedAudit > 0) summaryParts.push(`${importedAudit} nhật ký`);
+  if (importedRoles > 0) summaryParts.push(`${importedRoles} vai trò`);
+  if (importedUsers > 0) summaryParts.push(`${importedUsers} tài khoản người dùng`);
   const summaryMsg = summaryParts.join(', ');
 
-  await recordAuditLog(res.locals.admin, 'catalog_import', undefined, { importedProducts, importedCourts, importedOrders, importedSequences, importedSettings, importedMovements }, req.ip);
+  await invalidateCatalogCache();
+  await recordAuditLog(res.locals.admin, 'catalog_import', undefined, { importedProducts, importedSportsItems, importedCourts, importedOrders, importedSequences, importedSettings, importedMovements, importedSportsMovements, importedRoles, importedUsers }, req.ip);
   res.json({
     ok: true,
-    importedCount: importedProducts,
+    migrated,
+    fromVersion,
+    schemaVersion: '2.0.0',
+    importedCount: importedProducts + importedSportsItems,
+    importedProducts,
+    importedSportsItems,
     importedCourts,
     importedOrders,
     importedSequences,
     importedSettings,
     importedMovements,
-    message: `Đã khôi phục thành công: ${summaryMsg}!`
+    importedSportsMovements,
+    importedRoles,
+    importedUsers,
+    temporaryCredentials,
+    message: `Đã khôi phục thành công: ${summaryMsg}!${temporaryCredentials.length > 0 ? ` (Đã tạo ${temporaryCredentials.length} mật khẩu tạm cho tài khoản mới)` : ''}`
   });
 });
 
-adminRouter.get('/audit-logs', async (req, res) => {
+adminRouter.get('/audit-logs', requirePermission('backup'), async (req, res) => {
   const page = Math.max(parseInt(String(req.query.page || '1'), 10) || 1, 1);
   const limit = Math.min(Math.max(parseInt(String(req.query.limit || '15'), 10) || 15, 1), 100);
   const skip = (page - 1) * limit;
@@ -1146,10 +2136,10 @@ adminRouter.get('/audit-logs', async (req, res) => {
 
 // ===== SAFE DATA CLEAN / PURGE API (AFTER 1 MONTH ARCHIVE) =====
 
-adminRouter.get('/clean/preview', async (req, res) => {
+adminRouter.get('/clean/preview', requirePermission('backup'), async (req, res) => {
   const { dateFilter, rangeLabel, beforeDateIso } = parseCleanDateFilter(req.query as any);
   const c = getCollections();
-  const [ordersCount, inventoryCount, auditLogsCount, activeOrdersPreserved, intakeCount] = await Promise.all([
+  const [ordersCount, inventoryCount, auditLogsCount, activeOrdersPreserved, intakeCount, sportsMovementsCount] = await Promise.all([
     c.orders.countDocuments({
       createdAt: dateFilter,
       $or: [
@@ -1168,14 +2158,15 @@ adminRouter.get('/clean/preview', async (req, res) => {
     c.inventoryMovements.countDocuments({
       createdAt: dateFilter,
       reason: { $in: ['stock_intake', 'quick_restock', 'stock_adjustment'] }
-    })
+    }),
+    c.sportsMovements.countDocuments({ createdAt: dateFilter })
   ]);
 
   res.json({
     rangeLabel,
     beforeDate: beforeDateIso,
     ordersCount,
-    inventoryCount,
+    inventoryCount: inventoryCount + sportsMovementsCount,
     intakeCount,
     auditLogsCount,
     activeOrdersPreserved
@@ -1183,7 +2174,7 @@ adminRouter.get('/clean/preview', async (req, res) => {
 });
 
 
-adminRouter.post('/clean/purge', async (req, res) => {
+adminRouter.post('/clean/purge', requirePermission('backup'), async (req, res) => {
   const schema = z.object({
     startDate: z.string().optional(),
     endDate: z.string().optional(),
@@ -1203,34 +2194,39 @@ adminRouter.post('/clean/purge', async (req, res) => {
   let deletedIntake = 0;
   let deletedAuditLogs = 0;
 
-  if (input.includeOrders) {
-    const r = await c.orders.deleteMany({
-      createdAt: dateFilter,
-      $or: [
-        { status: 'cancelled' },
-        { status: 'delivered', paymentStatus: 'paid' }
-      ]
-    });
-    deletedOrders = r.deletedCount;
-  }
+  await transaction(async session => {
+    if (input.includeOrders) {
+      const r = await c.orders.deleteMany({
+        createdAt: dateFilter,
+        $or: [
+          { status: 'cancelled' },
+          { status: 'delivered', paymentStatus: 'paid' }
+        ]
+      }, { session });
+      deletedOrders = r.deletedCount;
+    }
 
-  if (input.includeInventory) {
-    deletedIntake = await c.inventoryMovements.countDocuments({
-      createdAt: dateFilter,
-      reason: { $in: ['stock_intake', 'quick_restock', 'stock_adjustment'] }
-    });
-    const r = await c.inventoryMovements.deleteMany({
-      createdAt: dateFilter
-    });
-    deletedInventory = r.deletedCount;
-  }
+    if (input.includeInventory) {
+      deletedIntake = await c.inventoryMovements.countDocuments({
+        createdAt: dateFilter,
+        reason: { $in: ['stock_intake', 'quick_restock', 'stock_adjustment'] }
+      }, { session });
+      const r = await c.inventoryMovements.deleteMany({
+        createdAt: dateFilter
+      }, { session });
+      const rSports = await c.sportsMovements.deleteMany({
+        createdAt: dateFilter
+      }, { session });
+      deletedInventory = r.deletedCount + rSports.deletedCount;
+    }
 
-  if (input.includeAuditLogs) {
-    const r = await c.auditLogs.deleteMany({
-      createdAt: dateFilter
-    });
-    deletedAuditLogs = r.deletedCount;
-  }
+    if (input.includeAuditLogs) {
+      const r = await c.auditLogs.deleteMany({
+        createdAt: dateFilter
+      }, { session });
+      deletedAuditLogs = r.deletedCount;
+    }
+  });
 
   await recordAuditLog(
     res.locals.admin,
@@ -1264,3 +2260,240 @@ adminRouter.post('/clean/purge', async (req, res) => {
     }
   });
 });
+
+// ==========================================
+// ROLES & PERMISSIONS MANAGEMENT (RBAC)
+// ==========================================
+
+const roleSchema = z.object({
+  name: z.string().trim().min(1, 'Tên vai trò không được để trống').max(100),
+  description: z.string().trim().max(300).optional(),
+  permissions: z.array(z.string()).min(1, 'Cần chọn ít nhất 1 quyền truy cập')
+});
+
+adminRouter.get('/roles', requirePermission('rbac'), async (_req, res) => {
+  const c = getCollections();
+  const roles = await c.roles.find({}).sort({ isSystem: -1, createdAt: 1 }).toArray();
+  res.json(roles);
+});
+
+adminRouter.post('/roles', requirePermission('rbac'), async (req, res) => {
+  const input = roleSchema.parse(req.body);
+  const c = getCollections();
+  const now = new Date();
+  const roleId = `role-${randomUUID().slice(0, 8)}`;
+
+  const doc: RoleDoc = {
+    roleId,
+    name: input.name,
+    description: input.description || '',
+    permissions: input.permissions,
+    isSystem: false,
+    createdAt: now,
+    updatedAt: now
+  };
+  await c.roles.insertOne(doc);
+  await recordAuditLog(res.locals.admin, 'settings_update', roleId, { action: 'role_create', name: input.name }, req.ip);
+  res.status(201).json(doc);
+});
+
+adminRouter.put('/roles/:id', requirePermission('rbac'), async (req, res) => {
+  const roleId = String(req.params.id);
+  const input = roleSchema.partial().parse(req.body);
+  const c = getCollections();
+  const existing = await c.roles.findOne({ roleId });
+  if (!existing) throw new ApiError(404, 'NOT_FOUND', 'Không tìm thấy vai trò');
+
+  const updateFields: any = { updatedAt: new Date() };
+  if (input.name !== undefined) updateFields.name = input.name;
+  if (input.description !== undefined) updateFields.description = input.description;
+  if (input.permissions !== undefined) updateFields.permissions = input.permissions;
+
+  await c.roles.updateOne({ roleId }, { $set: updateFields });
+  await recordAuditLog(res.locals.admin, 'settings_update', roleId, { action: 'role_update', changes: updateFields }, req.ip);
+
+  // Revoke sessions and WebSockets for affected users
+  await revokeRoleSessions(roleId);
+
+  res.json({ ok: true, roleId });
+});
+
+adminRouter.delete('/roles/:id', requirePermission('rbac'), async (req, res) => {
+  const roleId = String(req.params.id);
+  const c = getCollections();
+  const existing = await c.roles.findOne({ roleId });
+  if (!existing) throw new ApiError(404, 'NOT_FOUND', 'Không tìm thấy vai trò');
+  if (existing.isSystem) {
+    throw new ApiError(400, 'CANNOT_DELETE_SYSTEM_ROLE', 'Không thể xóa vai trò hệ thống mặc định');
+  }
+
+  const assignedUsers = await c.adminUsers.countDocuments({ roleId });
+  if (assignedUsers > 0) {
+    throw new ApiError(400, 'ROLE_IN_USE', `Có ${assignedUsers} tài khoản đang dùng vai trò này. Vui lòng chuyển vai trò trước khi xóa.`);
+  }
+
+  await c.roles.deleteOne({ roleId });
+  await recordAuditLog(res.locals.admin, 'settings_update', roleId, { action: 'role_delete', name: existing.name }, req.ip);
+
+  // Revoke sessions and WebSockets for affected users
+  await revokeRoleSessions(roleId);
+
+  res.json({ ok: true, roleId });
+});
+
+// ==========================================
+// ADMIN USER ACCOUNTS MANAGEMENT
+// ==========================================
+
+const userCreateSchema = z.object({
+  username: z.string().trim().min(3, 'Tên đăng nhập tối thiểu 3 ký tự').max(50).toLowerCase(),
+  password: z.string().min(6, 'Mật khẩu tối thiểu 6 ký tự').max(100),
+  fullName: z.string().trim().min(1, 'Họ tên không được để trống').max(100),
+  roleId: z.string().trim().min(1, 'Vui lòng chọn vai trò'),
+  customPermissions: z.array(z.string()).optional(),
+  isActive: z.boolean().default(true)
+});
+
+const userUpdateSchema = z.object({
+  fullName: z.string().trim().min(1).max(100).optional(),
+  password: z.string().min(6).max(100).optional(),
+  roleId: z.string().trim().min(1).optional(),
+  customPermissions: z.array(z.string()).optional(),
+  isActive: z.boolean().optional()
+});
+
+adminRouter.get('/users', requirePermission('rbac'), async (_req, res) => {
+  const c = getCollections();
+  const users = await c.adminUsers.find({}, { projection: { passwordHash: 0 } }).sort({ createdAt: -1 }).toArray();
+  res.json(users);
+});
+
+adminRouter.post('/users', requirePermission('rbac'), async (req, res) => {
+  const input = userCreateSchema.parse(req.body);
+  const c = getCollections();
+  const existing = await c.adminUsers.findOne({ username: input.username });
+  if (existing) throw new ApiError(409, 'USERNAME_EXISTS', 'Tên đăng nhập đã tồn tại trong hệ thống');
+
+  const role = await c.roles.findOne({ roleId: input.roleId });
+  if (!role) throw new ApiError(400, 'INVALID_ROLE', 'Vai trò được gán không tồn tại');
+
+  const now = new Date();
+  const userId = `user-${randomUUID().slice(0, 8)}`;
+  const passwordHash = hashPassword(input.password);
+
+  const doc: AdminUserDoc = {
+    userId,
+    username: input.username,
+    passwordHash,
+    fullName: input.fullName,
+    roleId: input.roleId,
+    customPermissions: input.customPermissions || [],
+    isActive: input.isActive,
+    createdAt: now,
+    updatedAt: now
+  };
+
+  await c.adminUsers.insertOne(doc);
+  await recordAuditLog(res.locals.admin, 'settings_update', userId, { action: 'user_create', username: input.username, roleId: input.roleId }, req.ip);
+  const { passwordHash: _, ...safeUser } = doc;
+  res.status(201).json(safeUser);
+});
+
+adminRouter.put('/users/:id', requirePermission('rbac'), async (req, res) => {
+  const userId = String(req.params.id);
+  const input = userUpdateSchema.parse(req.body);
+  const c = getCollections();
+  const existing = await c.adminUsers.findOne({ userId });
+  if (!existing) throw new ApiError(404, 'NOT_FOUND', 'Không tìm thấy tài khoản người dùng');
+
+  // Chặn tự nâng quyền hoặc tự khóa tài khoản
+  if (res.locals.userId === userId || existing.username === res.locals.admin) {
+    if (input.roleId !== undefined && input.roleId !== existing.roleId) {
+      throw new ApiError(403, 'SELF_ROLE_CHANGE_FORBIDDEN', 'Bạn không thể tự thay đổi vai trò của chính mình');
+    }
+    if (input.isActive !== undefined && input.isActive !== existing.isActive) {
+      throw new ApiError(403, 'SELF_STATUS_CHANGE_FORBIDDEN', 'Bạn không thể tự khóa tài khoản của chính mình');
+    }
+  }
+
+  const updateFields: any = { updatedAt: new Date() };
+  if (input.fullName !== undefined) updateFields.fullName = input.fullName;
+  if (input.roleId !== undefined) {
+    const role = await c.roles.findOne({ roleId: input.roleId });
+    if (!role) throw new ApiError(400, 'INVALID_ROLE', 'Vai trò được gán không tồn tại');
+    updateFields.roleId = input.roleId;
+  }
+  if (input.customPermissions !== undefined) updateFields.customPermissions = input.customPermissions;
+  if (input.isActive !== undefined) updateFields.isActive = input.isActive;
+  if (input.password && input.password.length >= 6) {
+    updateFields.passwordHash = hashPassword(input.password);
+  }
+
+  await c.adminUsers.updateOne({ userId }, { $set: updateFields });
+  await recordAuditLog(res.locals.admin, 'settings_update', userId, { action: 'user_update', changes: { ...updateFields, passwordHash: undefined } }, req.ip);
+  await revokeUserSessions(userId);
+  res.json({ ok: true, userId });
+});
+
+adminRouter.delete('/users/:id', requirePermission('rbac'), async (req, res) => {
+  const userId = String(req.params.id);
+  const c = getCollections();
+  const existing = await c.adminUsers.findOne({ userId });
+  if (!existing) throw new ApiError(404, 'NOT_FOUND', 'Không tìm thấy tài khoản');
+  if (existing.username === 'admin') {
+    throw new ApiError(400, 'CANNOT_DELETE_ADMIN', 'Không thể xóa tài khoản quản trị viên chính');
+  }
+  if (res.locals.userId === userId || existing.username === res.locals.admin) {
+    throw new ApiError(403, 'CANNOT_DELETE_SELF', 'Không thể xóa tài khoản của chính mình');
+  }
+
+  await c.adminUsers.deleteOne({ userId });
+  await recordAuditLog(res.locals.admin, 'settings_update', userId, { action: 'user_delete', username: existing.username }, req.ip);
+  await revokeUserSessions(userId);
+  res.json({ ok: true, userId });
+});
+
+adminRouter.post('/change-password', async (req, res, next) => {
+  try {
+    const schema = z.object({
+      currentPassword: z.string().min(1, 'Vui lòng nhập mật khẩu hiện tại'),
+      newPassword: z.string().min(6, 'Mật khẩu mới tối thiểu 6 ký tự').max(100)
+    });
+    const body = schema.parse(req.body);
+    const c = getCollections();
+
+    if (res.locals.userId) {
+      const user = await c.adminUsers.findOne({ userId: res.locals.userId });
+      if (!user) {
+        throw new ApiError(404, 'USER_NOT_FOUND', 'Không tìm thấy tài khoản');
+      }
+      const { verifyPassword } = await import('../auth.js');
+      if (!verifyPassword(body.currentPassword, user.passwordHash)) {
+        throw new ApiError(400, 'INVALID_PASSWORD', 'Mật khẩu hiện tại không chính xác');
+      }
+      const now = new Date();
+      await c.adminUsers.updateOne(
+        { userId: user.userId },
+        {
+          $set: {
+            passwordHash: hashPassword(body.newPassword),
+            mustChangePassword: false,
+            updatedAt: now
+          }
+        }
+      );
+      if (typeof req.cookies['tl_admin_token'] === 'string') {
+        const { createHash } = await import('node:crypto');
+        const tokenHash = createHash('sha256').update(req.cookies['tl_admin_token']).digest('hex');
+        await cacheDel(`admin_session:${tokenHash}`);
+      }
+      res.json({ ok: true, message: 'Đổi mật khẩu thành công!' });
+    } else {
+      throw new ApiError(400, 'ENV_ADMIN_CANNOT_CHANGE', 'Tài khoản quản trị viên ENV được quản lý qua cấu hình hệ thống');
+    }
+  } catch (err) {
+    next(err);
+  }
+});
+
+

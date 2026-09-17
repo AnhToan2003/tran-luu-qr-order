@@ -1,5 +1,7 @@
 import { Db, MongoClient } from 'mongodb';
 import { getCollections, connectToDatabase, DB_NAME } from './db.js';
+import { hashPassword } from './auth.js';
+import type { RoleDoc, AdminUserDoc } from './types.js';
 
 // SVG representations of authentic Vietnamese badminton drinks
 const lavieSvg = `data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 260" width="200" height="260">
@@ -224,6 +226,113 @@ export const SAMPLE_PRODUCTS = [
   }
 ];
 
+export const SAMPLE_SPORTS_ITEMS = [
+  {
+    itemId: 'sport-vot-yonex-astrox88',
+    name: 'Vợt Cầu Lông Yonex Astrox 88D Play',
+    category: 'racket',
+    unit: 'Cây',
+    costPriceVnd: 1250000,
+    priceVnd: 1650000,
+    stock: 12,
+    minStockThreshold: 3,
+    isService: false,
+    isAvailable: true,
+    tag: 'Chính hãng'
+  },
+  {
+    itemId: 'sport-vo-yonex-dai',
+    name: 'Vớ Thể Thao Yonex Cổ Dài',
+    category: 'sock_long',
+    unit: 'Đôi',
+    costPriceVnd: 35000,
+    priceVnd: 65000,
+    stock: 45,
+    minStockThreshold: 10,
+    isService: false,
+    isAvailable: true,
+    tag: 'Dày dặn'
+  },
+  {
+    itemId: 'sport-vo-yonex-ngan',
+    name: 'Vớ Thể Thao Cổ Ngắn Thoáng Khí',
+    category: 'sock_short',
+    unit: 'Đôi',
+    costPriceVnd: 22000,
+    priceVnd: 45000,
+    stock: 60,
+    minStockThreshold: 10,
+    isService: false,
+    isAvailable: true,
+    tag: 'Thoáng mát'
+  },
+  {
+    itemId: 'sport-quan-can-ac102',
+    name: 'Quấn Cán Vợt Yonex AC102EX',
+    category: 'grip',
+    unit: 'Cái',
+    costPriceVnd: 18000,
+    priceVnd: 35000,
+    stock: 80,
+    minStockThreshold: 15,
+    isService: false,
+    isAvailable: true,
+    tag: 'Bám tay'
+  },
+  {
+    itemId: 'sport-cau-thanh-cong',
+    name: 'Ống Cầu Lông Thành Công 77',
+    category: 'shuttlecock',
+    unit: 'Ống',
+    costPriceVnd: 215000,
+    priceVnd: 250000,
+    stock: 25,
+    minStockThreshold: 5,
+    isService: false,
+    isAvailable: true,
+    tag: 'Bền bỉ'
+  },
+  {
+    itemId: 'sport-service-dan-luoi',
+    name: 'Dịch Vụ Đan Lưới Cước Vợt BG65Ti',
+    category: 'service',
+    unit: 'Cây',
+    costPriceVnd: 40000,
+    priceVnd: 130000,
+    stock: 0,
+    minStockThreshold: 0,
+    isService: true,
+    isAvailable: true,
+    tag: 'Căng chuẩn kg'
+  },
+  {
+    itemId: 'sport-service-thue-vot',
+    name: 'Dịch Vụ Thuê Vợt Thi Đấu',
+    category: 'service',
+    unit: 'Cây/Buổi',
+    costPriceVnd: 0,
+    priceVnd: 30000,
+    stock: 0,
+    minStockThreshold: 0,
+    isService: true,
+    isAvailable: true,
+    tag: 'Tại sân'
+  },
+  {
+    itemId: 'sport-service-thue-giay',
+    name: 'Dịch Vụ Thuê Giày Cầu Lông',
+    category: 'service',
+    unit: 'Đôi/Buổi',
+    costPriceVnd: 0,
+    priceVnd: 40000,
+    stock: 0,
+    minStockThreshold: 0,
+    isService: true,
+    isAvailable: true,
+    tag: 'Size 38-44'
+  }
+];
+
 export const SAMPLE_COURTS = Array.from({ length: 16 }, (_, i) => {
   const code = (i + 1).toString().padStart(2, '0');
   return {
@@ -241,6 +350,8 @@ export async function seedSampleData(db: Db, force = false): Promise<{ courtsCou
   const courtsCol = db.collection('courts');
   const productsCol = db.collection('products');
   const settingsCol = db.collection('app_settings');
+  const sportsCol = db.collection('sports_items');
+  const sportsMovCol = db.collection('sports_movements');
 
   console.log('[Seed] Seeding sample data for Sân Cầu Lông Trần Lựu...');
 
@@ -310,9 +421,194 @@ export async function seedSampleData(db: Db, force = false): Promise<{ courtsCou
   );
   console.log('[Seed] System configuration initialized (Orders enabled, Chime 5s).');
 
+  // 4. Sports Items & Services
+  const existingSports = await sportsCol.countDocuments();
+  if (existingSports === 0 || force) {
+    if (force) {
+      await sportsCol.deleteMany({});
+      await sportsMovCol.deleteMany({});
+    }
+    let baseSports: any[] = SAMPLE_SPORTS_ITEMS;
+    try {
+      const fs = await import('node:fs');
+      const path = await import('node:path');
+      const sportsFile = path.resolve('data/initial_sports.json');
+      if (fs.existsSync(sportsFile)) {
+        const parsed = JSON.parse(fs.readFileSync(sportsFile, 'utf-8'));
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          baseSports = parsed;
+          console.log(`[Seed] Loaded ${parsed.length} sports items from data/initial_sports.json.`);
+        }
+      }
+    } catch {
+      // Fallback
+    }
+
+    const sportsToInsert = baseSports.map((s: any) => ({
+      itemId: s.itemId,
+      name: s.name,
+      category: s.category,
+      unit: s.unit,
+      costPriceVnd: s.costPriceVnd,
+      priceVnd: s.priceVnd,
+      stock: s.isService ? 0 : s.stock,
+      minStockThreshold: s.minStockThreshold || 5,
+      isService: !!s.isService,
+      isAvailable: s.isAvailable !== false,
+      tag: s.tag || '',
+      imageSvg: s.imageSvg || '',
+      deletedAt: null,
+      createdAt: s.createdAt ? new Date(s.createdAt) : now,
+      updatedAt: now
+    }));
+    await sportsCol.insertMany(sportsToInsert);
+
+    // Seed initial stock intake movements for items with initial stock
+    const initialMovements = sportsToInsert
+      .filter((s: any) => !s.isService && s.stock > 0)
+      .map((s: any) => ({
+        operationId: `mov-init-${s.itemId}`,
+        itemId: s.itemId,
+        itemNameSnapshot: s.name,
+        unitSnapshot: s.unit,
+        delta: s.stock,
+        costPriceVnd: s.costPriceVnd,
+        sellingPriceVnd: s.priceVnd,
+        totalCostVnd: s.stock * s.costPriceVnd,
+        stockAfter: s.stock,
+        reason: 'stock_intake',
+        note: 'Tồn kho ban đầu hệ thống',
+        createdAt: now
+      }));
+    if (initialMovements.length > 0) {
+      await sportsMovCol.insertMany(initialMovements);
+    }
+  } else {
+    console.log(`[Seed] Sports collection already has ${existingSports} items. Skipping.`);
+  }
+
+  // Seed Default Roles & Users if empty
+  const rolesCol = db.collection<RoleDoc>('roles');
+  const usersCol = db.collection<AdminUserDoc>('admin_users');
+  const existingRoles = await rolesCol.countDocuments();
+  if (existingRoles === 0 || force) {
+    if (force) await rolesCol.deleteMany({});
+    const defaultRoles: RoleDoc[] = [
+      {
+        roleId: 'admin',
+        name: 'Quản trị viên (Admin)',
+        description: 'Toàn quyền truy cập tất cả chức năng trên hệ thống',
+        permissions: ['orders', 'sports-pos', 'drink-intake', 'sports-intake', 'intake-history', 'order-history', 'revenue-report', 'settings'],
+        isSystem: true,
+        createdAt: now,
+        updatedAt: now
+      },
+      {
+        roleId: 'staff_water',
+        name: 'Nhân viên Quầy Nước',
+        description: 'Nhận đơn nước & giao nước tại sân, xem lịch sử đơn hàng',
+        permissions: ['orders', 'drink-intake', 'order-history'],
+        isSystem: true,
+        createdAt: now,
+        updatedAt: now
+      },
+      {
+        roleId: 'staff_sports',
+        name: 'Nhân viên Quầy Thể Thao',
+        description: 'Bán hàng tại quầy thể thao & dịch vụ sân cầu lông',
+        permissions: ['sports-pos', 'sports-intake'],
+        isSystem: true,
+        createdAt: now,
+        updatedAt: now
+      },
+      {
+        roleId: 'warehouse',
+        name: 'Thủ kho & Nhập hàng',
+        description: 'Quản lý tồn kho, nhập hàng nước và dụng cụ thể thao',
+        permissions: ['drink-intake', 'sports-intake', 'intake-history'],
+        isSystem: true,
+        createdAt: now,
+        updatedAt: now
+      }
+    ];
+    await rolesCol.insertMany(defaultRoles);
+    console.log(`[Seed] Seeded ${defaultRoles.length} default roles.`);
+  }
+
+  // Tách biệt khởi tạo tài khoản quản trị:
+  // Tuyệt đối KHÔNG tự động tạo tài khoản mặc định với mật khẩu biết trước trong môi trường Production!
+  const isProduction = process.env.NODE_ENV === 'production';
+  const existingUsers = await usersCol.countDocuments();
+
+  if (!isProduction && (existingUsers === 0 || force)) {
+    if (force) await usersCol.deleteMany({});
+    const defaultDevUser: AdminUserDoc = {
+      userId: 'user-admin-dev',
+      username: 'admin_dev',
+      passwordHash: hashPassword('admin123'),
+      fullName: 'Quản Trị Viên Dev',
+      roleId: 'admin',
+      isActive: true,
+      createdAt: now,
+      updatedAt: now
+    };
+    await usersCol.insertOne(defaultDevUser);
+    console.log('[Seed] Seeded dev admin account (admin_dev / admin123).');
+  } else if (isProduction && existingUsers === 0) {
+    console.log('[Security Notice] Môi trường Production không tự tạo tài khoản seed. Vui lòng cấu hình ADMIN_PASSWORD_HASH trong ENV hoặc sử dụng script bootstrap riêng.');
+  }
+
   const finalCourts = await courtsCol.countDocuments();
   const finalProducts = await productsCol.countDocuments();
   return { courtsCount: finalCourts, productsCount: finalProducts };
+}
+
+/**
+ * Hàm khởi tạo (bootstrap) tài khoản quản trị có chủ đích
+ * Không tự động ghi đè tài khoản đã tồn tại nếu force=false
+ */
+export async function bootstrapAdminUser(
+  db: Db,
+  options: { username?: string; password?: string; fullName?: string; force?: boolean } = {}
+): Promise<{ success: boolean; message: string; userId?: string }> {
+  const usersCol = db.collection<AdminUserDoc>('admin_users');
+  const targetUsername = (options.username || 'admin').trim().toLowerCase();
+  const envAdminUser = (process.env.ADMIN_USERNAME || 'admin').trim().toLowerCase();
+
+  if (targetUsername === envAdminUser) {
+    throw new Error(`Tên tài khoản '${targetUsername}' trùng với tài khoản quản trị viên biến môi trường (ENV). Không được phép tạo trong cơ sở dữ liệu.`);
+  }
+
+  const existing = await usersCol.findOne({ username: targetUsername });
+
+  if (existing && !options.force) {
+    return { success: false, message: `Tài khoản '${targetUsername}' đã tồn tại trong cơ sở dữ liệu.` };
+  }
+
+  if (!options.password || options.password.length < 8) {
+    throw new Error('Mật khẩu khởi tạo quản trị phải có độ dài tối thiểu 8 ký tự.');
+  }
+
+  const now = new Date();
+  const userId = existing?.userId || `user-${Date.now().toString(36)}`;
+  const userDoc: AdminUserDoc = {
+    userId,
+    username: targetUsername,
+    passwordHash: hashPassword(options.password),
+    fullName: options.fullName || 'Quản Trị Viên Hệ Thống',
+    roleId: 'admin',
+    isActive: true,
+    createdAt: existing?.createdAt || now,
+    updatedAt: now
+  };
+
+  if (existing) {
+    await usersCol.updateOne({ username: targetUsername }, { $set: userDoc });
+  } else {
+    await usersCol.insertOne(userDoc);
+  }
+
+  return { success: true, message: `Khởi tạo tài khoản '${targetUsername}' thành công.`, userId };
 }
 
 // Standalone execution: npx tsx server/seedData.ts

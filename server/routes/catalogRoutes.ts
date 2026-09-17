@@ -5,6 +5,7 @@ import { getCustomerSession } from '../auth.js';
 import { verifyCourtSignature } from '../services/qrSign.js';
 import { courtCode as courtCodeSchema } from '../validation.js';
 import type { ProductDoc } from '../types.js';
+import { cacheGet, cacheSet } from '../redis.js';
 
 export const catalogRouter = Router();
 
@@ -65,26 +66,37 @@ catalogRouter.get('/', async (req, res) => {
   const settings = await colls.appSettings.findOne({ key: 'system_config' });
   const isAcceptingOrders = settings?.value?.isAcceptingOrders ?? true;
 
-  // BR-15: Chỉ hiển thị sản phẩm còn hàng (stock > 0), sắp xếp ổn định theo nhóm và tên
-  const products = await colls.products
-    .find({ isAvailable: true, deletedAt: null, stock: { $gt: 0 } })
-    .sort({ category: 1, name: 1 })
-    .toArray();
+  // Lấy danh sách sản phẩm từ Redis Cache nếu có
+  let mappedProducts = await cacheGet<Array<any>>('cache:catalog:available_products');
 
-  const payload = {
-    court: { courtId: court.courtId, code: court.code, name: court.name },
-    isAcceptingOrders,
-    products: products.map((p: ProductDoc) => ({
+  if (!mappedProducts) {
+    // BR-15: Chỉ hiển thị sản phẩm còn hàng (stock > 0), sắp xếp ổn định theo nhóm và tên
+    const products = await colls.products
+      .find({ isAvailable: true, deletedAt: null, stock: { $gt: 0 } })
+      .sort({ category: 1, name: 1 })
+      .toArray();
+
+    mappedProducts = products.map((p: ProductDoc) => ({
       id: p.productId,
       name: p.name,
       volume: p.volume,
+      unit: p.unit || 'Chai',
       category: p.category,
       priceVnd: p.priceVnd,
       stock: p.stock,
       tag: p.tag,
       imageSvg: p.imageSvg,
       isAvailable: p.isAvailable !== false
-    }))
+    }));
+
+    // Cache trong 180 giây (3 phút)
+    void cacheSet('cache:catalog:available_products', mappedProducts, 180);
+  }
+
+  const payload = {
+    court: { courtId: court.courtId, code: court.code, name: court.name },
+    isAcceptingOrders,
+    products: mappedProducts
   };
 
   const etag = `"${createHash('md5').update(JSON.stringify(payload)).digest('hex')}"`;

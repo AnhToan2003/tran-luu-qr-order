@@ -48,16 +48,16 @@ export const ProductCard: React.FC<ProductCardProps> = ({
         </span>
       )}
 
-      {/* Bottle Artwork (4:3 aspect ratio, contain fit) */}
+      {/* Bottle Artwork (Seamless fit, no white borders) */}
       <div style={{
         width: '100%',
-        aspectRatio: '4 / 3',
-        backgroundColor: 'var(--color-bg)',
+        aspectRatio: '1 / 1',
+        backgroundColor: '#FFFFFF',
         borderRadius: 'var(--radius-md)',
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'center',
-        padding: '8px',
+        padding: '6px',
         marginBottom: '10px',
         overflow: 'hidden'
       }}>
@@ -65,9 +65,10 @@ export const ProductCard: React.FC<ProductCardProps> = ({
           src={product.imageSvg}
           alt={product.name}
           style={{
-            maxHeight: '100%',
-            maxWidth: '100%',
+            width: '100%',
+            height: '100%',
             objectFit: 'contain',
+            mixBlendMode: 'multiply',
             filter: 'drop-shadow(0 4px 6px rgba(18, 67, 46, 0.08))'
           }}
           loading="lazy"
@@ -77,17 +78,18 @@ export const ProductCard: React.FC<ProductCardProps> = ({
       {/* Details: Name & Volume */}
       <div style={{ flex: 1, display: 'flex', flexDirection: 'column' }}>
         <h3 style={{
-          fontSize: 'var(--font-size-base)',
-          fontWeight: 700,
-          color: 'var(--color-text-main)',
-          lineHeight: 1.25,
-          marginBottom: '2px'
+          fontSize: '16px',
+          fontWeight: 800,
+          color: '#0F172A',
+          lineHeight: 1.3,
+          marginBottom: '3px'
         }}>
           {product.name}
         </h3>
         <span style={{
-          fontSize: 'var(--font-size-xs)',
-          color: 'var(--color-text-muted)',
+          fontSize: '13px',
+          fontWeight: 600,
+          color: '#334155',
           marginBottom: '8px'
         }}>
           Dung tích: {product.volume}
@@ -106,9 +108,9 @@ export const ProductCard: React.FC<ProductCardProps> = ({
       }}>
         <div>
           <div style={{
-            fontSize: 'var(--font-size-base)',
-            fontWeight: 800,
-            color: 'var(--color-deep)'
+            fontSize: '17px',
+            fontWeight: 900,
+            color: '#0F172A'
           }}>
             {formatVnd(product.priceVnd)}
           </div>
@@ -122,10 +124,10 @@ export const ProductCard: React.FC<ProductCardProps> = ({
               minHeight: '38px',
               padding: '0 16px',
               backgroundColor: 'var(--color-primary)',
-              color: 'var(--color-text-inverse)',
+              color: '#FFFFFF',
               borderRadius: 'var(--radius-md)',
-              fontSize: 'var(--font-size-sm)',
-              fontWeight: 700,
+              fontSize: '14px',
+              fontWeight: 800,
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
@@ -134,7 +136,7 @@ export const ProductCard: React.FC<ProductCardProps> = ({
             }}
             aria-label={`Thêm ${product.name} vào giỏ hàng`}
           >
-            <span style={{ fontSize: '16px', lineHeight: 1 }}>+</span>
+            <span style={{ fontSize: '18px', lineHeight: 1, fontWeight: 900 }}>+</span>
             <span>Thêm</span>
           </button>
         ) : (
@@ -143,7 +145,7 @@ export const ProductCard: React.FC<ProductCardProps> = ({
             alignItems: 'center',
             backgroundColor: 'var(--color-primary-light)',
             borderRadius: 'var(--radius-md)',
-            border: '1px solid var(--color-primary)',
+            border: '1.5px solid var(--color-primary)',
             overflow: 'hidden'
           }}>
             <button
@@ -155,7 +157,7 @@ export const ProductCard: React.FC<ProductCardProps> = ({
                 alignItems: 'center',
                 justifyContent: 'center',
                 color: 'var(--color-primary)',
-                fontWeight: 800,
+                fontWeight: 900,
                 fontSize: '18px'
               }}
               aria-label={`Giảm số lượng ${product.name}`}
@@ -163,11 +165,11 @@ export const ProductCard: React.FC<ProductCardProps> = ({
               −
             </button>
             <span style={{
-              minWidth: '24px',
+              minWidth: '28px',
               textAlign: 'center',
-              fontWeight: 700,
-              fontSize: 'var(--font-size-sm)',
-              color: 'var(--color-deep)'
+              fontWeight: 900,
+              fontSize: '15px',
+              color: '#0F172A'
             }}>
               {quantityInCart}
             </span>

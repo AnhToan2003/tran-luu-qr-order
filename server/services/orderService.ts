@@ -2,9 +2,10 @@ import { createHash, randomUUID } from 'node:crypto';
 import { getCollections, transaction } from '../db.js';
 import { ApiError } from '../errors.js';
 import { placeOrderSchema } from '../validation.js';
-import { vietnamDate } from '../time.js';
 import { broadcastEvent } from '../websocket.js';
-import type { OrderDoc, OrderItemDoc } from '../types.js';
+import { invalidateCatalogCache } from '../redis.js';
+import { vietnamDate } from '../time.js';
+import type { OrderDoc, OrderItemDoc, PaymentAuditRecord } from '../types.js';
 
 export interface OrderPlacementContext {
   sessionHash: string;
@@ -100,6 +101,7 @@ export class OrderService {
         type: 'stock_updated',
         timestamp: new Date().toISOString()
       });
+      await invalidateCatalogCache();
       return createdOrder;
     } catch(error) {
       if((error as {code?:number}).code === 11000) {
@@ -109,22 +111,56 @@ export class OrderService {
       throw error;
     }
   }
-  static async updatePayment(orderId: string, paymentStatus: 'paid' | 'unpaid') {
+  static async updatePayment(
+    orderId: string,
+    paymentStatus: 'paid' | 'unpaid',
+    paymentMethod?: 'cash' | 'transfer' | null,
+    changedBy = 'admin',
+    reason?: string
+  ) {
     const updated = await transaction(async session => {
       const c = getCollections();
       const order = await c.orders.findOne({ orderId }, { session });
       if (!order) throw new ApiError(404, 'NOT_FOUND', 'Không tìm thấy đơn');
+
+      const prevStatus = order.paymentStatus || 'unpaid';
+      if (prevStatus === 'paid' && paymentStatus === 'unpaid') {
+        const trimmedReason = (reason || '').trim();
+        if (trimmedReason.length < 3) {
+          throw new ApiError(400, 'REASON_REQUIRED', 'Bắt buộc cung cấp lý do khi chuyển đơn đã thanh toán về chưa thanh toán (tối thiểu 3 ký tự)');
+        }
+      }
+
       const now = new Date();
+      const isPaid = paymentStatus === 'paid';
+      const resolvedPaymentMethod = isPaid ? (paymentMethod !== undefined ? paymentMethod : (order.paymentMethod || 'cash')) : null;
+
+      const historyRecord: PaymentAuditRecord = {
+        from: prevStatus,
+        to: paymentStatus,
+        changedBy,
+        reason: reason?.trim() || undefined,
+        paymentMethod: resolvedPaymentMethod,
+        at: now
+      };
+
+      const updateDoc: any = {
+        $set: {
+          paymentStatus,
+          paymentMethod: resolvedPaymentMethod,
+          paidAt: isPaid ? (order.paidAt || now) : null,
+          updatedAt: now
+        },
+        $inc: { version: 1 }
+      };
+
+      if (prevStatus !== paymentStatus || reason) {
+        updateDoc.$push = { paymentHistory: historyRecord };
+      }
+
       const res = await c.orders.findOneAndUpdate(
         { orderId, version: order.version },
-        {
-          $set: {
-            paymentStatus,
-            paidAt: paymentStatus === 'paid' ? now : null,
-            updatedAt: now
-          },
-          $inc: { version: 1 }
-        },
+        updateDoc,
         { session, returnDocument: 'after' }
       );
       if (!res) throw new ApiError(409, 'CONFLICT', 'Đơn vừa được cập nhật, vui lòng tải lại');
@@ -159,7 +195,13 @@ export class OrderService {
     });
     return updated;
   }
-  static async deliverAndPay(orderId: string, paymentStatus: 'paid' | 'unpaid') {
+  static async deliverAndPay(
+    orderId: string,
+    paymentStatus: 'paid' | 'unpaid',
+    paymentMethod?: 'cash' | 'transfer' | null,
+    changedBy = 'admin',
+    reason?: string
+  ) {
     const updated = await transaction(async session => {
       const c = getCollections();
       const order = await c.orders.findOne({ orderId }, { session });
@@ -167,18 +209,42 @@ export class OrderService {
       if (order.status === 'cancelled') throw new ApiError(409, 'INVALID_TRANSITION', 'Đơn đã bị hủy');
       const now = new Date();
       const isPaid = paymentStatus === 'paid';
+      const resolvedPaymentMethod = isPaid ? (paymentMethod !== undefined ? paymentMethod : (order.paymentMethod || 'cash')) : null;
+      const prevStatus = order.paymentStatus || 'unpaid';
+
+      if (prevStatus === 'paid' && paymentStatus === 'unpaid') {
+        if (!reason || reason.trim().length < 3) {
+          throw new ApiError(400, 'REASON_REQUIRED', 'Bắt buộc nhập lý do khi chuyển trạng thái từ Đã thanh toán sang Chưa thanh toán (tối thiểu 3 ký tự).');
+        }
+      }
+
+      const updateDoc: any = {
+        $set: {
+          status: 'delivered',
+          paymentStatus,
+          paymentMethod: resolvedPaymentMethod,
+          paidAt: isPaid ? (order.paidAt || now) : null,
+          deliveredAt: order.deliveredAt || now,
+          updatedAt: now
+        },
+        $inc: { version: 1 }
+      };
+
+      if (prevStatus !== paymentStatus) {
+        const historyRecord: PaymentAuditRecord = {
+          from: prevStatus,
+          to: paymentStatus,
+          changedBy,
+          reason: reason?.trim() || 'deliver_and_pay',
+          paymentMethod: resolvedPaymentMethod,
+          at: now
+        };
+        updateDoc.$push = { paymentHistory: historyRecord };
+      }
+
       const res = await c.orders.findOneAndUpdate(
         { orderId, version: order.version },
-        {
-          $set: {
-            status: 'delivered',
-            paymentStatus,
-            paidAt: isPaid ? (order.paidAt || now) : null,
-            deliveredAt: order.deliveredAt || now,
-            updatedAt: now
-          },
-          $inc: { version: 1 }
-        },
+        updateDoc,
         { session, returnDocument: 'after' }
       );
       if (!res) throw new ApiError(409, 'CONFLICT', 'Đơn vừa được cập nhật, vui lòng tải lại');
@@ -219,6 +285,7 @@ export class OrderService {
       type: 'stock_updated',
       timestamp: new Date().toISOString()
     });
+    await invalidateCatalogCache();
     return updated;
   }
 }

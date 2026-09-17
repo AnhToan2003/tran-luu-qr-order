@@ -1,10 +1,13 @@
 import { WebSocketServer, WebSocket } from 'ws';
-import { createHash } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import type { Server as HttpServer } from 'node:http';
 import type { IncomingMessage } from 'node:http';
 import { getDb, getCollections } from './db.js';
 import { adminOrderJson, customerOrderJson } from './serialize.js';
 import type { OrderDoc } from './types.js';
+import { registerRealtimeSubscriber, registerRevocationSubscriber, publishRealtimeEvent, publishSessionRevocation } from './redis.js';
+
+export const instanceId = randomUUID();
 
 export interface RealtimeEvent {
   type: 'order_created' | 'order_updated' | 'stock_updated' | 'ping';
@@ -18,10 +21,12 @@ interface ExtendedWebSocket extends WebSocket {
   role?: 'admin' | 'customer';
   sessionHash?: string;
   adminTokenHash?: string;
+  adminUserId?: string;
+  adminPermissions?: string[];
   adminExpiresAt?: Date;
   customerExpiresAt?: Date;
   /** Promise resolves info nếu admin cookie hợp lệ */
-  adminVerifyPromise?: Promise<{ isValid: boolean; tokenHash?: string; expiresAt?: Date }>;
+  adminVerifyPromise?: Promise<{ isValid: boolean; tokenHash?: string; expiresAt?: Date; userId?: string; permissions?: string[] }>;
 }
 
 let wss: WebSocketServer | null = null;
@@ -44,7 +49,7 @@ function parseCookies(header: string | undefined): Record<string, string> {
 }
 
 /** Kiểm tra admin cookie hợp lệ từ HTTP Upgrade request */
-async function resolveAdminFromUpgrade(req: IncomingMessage): Promise<{ isValid: boolean; tokenHash?: string; expiresAt?: Date }> {
+async function resolveAdminFromUpgrade(req: IncomingMessage): Promise<{ isValid: boolean; tokenHash?: string; expiresAt?: Date; userId?: string; permissions?: string[] }> {
   try {
     const cookies = parseCookies(req.headers.cookie);
     const token = cookies['tl_admin'];
@@ -59,7 +64,22 @@ async function resolveAdminFromUpgrade(req: IncomingMessage): Promise<{ isValid:
       expiresAt: { $gt: new Date() }
     });
     if (!session) return { isValid: false };
-    return { isValid: true, tokenHash, expiresAt: session.expiresAt as Date };
+
+    let permissions: string[] = ['orders', 'sports-pos', 'drink-intake', 'sports-intake', 'intake-history', 'order-history', 'revenue-report', 'courts', 'backup', 'rbac'];
+    if (session.userId) {
+      const user = await db.collection('admin_users').findOne({ userId: session.userId, isActive: true });
+      if (!user) return { isValid: false };
+
+      if (user.roleId !== 'admin') {
+        const role = await db.collection('roles').findOne({ roleId: user.roleId });
+        permissions = (role?.permissions as string[]) || [];
+        if (user.customPermissions && Array.isArray(user.customPermissions)) {
+          permissions = Array.from(new Set([...permissions, ...user.customPermissions]));
+        }
+      }
+    }
+
+    return { isValid: true, tokenHash, expiresAt: session.expiresAt as Date, userId: session.userId, permissions };
   } catch {
     return { isValid: false };
   }
@@ -67,6 +87,17 @@ async function resolveAdminFromUpgrade(req: IncomingMessage): Promise<{ isValid:
 
 export function initWebSocketServer(server: HttpServer): WebSocketServer {
   wss = new WebSocketServer({ server, path: '/ws' });
+
+  registerRealtimeSubscriber((event: any) => {
+    if (event?._originInstanceId === instanceId) return;
+    broadcastLocal(event);
+  });
+  registerRevocationSubscriber((payload: any) => {
+    if (payload?._originInstanceId === instanceId) return;
+    if (payload?.userId) revokeAdminUser(payload.userId, false);
+    if (payload?.tokenHash) revokeAdminSession(payload.tokenHash, false);
+    if (payload?.roleId) revokeRoleSockets(payload.roleId, false);
+  });
 
   wss.on('connection', (ws: ExtendedWebSocket, req: IncomingMessage) => {
     ws.isAlive = true;
@@ -97,10 +128,14 @@ export function initWebSocketServer(server: HttpServer): WebSocketServer {
                 if (session) {
                   ws.role = 'admin';
                   ws.adminTokenHash = auth.tokenHash;
+                  ws.adminUserId = auth.userId;
+                  ws.adminPermissions = auth.permissions;
                   ws.adminExpiresAt = session.expiresAt as Date;
                 } else {
                   ws.role = undefined;
                   ws.adminTokenHash = undefined;
+                  ws.adminUserId = undefined;
+                  ws.adminPermissions = undefined;
                   ws.adminExpiresAt = undefined;
                   try {
                     ws.close(4001, 'ADMIN_UNAUTHORIZED');
@@ -109,6 +144,8 @@ export function initWebSocketServer(server: HttpServer): WebSocketServer {
               } else {
                 ws.role = undefined;
                 ws.adminTokenHash = undefined;
+                ws.adminUserId = undefined;
+                ws.adminPermissions = undefined;
                 ws.adminExpiresAt = undefined;
                 try {
                   ws.close(4001, 'ADMIN_UNAUTHORIZED');
@@ -233,13 +270,18 @@ export function revokeCustomerSession(sessionHash: string): void {
 /**
  * Thu hồi quyền và đóng ngay kết nối WebSocket của admin khi đăng xuất hoặc thu hồi phiên
  */
-export function revokeAdminSession(tokenHash: string): void {
+export function revokeAdminSession(tokenHash: string, broadcast = true): void {
+  if (broadcast) {
+    void publishSessionRevocation({ tokenHash, _originInstanceId: instanceId });
+  }
   if (!wss) return;
   wss.clients.forEach((client) => {
     const extWs = client as ExtendedWebSocket;
     if (extWs.adminTokenHash === tokenHash) {
       extWs.role = undefined;
       extWs.adminTokenHash = undefined;
+      extWs.adminUserId = undefined;
+      extWs.adminPermissions = undefined;
       extWs.adminExpiresAt = undefined;
       try {
         extWs.close(4001, 'ADMIN_LOGGED_OUT');
@@ -248,7 +290,63 @@ export function revokeAdminSession(tokenHash: string): void {
   });
 }
 
-export function broadcastEvent(event: RealtimeEvent): void {
+/**
+ * Thu hồi quyền và đóng kết nối WebSocket của tất cả phiên thuộc về một userId cụ thể
+ * Sử dụng khi tài khoản bị khóa, đổi vai trò, đổi mật khẩu hoặc bị xóa
+ */
+export function revokeAdminUser(userId: string, broadcast = true): void {
+  if (broadcast) {
+    void publishSessionRevocation({ userId, _originInstanceId: instanceId });
+  }
+  if (!wss) return;
+  wss.clients.forEach((client) => {
+    const extWs = client as ExtendedWebSocket;
+    if (extWs.adminUserId === userId) {
+      extWs.role = undefined;
+      extWs.adminTokenHash = undefined;
+      extWs.adminUserId = undefined;
+      extWs.adminPermissions = undefined;
+      extWs.adminExpiresAt = undefined;
+      try {
+        extWs.close(4001, 'USER_DEACTIVATED');
+      } catch {}
+    }
+  });
+}
+
+/**
+ * Thu hồi quyền và đóng kết nối WebSocket của tất cả người dùng thuộc một vai trò (role)
+ * Sử dụng khi vai trò bị chỉnh sửa quyền, xóa hoặc phục hồi từ sao lưu
+ */
+export function revokeRoleSockets(roleId: string, broadcast = true): void {
+  if (broadcast) {
+    void publishSessionRevocation({ roleId, _originInstanceId: instanceId });
+  }
+  if (!wss) return;
+  const db = getDb();
+  if (!db) return;
+
+  void db.collection('admin_users').find({ roleId }).project({ userId: 1 }).toArray().then(users => {
+    const userIds = new Set(users.map(u => u.userId));
+    if (userIds.size === 0) return;
+
+    wss?.clients.forEach((client) => {
+      const extWs = client as ExtendedWebSocket;
+      if (extWs.role === 'admin' && extWs.adminUserId && userIds.has(extWs.adminUserId)) {
+        extWs.role = undefined;
+        extWs.adminTokenHash = undefined;
+        extWs.adminUserId = undefined;
+        extWs.adminPermissions = undefined;
+        extWs.adminExpiresAt = undefined;
+        try {
+          extWs.close(4001, 'ROLE_PERMISSIONS_CHANGED');
+        } catch {}
+      }
+    });
+  }).catch(() => {});
+}
+
+export function broadcastLocal(event: RealtimeEvent): void {
   if (!wss) return;
 
   // Chuẩn hóa dữ liệu cho admin và customer nếu event là order
@@ -299,6 +397,8 @@ export function broadcastEvent(event: RealtimeEvent): void {
       if (extWs.role === 'admin' && extWs.adminExpiresAt && extWs.adminExpiresAt <= now) {
         extWs.role = undefined;
         extWs.adminTokenHash = undefined;
+        extWs.adminUserId = undefined;
+        extWs.adminPermissions = undefined;
         extWs.adminExpiresAt = undefined;
         try { extWs.close(4001, 'ADMIN_SESSION_EXPIRED'); } catch {}
         return;
@@ -309,13 +409,35 @@ export function broadcastEvent(event: RealtimeEvent): void {
         extWs.send(adminMessage);
       } else if (event.type === 'order_created' || event.type === 'order_updated') {
         if (extWs.role === 'admin') {
-          extWs.send(adminMessage);
+          // Phân định phạm vi chặt chẽ: Đơn thể thao vs Đơn nước uống
+          const perms = extWs.adminPermissions;
+          const isAdmin = !perms || perms.includes('*');
+          const rawOrder = event.data as any;
+          const isSports = rawOrder?.orderType === 'sports_pos';
+
+          let isAllowed = isAdmin;
+          if (!isAllowed && perms) {
+            if (isSports) {
+              isAllowed = perms.includes('sports-pos') || perms.includes('sports-order-history');
+            } else {
+              isAllowed = perms.includes('orders') || perms.includes('order-history');
+            }
+          }
+
+          if (isAllowed) {
+            extWs.send(adminMessage);
+          }
         } else if (extWs.role === 'customer' && event.sessionHash && extWs.sessionHash === event.sessionHash) {
           extWs.send(customerMessage);
         }
       }
     } catch {}
   });
+}
+
+export function broadcastEvent(event: RealtimeEvent): void {
+  broadcastLocal(event);
+  void publishRealtimeEvent({ ...event, _originInstanceId: instanceId });
 }
 
 export function getWebSocketServer(): WebSocketServer | null {

@@ -34,21 +34,31 @@ export const CustomerHeader: React.FC<CustomerHeaderProps> = ({
       top: 0,
       zIndex: 40
     }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
         <div style={{
-          width: '36px',
-          height: '36px',
-          borderRadius: 'var(--radius-md)',
-          backgroundColor: 'var(--color-deep)',
+          width: '50px',
+          height: '50px',
+          borderRadius: '50%',
+          overflow: 'hidden',
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'center',
-          color: 'var(--color-accent)',
-          fontWeight: 800,
-          fontSize: '18px',
-          boxShadow: 'var(--shadow-sm)'
+          border: '2.5px solid var(--color-primary, #10B981)',
+          boxShadow: '0 2px 10px rgba(16, 185, 129, 0.35)',
+          backgroundColor: '#09251B',
+          flexShrink: 0
         }}>
-          TL
+          <img
+            src="/images/logo.jpg"
+            alt="Sân Cầu Lông Trần Lựu"
+            style={{
+              width: '100%',
+              height: '100%',
+              objectFit: 'cover',
+              transform: 'scale(1.3)',
+              display: 'block'
+            }}
+          />
         </div>
         <div>
           <div style={{

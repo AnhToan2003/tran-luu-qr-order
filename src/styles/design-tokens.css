@@ -20,10 +20,10 @@
   --color-border-subtle: #EEF3EE;
   --color-border-strong: #C4D3C4;
 
-  /* Text Colors */
-  --color-text-main: #182C22;
-  --color-text-muted: #5C6F62;
-  --color-text-subtle: #879B8D;
+  /* Text Colors - High Contrast */
+  --color-text-main: #0B1911;
+  --color-text-muted: #334155;
+  --color-text-subtle: #475569;
   --color-text-inverse: #FFFFFF;
 
   /* Status Colors */
@@ -40,12 +40,12 @@
 
   /* Typography */
   --font-family-base: 'Be Vietnam Pro', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-  --font-size-xs: 0.75rem;     /* 12px */
-  --font-size-sm: 0.875rem;    /* 14px */
-  --font-size-base: 1rem;      /* 16px */
-  --font-size-lg: 1.125rem;    /* 18px */
-  --font-size-xl: 1.25rem;     /* 20px */
-  --font-size-2xl: 1.5rem;     /* 24px */
+  --font-size-xs: 0.8125rem;   /* 13px */
+  --font-size-sm: 0.9375rem;   /* 15px */
+  --font-size-base: 1.0625rem; /* 17px */
+  --font-size-lg: 1.1875rem;   /* 19px */
+  --font-size-xl: 1.3125rem;   /* 21px */
+  --font-size-2xl: 1.5625rem;  /* 25px */
   --font-size-3xl: 1.875rem;   /* 30px */
 
   /* Spacing */

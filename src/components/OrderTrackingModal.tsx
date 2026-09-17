@@ -35,7 +35,7 @@ export const OrderTrackingModal: React.FC<OrderTrackingModalProps> = ({
   const isPaid = order.paymentStatus === 'paid';
   const steps: { key: OrderStatus; label: string; desc: string }[] = [
     { key: 'accepted', label: '1. Đã tiếp nhận', desc: 'Quầy nước đã nhận đơn và đang chuẩn bị' },
-    { key: 'preparing', label: '2. Đang mang ra sân', desc: 'Nhân viên đang đem nước & ly đá đến sân' },
+    { key: 'preparing', label: '2. Đang mang ra sân', desc: 'Nhân viên đang chuẩn bị nước và đem đến sân' },
     {
       key: 'delivered',
       label: '3. Đã giao tận sân',
@@ -336,19 +336,6 @@ export const OrderTrackingModal: React.FC<OrderTrackingModalProps> = ({
                   <div>
                     <span style={{ fontWeight: 700, color: 'var(--color-deep)' }}>{item.quantity}x</span>{' '}
                     <span>{item.name}</span>
-                    {item.iceQuantity > 0 && (
-                      <span style={{
-                        marginLeft: '6px',
-                        fontSize: '11px',
-                        color: 'var(--color-primary)',
-                        backgroundColor: 'var(--color-primary-light)',
-                        padding: '1px 5px',
-                        borderRadius: '4px',
-                        fontWeight: 600
-                      }}>
-                        +{item.iceQuantity} ly đá
-                      </span>
-                    )}
                   </div>
                   <span style={{ fontWeight: 600 }}>{formatVnd(item.lineTotal)}</span>
                 </div>

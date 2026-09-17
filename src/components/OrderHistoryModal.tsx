@@ -341,11 +341,6 @@ export const OrderHistoryModal: React.FC<OrderHistoryModalProps> = ({
                       <div key={idx} style={{ display: 'flex', justifyContent: 'space-between' }}>
                         <span>
                           <strong>{item.quantity}x</strong> {item.name}
-                          {item.iceQuantity > 0 && (
-                            <span style={{ color: '#0D5C3A', fontSize: '11px', marginLeft: '4px' }}>
-                              (+{item.iceQuantity} đá)
-                            </span>
-                          )}
                         </span>
                         <span style={{ fontWeight: 600, color: '#374151' }}>
                           {formatVnd(item.lineTotal)}

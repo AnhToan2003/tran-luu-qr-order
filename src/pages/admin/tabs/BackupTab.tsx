@@ -90,7 +90,7 @@ export const BackupTab: React.FC<BackupTabProps> = ({
             <div>
               <div style={{ fontWeight: 800, fontSize: 'var(--font-size-md)', color: 'var(--color-deep)' }}>Sao lưu toàn bộ hệ thống</div>
               <div style={{ fontSize: '11px', color: 'var(--color-text-muted)' }}>
-                Bao gồm Danh mục món, Sân & QR, Đơn hàng, Lịch sử nhập hàng & biến động kho, Cấu hình và Nhật ký
+                Bao gồm Menu Nước, Kho Thể thao & Dịch vụ sân, Sân & QR, Đơn hàng, Lịch sử nhập hàng, Cấu hình và Nhật ký
               </div>
             </div>
           </div>
@@ -310,7 +310,7 @@ export const BackupTab: React.FC<BackupTabProps> = ({
                   checked={cleanIncludeInventory}
                   onChange={(e) => setCleanIncludeInventory(e.target.checked)}
                 />
-                <span>Biến động kho & Lịch sử nhập hàng cũ</span>
+                <span>Biến động kho & Lịch sử nhập hàng cũ (Cả Nước & Thể thao)</span>
               </label>
 
               <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: 'var(--font-size-xs)', fontWeight: 600, cursor: 'pointer' }}>

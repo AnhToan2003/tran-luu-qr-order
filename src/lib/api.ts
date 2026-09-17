@@ -94,6 +94,9 @@ export async function apiFetch(url: string, options: RequestInit = {}) {
     if (response.status === 401 && url.startsWith('/api/admin') && !url.endsWith('/login')) {
       window.dispatchEvent(new Event('admin-session-expired'));
     }
+    if (response.status === 403 && body.code === 'PASSWORD_CHANGE_REQUIRED') {
+      window.dispatchEvent(new CustomEvent('password-change-required', { detail: body.message }));
+    }
     window.dispatchEvent(new CustomEvent('api-error', { detail: error.message }));
     throw error;
   }

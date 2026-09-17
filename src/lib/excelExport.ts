@@ -144,7 +144,6 @@ export async function exportOrdersToExcel(
         productName: sanitizeFormula(item.name),
         volume: sanitizeFormula(item.volume),
         quantity: item.quantity,
-        iceQuantity: item.iceQuantity ? `${item.iceQuantity} ly` : '0',
         costPrice: cost,
         unitPrice: item.unitPrice,
         lineTotal: item.lineTotal,
@@ -168,8 +167,7 @@ export async function exportOrdersToExcel(
       { header: 'Thời gian giao', key: 'deliveredAt', width: 22, align: 'center' },
       { header: 'Tên món nước', key: 'productName', width: 28, align: 'left' },
       { header: 'Dung tích', key: 'volume', width: 14, align: 'center' },
-      { header: 'Số chai', key: 'quantity', width: 12, numFmt: '#,##0', align: 'center' },
-      { header: 'Ly đá (+0đ)', key: 'iceQuantity', width: 14, align: 'center' },
+      { header: 'Số lượng', key: 'quantity', width: 12, numFmt: '#,##0', align: 'center' },
       { header: 'Giá vốn (VNĐ)', key: 'costPrice', width: 16, numFmt: '#,##0" đ"', align: 'right' },
       { header: 'Đơn giá (VNĐ)', key: 'unitPrice', width: 16, numFmt: '#,##0" đ"', align: 'right' },
       { header: 'Thành tiền (VNĐ)', key: 'lineTotal', width: 18, numFmt: '#,##0" đ"', align: 'right' },
@@ -203,10 +201,9 @@ export async function exportOrdersToExcel(
       : (o.status === 'cancelled' ? 'Đã hủy' : 'Đang xử lý');
 
     const itemsSummary = o.items
-      .map(i => `${i.quantity}x ${i.name}${i.iceQuantity ? ` (+${i.iceQuantity} đá)` : ''}`)
+      .map(i => `${i.quantity}x ${i.name}`)
       .join(', ');
     const totalBottles = o.items.reduce((s, i) => s + i.quantity, 0);
-    const totalIce = o.items.reduce((s, i) => s + i.iceQuantity, 0);
     const totalCost = o.items.reduce((s, i) => s + ((i.costPrice || 0) * i.quantity), 0);
     const totalProfit = o.totalVnd - totalCost;
 
@@ -221,7 +218,6 @@ export async function exportOrdersToExcel(
       deliveredAt: orderDeliveredStr,
       itemsSummary: sanitizeFormula(itemsSummary),
       totalBottles,
-      totalIce: `${totalIce} ly`,
       totalCost,
       totalVnd: o.totalVnd,
       totalProfit,
@@ -242,8 +238,7 @@ export async function exportOrdersToExcel(
       { header: 'Thời gian đặt', key: 'createdAt', width: 22, align: 'center' },
       { header: 'Thời gian giao', key: 'deliveredAt', width: 22, align: 'center' },
       { header: 'Chi tiết các món đã mua', key: 'itemsSummary', width: 44, align: 'left' },
-      { header: 'Tổng số chai', key: 'totalBottles', width: 14, numFmt: '#,##0', align: 'center' },
-      { header: 'Tổng ly đá', key: 'totalIce', width: 14, align: 'center' },
+      { header: 'Tổng số lượng', key: 'totalBottles', width: 14, numFmt: '#,##0', align: 'center' },
       { header: 'Tổng vốn (VNĐ)', key: 'totalCost', width: 18, numFmt: '#,##0" đ"', align: 'right' },
       { header: 'Tổng tiền đơn (VNĐ)', key: 'totalVnd', width: 20, numFmt: '#,##0" đ"', align: 'right' },
       { header: 'Tổng tiền lời (VNĐ)', key: 'totalProfit', width: 20, numFmt: '#,##0" đ"', align: 'right' },
@@ -323,16 +318,14 @@ export async function exportOrdersToExcel(
   // 4. SHEET 4: BÁO CÁO TỔNG HỢP KPI
   const totalRev = summaryStats?.totalRevenueVnd ?? deliveredOrders.reduce((s, o) => s + o.totalVnd, 0);
   const totalBottles = summaryStats?.totalBottlesDelivered ?? deliveredOrders.reduce((s, o) => s + o.items.reduce((sum, i) => sum + i.quantity, 0), 0);
-  const totalIce = summaryStats?.totalIceServed ?? deliveredOrders.reduce((s, o) => s + o.items.reduce((sum, i) => sum + i.iceQuantity, 0), 0);
 
   const summaryRows = [
     { stt: 1, kpi: 'Tên cơ sở', value: 'Sân Cầu Lông Trần Lựu' },
     { stt: 2, kpi: 'Ngày xuất báo cáo', value: new Date().toLocaleDateString('vi-VN', { timeZone: 'Asia/Ho_Chi_Minh' }) },
     { stt: 3, kpi: 'Tổng doanh thu thực thu (VNĐ)', value: `${totalRev.toLocaleString('vi-VN')} đ` },
     { stt: 4, kpi: 'Tổng đơn hàng đã giao hoàn tất', value: `${deliveredOrders.length} đơn` },
-    { stt: 5, kpi: 'Tổng số chai nước đã giao', value: `${totalBottles} chai` },
-    { stt: 6, kpi: 'Tổng số ly đá phục vụ miễn phí', value: `${totalIce} ly` },
-    { stt: 7, kpi: 'Tổng số đơn trong bộ lọc', value: `${orders.length} đơn` }
+    { stt: 5, kpi: 'Tổng số lượng sản phẩm đã giao', value: `${totalBottles} phần` },
+    { stt: 6, kpi: 'Tổng số đơn trong bộ lọc', value: `${orders.length} đơn` }
   ];
 
   addStyledSheet(
@@ -530,8 +523,298 @@ export async function exportStockIntakeToExcel(
   const url = URL.createObjectURL(new Blob([buffer as BlobPart], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }));
   const link = document.createElement('a');
   link.href = url;
-  link.download = `Thong_Ke_Nhap_Hang_Tran_Luu_${dateStr}.xlsx`;
+  link.download = `Thong_Ke_Nhap_Hang_Nuoc_Tran_Luu_${dateStr}.xlsx`;
   link.click();
   setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
+
+export interface SportsStockIntakeExportItem {
+  itemName: string;
+  unit: string;
+  quantity: number;
+  costPriceVnd: number;
+  sellingPriceVnd: number;
+  totalCostVnd: number;
+  stockAfter: number;
+  note?: string;
+  createdAt: string;
+}
+
+export async function exportSportsStockIntakeToExcel(
+  items: SportsStockIntakeExportItem[],
+  summary: { totalBatches: number; totalQuantity: number; totalCostValueVnd: number }
+): Promise<void> {
+  const wb = new ExcelJS.Workbook();
+  wb.creator = 'Sân Cầu Lông Trần Lựu';
+  wb.created = new Date();
+
+  const itemRows: Record<string, any>[] = [];
+  let itemStt = 1;
+  for (const item of items) {
+    const d = new Date(item.createdAt);
+    const intakeDateStr = d.toLocaleDateString('vi-VN', {
+      timeZone: 'Asia/Ho_Chi_Minh',
+      day: '2-digit',
+      month: '2-digit',
+      year: 'numeric'
+    });
+    const intakeTimeStr = d.toLocaleTimeString('vi-VN', {
+      timeZone: 'Asia/Ho_Chi_Minh',
+      hour: '2-digit',
+      minute: '2-digit'
+    });
+
+    itemRows.push({
+      stt: itemStt++,
+      productName: sanitizeFormula(item.itemName),
+      unit: item.unit || 'Cái',
+      intakeDate: intakeDateStr,
+      intakeTime: intakeTimeStr,
+      quantity: item.quantity,
+      costPriceVnd: item.costPriceVnd,
+      totalCostVnd: item.totalCostVnd,
+      sellingPriceVnd: item.sellingPriceVnd,
+      stockAfter: item.stockAfter,
+      note: sanitizeFormula(item.note || '')
+    });
+  }
+
+  const detailSheet = addStyledSheet(
+    wb,
+    'Lịch sử nhập hàng thể thao',
+    [
+      { header: 'STT', key: 'stt', width: 8, align: 'center' },
+      { header: 'Sản phẩm thể thao', key: 'productName', width: 34, align: 'left' },
+      { header: 'Đơn vị', key: 'unit', width: 12, align: 'center' },
+      { header: 'Thời gian nhập', key: 'intakeDate', width: 18, align: 'center' },
+      { header: 'Giờ nhập', key: 'intakeTime', width: 14, align: 'center' },
+      { header: 'Số lượng nhập', key: 'quantity', width: 16, numFmt: '#,##0', align: 'right' },
+      { header: 'Giá nhập (Vốn)', key: 'costPriceVnd', width: 18, numFmt: '#,##0" đ"', align: 'right' },
+      { header: 'Tổng tiền nhập', key: 'totalCostVnd', width: 24, numFmt: '#,##0" đ"', align: 'right' },
+      { header: 'Giá bán niêm yết', key: 'sellingPriceVnd', width: 18, numFmt: '#,##0" đ"', align: 'right' },
+      { header: 'Tồn sau nhập', key: 'stockAfter', width: 16, numFmt: '#,##0', align: 'center' },
+      { header: 'Ghi chú đợt nhập', key: 'note', width: 28, align: 'left' }
+    ],
+    itemRows
+  );
+
+  const grandTotalQuantity = items.reduce((s, i) => s + (i.quantity || 0), 0);
+  const grandTotalCost = items.reduce((s, i) => s + (i.totalCostVnd || 0), 0);
+
+  const totalRowIdx = detailSheet.rowCount + 1;
+  const totalRow = detailSheet.getRow(totalRowIdx);
+  totalRow.height = 28;
+  totalRow.getCell(1).value = '';
+  totalRow.getCell(2).value = '⎯⎯⎯ TỔNG CỘNG ⎯⎯⎯';
+  totalRow.getCell(3).value = '';
+  totalRow.getCell(4).value = `Tổng ${items.length} đợt nhập`;
+  totalRow.getCell(5).value = '';
+  totalRow.getCell(6).value = grandTotalQuantity;
+  totalRow.getCell(7).value = '';
+  totalRow.getCell(8).value = grandTotalCost;
+  totalRow.getCell(9).value = '';
+  totalRow.getCell(10).value = '';
+  totalRow.getCell(11).value = '';
+
+  for (let c = 1; c <= 11; c++) {
+    const cell = totalRow.getCell(c);
+    cell.font = { bold: true, size: 11, name: 'Segoe UI', color: { argb: 'FFFFFFFF' } };
+    cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF0A6B4A' } };
+    cell.alignment = {
+      vertical: 'middle',
+      horizontal: [6, 8].includes(c) ? 'right' : [2, 4].includes(c) ? 'center' : 'left'
+    };
+    if (c === 8) cell.numFmt = '#,##0" đ"';
+    if (c === 6) cell.numFmt = '#,##0';
+    cell.border = {
+      top: { style: 'thin', color: { argb: 'FFE2E8F0' } },
+      bottom: { style: 'thin', color: { argb: 'FFE2E8F0' } },
+      left: { style: 'thin', color: { argb: 'FFE2E8F0' } },
+      right: { style: 'thin', color: { argb: 'FFE2E8F0' } }
+    };
+  }
+
+  const nowVietnamStr = new Date().toLocaleString('vi-VN', {
+    timeZone: 'Asia/Ho_Chi_Minh',
+    hour: '2-digit',
+    minute: '2-digit',
+    day: '2-digit',
+    month: '2-digit',
+    year: 'numeric'
+  });
+
+  const summaryRows = [
+    { stt: 1, kpi: 'Tên cơ sở', value: 'Sân Cầu Lông Trần Lựu' },
+    { stt: 2, kpi: 'Danh mục', value: 'Sản phẩm thể thao & Dịch vụ sân' },
+    { stt: 3, kpi: 'Thời điểm xuất báo cáo', value: nowVietnamStr },
+    { stt: 4, kpi: 'Tổng số đợt nhập hàng', value: `${summary.totalBatches || items.length} đợt` },
+    { stt: 5, kpi: 'Tổng số lượng sản phẩm đã nhập', value: `${(summary.totalQuantity || grandTotalQuantity).toLocaleString('vi-VN')}` },
+    { stt: 6, kpi: 'Tổng tiền giá vốn nhập hàng (VNĐ)', value: `${(summary.totalCostValueVnd || grandTotalCost).toLocaleString('vi-VN')} đ` }
+  ];
+
+  addStyledSheet(
+    wb,
+    'Báo cáo KPI nhập hàng thể thao',
+    [
+      { header: 'STT', key: 'stt', width: 8, align: 'center' },
+      { header: 'Chỉ số thống kê', key: 'kpi', width: 44, align: 'left' },
+      { header: 'Giá trị ghi nhận', key: 'value', width: 36, align: 'right' }
+    ],
+    summaryRows
+  );
+
+  const dateStr = new Date().toISOString().slice(0, 10);
+  const buffer = await wb.xlsx.writeBuffer();
+  const url = URL.createObjectURL(new Blob([buffer as BlobPart], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }));
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = `Thong_Ke_Nhap_Hang_The_Thao_Tran_Luu_${dateStr}.xlsx`;
+  link.click();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+export async function exportSportsSalesToExcel(
+  orders: any[],
+  summaryStats?: { totalMatched: number; totalRevenueVnd: number; totalItems: number }
+): Promise<void> {
+  const wb = new ExcelJS.Workbook();
+  wb.creator = 'Sân Cầu Lông Trần Lựu';
+  wb.lastModifiedBy = 'Hệ thống Quản trị';
+  wb.created = new Date();
+
+  // 1. SHEET 1: CHI TIẾT TỪNG MẶT HÀNG THỂ THAO
+  const itemRows: Record<string, any>[] = [];
+  let itemStt = 1;
+  for (const o of orders) {
+    const orderCreatedStr = new Date(o.createdAt).toLocaleString('vi-VN', {
+      timeZone: 'Asia/Ho_Chi_Minh',
+      hour: '2-digit',
+      minute: '2-digit',
+      day: '2-digit',
+      month: '2-digit',
+      year: 'numeric'
+    });
+
+    for (const item of o.items) {
+      itemRows.push({
+        stt: itemStt++,
+        displayCode: sanitizeFormula(o.displayCode),
+        courtName: sanitizeFormula(o.courtName || o.courtNameSnapshot || 'Quầy lễ tân'),
+        customerName: sanitizeFormula(o.customerName || 'Khách vãng lai'),
+        customerPhone: sanitizeFormula(o.customerPhone || '—'),
+        paymentMethod: o.paymentMethod === 'transfer' ? 'Chuyển khoản QR' : 'Tiền mặt',
+        createdAt: orderCreatedStr,
+        itemName: sanitizeFormula(item.name || item.nameSnapshot),
+        unit: sanitizeFormula(item.volume || item.volumeSnapshot || 'Cái'),
+        quantity: item.quantity,
+        unitPrice: item.unitPrice || item.unitPriceVnd || 0,
+        lineTotal: item.lineTotal || item.lineTotalVnd || 0
+      });
+    }
+  }
+
+  addStyledSheet(
+    wb,
+    'Chi tiết bán thể thao từng món',
+    [
+      { header: 'STT', key: 'stt', width: 8, align: 'center' },
+      { header: 'Mã đơn', key: 'displayCode', width: 18, align: 'center' },
+      { header: 'Khu vực / Sân', key: 'courtName', width: 22, align: 'center' },
+      { header: 'Khách hàng', key: 'customerName', width: 22, align: 'left' },
+      { header: 'Số điện thoại', key: 'customerPhone', width: 16, align: 'center' },
+      { header: 'Hình thức TT', key: 'paymentMethod', width: 18, align: 'center' },
+      { header: 'Thời gian bán', key: 'createdAt', width: 22, align: 'center' },
+      { header: 'Tên sản phẩm / dịch vụ', key: 'itemName', width: 32, align: 'left' },
+      { header: 'Đơn vị', key: 'unit', width: 12, align: 'center' },
+      { header: 'Số lượng', key: 'quantity', width: 12, numFmt: '#,##0', align: 'center' },
+      { header: 'Đơn giá (VNĐ)', key: 'unitPrice', width: 18, numFmt: '#,##0" đ"', align: 'right' },
+      { header: 'Thành tiền (VNĐ)', key: 'lineTotal', width: 20, numFmt: '#,##0" đ"', align: 'right' }
+    ],
+    itemRows
+  );
+
+  // 2. SHEET 2: TỔNG HỢP THEO ĐƠN BÁN
+  const orderRows: Record<string, any>[] = [];
+  let orderStt = 1;
+  for (const o of orders) {
+    const orderCreatedStr = new Date(o.createdAt).toLocaleString('vi-VN', {
+      timeZone: 'Asia/Ho_Chi_Minh',
+      hour: '2-digit',
+      minute: '2-digit',
+      day: '2-digit',
+      month: '2-digit',
+      year: 'numeric'
+    });
+
+    const itemsSummary = o.items
+      .map((i: any) => `${i.quantity}x ${i.name || i.nameSnapshot}`)
+      .join(', ');
+    const totalQty = o.items.reduce((s: number, i: any) => s + i.quantity, 0);
+
+    orderRows.push({
+      stt: orderStt++,
+      displayCode: sanitizeFormula(o.displayCode),
+      courtName: sanitizeFormula(o.courtName || o.courtNameSnapshot || 'Quầy lễ tân'),
+      customerName: sanitizeFormula(o.customerName || 'Khách vãng lai'),
+      customerPhone: sanitizeFormula(o.customerPhone || '—'),
+      paymentMethod: o.paymentMethod === 'transfer' ? 'Chuyển khoản QR' : 'Tiền mặt',
+      createdAt: orderCreatedStr,
+      itemsSummary: sanitizeFormula(itemsSummary),
+      totalQty,
+      totalVnd: o.totalVnd
+    });
+  }
+
+  addStyledSheet(
+    wb,
+    'Tổng hợp đơn bán thể thao',
+    [
+      { header: 'STT', key: 'stt', width: 8, align: 'center' },
+      { header: 'Mã đơn', key: 'displayCode', width: 18, align: 'center' },
+      { header: 'Khu vực / Sân', key: 'courtName', width: 22, align: 'center' },
+      { header: 'Khách hàng', key: 'customerName', width: 22, align: 'left' },
+      { header: 'Số điện thoại', key: 'customerPhone', width: 16, align: 'center' },
+      { header: 'Hình thức TT', key: 'paymentMethod', width: 18, align: 'center' },
+      { header: 'Thời gian', key: 'createdAt', width: 22, align: 'center' },
+      { header: 'Danh sách sản phẩm & dịch vụ', key: 'itemsSummary', width: 44, align: 'left' },
+      { header: 'Tổng số lượng', key: 'totalQty', width: 16, numFmt: '#,##0', align: 'center' },
+      { header: 'Tổng thanh toán (VNĐ)', key: 'totalVnd', width: 22, numFmt: '#,##0" đ"', align: 'right' }
+    ],
+    orderRows
+  );
+
+  // 3. SHEET 3: BÁO CÁO TỔNG HỢP
+  const grandRev = summaryStats?.totalRevenueVnd ?? orders.reduce((s, o) => s + (o.totalVnd || 0), 0);
+  const grandItems = summaryStats?.totalItems ?? orders.reduce((s, o) => s + o.items.reduce((sum: number, i: any) => sum + i.quantity, 0), 0);
+
+  const summaryRows = [
+    { stt: 1, kpi: 'Tên cơ sở', value: 'Sân Cầu Lông Trần Lựu' },
+    { stt: 2, kpi: 'Phân hệ', value: 'Lịch sử bán hàng thể thao & Dịch vụ sân' },
+    { stt: 3, kpi: 'Ngày xuất báo cáo', value: new Date().toLocaleDateString('vi-VN', { timeZone: 'Asia/Ho_Chi_Minh' }) },
+    { stt: 4, kpi: 'Tổng số đơn bán thể thao', value: `${summaryStats?.totalMatched ?? orders.length} đơn` },
+    { stt: 5, kpi: 'Tổng sản phẩm / dịch vụ bán ra', value: `${grandItems.toLocaleString('vi-VN')} món` },
+    { stt: 6, kpi: 'Tổng doanh thu bán thể thao (VNĐ)', value: `${grandRev.toLocaleString('vi-VN')} đ` }
+  ];
+
+  addStyledSheet(
+    wb,
+    'Báo cáo KPI bán thể thao',
+    [
+      { header: 'STT', key: 'stt', width: 8, align: 'center' },
+      { header: 'Chỉ số thống kê', key: 'kpi', width: 40, align: 'left' },
+      { header: 'Giá trị ghi nhận', key: 'value', width: 34, align: 'right' }
+    ],
+    summaryRows
+  );
+
+  const dateStr = new Date().toISOString().slice(0, 10);
+  const buffer = await wb.xlsx.writeBuffer();
+  const url = URL.createObjectURL(new Blob([buffer as BlobPart], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }));
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = `Lich_Su_Ban_The_Thao_Tran_Luu_${dateStr}.xlsx`;
+  link.click();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
 

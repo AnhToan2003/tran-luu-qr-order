@@ -217,11 +217,11 @@ export const StockIntakeTab: React.FC<StockIntakeTabProps> = ({
       {/* HEADER SECTION */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '14px' }}>
         <div>
-          <h2 style={{ fontSize: 'var(--font-size-xl)', fontWeight: 800, color: 'var(--color-deep)', margin: 0 }}>
-            Lịch Sử Nhập Hàng & Thống Kê Giá Vốn
+          <h2 style={{ fontSize: '22px', fontWeight: 900, color: '#0F172A', margin: 0, letterSpacing: '-0.02em' }}>
+            Lịch sử nhập hàng
           </h2>
-          <p style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-muted)', marginTop: '4px' }}>
-            Theo dõi chi tiết giá vốn đầu vào, giá bán niêm yết, lợi nhuận dự tính và lịch sử nhập kho từng đợt
+          <p style={{ fontSize: '13px', color: '#334155', marginTop: '4px', fontWeight: 600 }}>
+            Theo dõi chi tiết các đợt nhập hàng, số lượng, giá vốn đầu vào và tồn kho sau nhập
           </p>
         </div>
 
@@ -230,12 +230,13 @@ export const StockIntakeTab: React.FC<StockIntakeTabProps> = ({
             onClick={fetchIntakeHistory}
             disabled={isLoading || isExporting}
             style={{
-              padding: '8px 14px',
+              padding: '9px 16px',
               borderRadius: 'var(--radius-sm)',
               backgroundColor: 'var(--color-surface)',
-              border: '1px solid var(--color-border)',
-              fontSize: 'var(--font-size-xs)',
-              fontWeight: 700,
+              border: '1.5px solid var(--color-border)',
+              fontSize: '13px',
+              fontWeight: 800,
+              color: '#0F172A',
               cursor: isLoading || isExporting ? 'not-allowed' : 'pointer',
               display: 'flex',
               alignItems: 'center',
@@ -249,13 +250,13 @@ export const StockIntakeTab: React.FC<StockIntakeTabProps> = ({
             onClick={handleExportExcel}
             disabled={isExporting || isLoading}
             style={{
-              padding: '8px 14px',
+              padding: '9px 16px',
               borderRadius: 'var(--radius-sm)',
-              backgroundColor: isExporting ? '#9CA3AF' : '#10B981',
+              backgroundColor: isExporting ? '#94A3B8' : '#059669',
               color: '#FFFFFF',
               border: 'none',
-              fontSize: 'var(--font-size-xs)',
-              fontWeight: 700,
+              fontSize: '13px',
+              fontWeight: 800,
               cursor: isExporting || isLoading ? 'not-allowed' : 'pointer',
               display: 'flex',
               alignItems: 'center',
@@ -265,124 +266,98 @@ export const StockIntakeTab: React.FC<StockIntakeTabProps> = ({
             }}
             title="Xuất bảng thống kê nhập hàng và giá vốn ra file Excel"
           >
-            <span>📊</span>
             <span>{isExporting ? 'Đang xuất Excel...' : 'Xuất Excel'}</span>
           </button>
         </div>
       </div>
 
-      {/* KPI CARDS: Clean POS/Dashboard Style */}
+      {/* KPI CARDS: Clean POS/Dashboard Style - 2 Thẻ theo đúng yêu cầu */}
       <div style={{
         display: 'grid',
-        gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))',
-        gap: '12px'
+        gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))',
+        gap: '14px'
       }}>
-        {/* Card 1: Số đợt nhập */}
+        {/* Card 1: Tổng số Nhập hàng */}
         <div style={{
           backgroundColor: 'var(--color-surface)',
-          padding: '16px',
+          padding: '18px 20px',
           borderRadius: 'var(--radius-md)',
           border: '1px solid var(--color-border)',
           boxShadow: 'var(--shadow-sm)'
         }}>
-          <div style={{ fontSize: '11px', color: 'var(--color-text-muted)', fontWeight: 700, letterSpacing: '0.5px' }}>
-            SỐ ĐỢT NHẬP
+          <div style={{ fontSize: '12px', fontWeight: 800, color: '#334155', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+            Tổng số Nhập hàng
           </div>
-          <div style={{ fontSize: '24px', fontWeight: 900, color: 'var(--color-deep)', marginTop: '4px' }}>
-            {activeSummary.totalBatches} <span style={{ fontSize: '12px', fontWeight: 600, color: 'var(--color-text-muted)' }}>đợt</span>
+          <div style={{ fontSize: '26px', fontWeight: 900, color: '#0F172A', marginTop: '6px' }}>
+            {(activeSummary.totalBatches ?? (activeSummary as any).totalIntakes)?.toLocaleString() || 0}
+          </div>
+          <div style={{ fontSize: '13px', color: '#1D4ED8', marginTop: '4px', fontWeight: 700 }}>
+            {activeSummary.totalQuantity.toLocaleString()} {selectedProductId !== 'all' ? (products.find(p => p.id === selectedProductId)?.volume || 'sản phẩm') : 'sản phẩm'} đã nhập
           </div>
         </div>
 
-        {/* Card 2: Tổng số lượng nhập */}
+        {/* Card 2: Giá Nhập */}
         <div style={{
           backgroundColor: 'var(--color-surface)',
-          padding: '16px',
+          padding: '18px 20px',
           borderRadius: 'var(--radius-md)',
           border: '1px solid var(--color-border)',
           boxShadow: 'var(--shadow-sm)'
         }}>
-          <div style={{ fontSize: '11px', color: 'var(--color-text-muted)', fontWeight: 700, letterSpacing: '0.5px' }}>
-            TỔNG SỐ LƯỢNG NHẬP
+          <div style={{ fontSize: '12px', fontWeight: 800, color: '#334155', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+            Giá Nhập {selectedProductId !== 'all' && products.find(p => p.id === selectedProductId) ? `• ${products.find(p => p.id === selectedProductId)?.name}` : ''}
           </div>
-          <div style={{ fontSize: '24px', fontWeight: 900, color: '#2563EB', marginTop: '4px' }}>
-            {activeSummary.totalQuantity.toLocaleString()} <span style={{ fontSize: '12px', fontWeight: 600, color: 'var(--color-text-muted)' }}>chai/lon</span>
-          </div>
-        </div>
-
-        {/* Card 3: Tổng vốn nhập hàng */}
-        <div style={{
-          backgroundColor: 'var(--color-surface)',
-          padding: '16px',
-          borderRadius: 'var(--radius-md)',
-          border: '1px solid var(--color-border)',
-          boxShadow: 'var(--shadow-sm)'
-        }}>
-          <div style={{ fontSize: '11px', color: 'var(--color-text-muted)', fontWeight: 700, letterSpacing: '0.5px' }}>
-            TỔNG TIỀN VỐN ĐÃ NHẬP
-          </div>
-          <div style={{ fontSize: '24px', fontWeight: 900, color: 'var(--color-deep)', marginTop: '4px' }}>
+          <div style={{ fontSize: '26px', fontWeight: 900, color: '#D97706', marginTop: '6px' }}>
             {formatVnd(activeSummary.totalCostValueVnd)}
           </div>
-        </div>
-
-        {/* Card 4: Lợi nhuận dự tính */}
-        <div style={{
-          backgroundColor: '#F0FDF4',
-          padding: '16px',
-          borderRadius: 'var(--radius-md)',
-          border: '1px solid #BBF7D0',
-          boxShadow: 'var(--shadow-sm)'
-        }}>
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-            <div style={{ fontSize: '11px', color: '#15803D', fontWeight: 800, letterSpacing: '0.5px' }}>
-              LỢI NHUẬN DỰ TÍNH
-            </div>
-            <span style={{
-              fontSize: '11px',
-              fontWeight: 800,
-              padding: '1px 6px',
-              borderRadius: '4px',
-              backgroundColor: '#DCFCE7',
-              color: '#166534'
-            }}>
-              Biên lãi: {activeSummary.overallMarginPct}%
-            </span>
-          </div>
-          <div style={{ fontSize: '24px', fontWeight: 900, color: '#15803D', marginTop: '4px' }}>
-            {formatVnd(activeSummary.totalExpectedProfitVnd)}
+          <div style={{ fontSize: '13px', color: '#334155', marginTop: '4px', fontWeight: 700 }}>
+            {selectedProductId !== 'all' && products.find(p => p.id === selectedProductId)
+              ? `Tổng vốn nhập của riêng "${products.find(p => p.id === selectedProductId)?.name}"`
+              : 'Chi phí nhập kho đã chi'}
           </div>
         </div>
       </div>
 
-      {/* FILTER CONTROLS */}
+      {/* FILTER & SEARCH TOOLBAR */}
       <div style={{
         backgroundColor: 'var(--color-surface)',
-        padding: '12px 16px',
+        padding: '14px 18px',
         borderRadius: 'var(--radius-md)',
         border: '1px solid var(--color-border)',
+        boxShadow: 'var(--shadow-sm)',
         display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'space-between',
         flexWrap: 'wrap',
-        gap: '10px'
+        gap: '12px',
+        alignItems: 'center',
+        justifyContent: 'space-between'
       }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flex: '1 1 300px', flexWrap: 'wrap' }}>
-          {/* Search box */}
-          <div style={{ position: 'relative', flex: '1 1 200px' }}>
-            <span style={{ position: 'absolute', left: '10px', top: '50%', transform: 'translateY(-50%)', fontSize: '12px', color: 'var(--color-text-muted)' }}>
-              Tìm:
+        {/* Search input + product select */}
+        <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap', alignItems: 'center', flex: 1 }}>
+          <div style={{ position: 'relative', minWidth: '240px', maxWidth: '380px', flex: 1 }}>
+            <span style={{
+              position: 'absolute',
+              left: '12px',
+              top: '50%',
+              transform: 'translateY(-50%)',
+              fontSize: '11px',
+              fontWeight: 800,
+              color: '#334155'
+            }}>
+              TÌM:
             </span>
             <input
               type="text"
+              placeholder="Tên sản phẩm, quy cách..."
               value={searchQuery}
               onChange={e => setSearchQuery(e.target.value)}
-              placeholder="Nhập tên sản phẩm hoặc ghi chú..."
               style={{
                 width: '100%',
-                padding: '7px 12px 7px 42px',
+                padding: '8px 12px 8px 48px',
                 borderRadius: 'var(--radius-sm)',
-                border: '1px solid var(--color-border)',
-                fontSize: 'var(--font-size-xs)',
+                border: '1.5px solid var(--color-border)',
+                fontSize: '13px',
+                fontWeight: 600,
+                color: '#0F172A',
                 backgroundColor: 'var(--color-bg)',
                 outline: 'none'
               }}
@@ -397,9 +372,9 @@ export const StockIntakeTab: React.FC<StockIntakeTabProps> = ({
                   transform: 'translateY(-50%)',
                   background: 'none',
                   border: 'none',
-                  color: 'var(--color-text-muted)',
+                  color: '#334155',
                   cursor: 'pointer',
-                  fontWeight: 700
+                  fontWeight: 800
                 }}
               >
                 ✕
@@ -408,19 +383,19 @@ export const StockIntakeTab: React.FC<StockIntakeTabProps> = ({
           </div>
 
           {/* Product Select */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-            <span style={{ fontSize: '11px', fontWeight: 700, color: 'var(--color-text-muted)' }}>SẢN PHẨM:</span>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <span style={{ fontSize: '12px', fontWeight: 800, color: '#0F172A' }}>SẢN PHẨM:</span>
             <select
               value={selectedProductId}
               onChange={e => setSelectedProductId(e.target.value)}
               style={{
-                padding: '6px 10px',
+                padding: '8px 12px',
                 borderRadius: 'var(--radius-sm)',
-                border: '1px solid var(--color-border)',
-                fontSize: 'var(--font-size-xs)',
-                fontWeight: 600,
+                border: '1.5px solid var(--color-border)',
+                fontSize: '13px',
+                fontWeight: 700,
                 backgroundColor: 'var(--color-bg)',
-                color: 'var(--color-deep)'
+                color: '#0F172A'
               }}
             >
               <option value="all">Tất cả sản phẩm ({products.length})</option>
@@ -434,7 +409,7 @@ export const StockIntakeTab: React.FC<StockIntakeTabProps> = ({
         </div>
 
         {/* Time presets */}
-        <div style={{ display: 'flex', gap: '4px', backgroundColor: 'var(--color-bg)', padding: '3px', borderRadius: 'var(--radius-sm)', border: '1px solid var(--color-border)' }}>
+        <div style={{ display: 'flex', gap: '4px', backgroundColor: 'var(--color-bg)', padding: '4px', borderRadius: 'var(--radius-sm)', border: '1px solid var(--color-border)' }}>
           {[
             { key: 'all', label: 'Tất cả' },
             { key: 'today', label: 'Hôm nay' },
@@ -445,12 +420,12 @@ export const StockIntakeTab: React.FC<StockIntakeTabProps> = ({
               key={f.key}
               onClick={() => setTimeFilter(f.key as any)}
               style={{
-                padding: '5px 10px',
+                padding: '6px 14px',
                 borderRadius: 'var(--radius-sm)',
-                backgroundColor: timeFilter === f.key ? 'var(--color-deep)' : 'transparent',
-                color: timeFilter === f.key ? '#FFFFFF' : 'var(--color-text-main)',
-                fontWeight: timeFilter === f.key ? 700 : 500,
-                fontSize: '11px',
+                backgroundColor: timeFilter === f.key ? '#0F172A' : 'transparent',
+                color: timeFilter === f.key ? '#FFFFFF' : '#0F172A',
+                fontWeight: 800,
+                fontSize: '13px',
                 cursor: 'pointer',
                 border: 'none',
                 transition: 'all 0.1s ease'
@@ -471,44 +446,45 @@ export const StockIntakeTab: React.FC<StockIntakeTabProps> = ({
         overflow: 'hidden'
       }}>
         {isLoading ? (
-          <div style={{ padding: '60px 20px', textAlign: 'center', color: 'var(--color-text-muted)' }}>
-            Đang tải dữ liệu lịch sử nhập hàng...
+          <div style={{ padding: '60px 20px', textAlign: 'center', color: '#334155', fontSize: '14px', fontWeight: 600 }}>
+            Đang tải dữ liệu lịch sử đặt hàng...
           </div>
         ) : error ? (
           <div style={{ padding: '40px 20px', textAlign: 'center', color: '#DC2626' }}>
-            <p style={{ fontWeight: 700 }}>{error}</p>
+            <p style={{ fontWeight: 800, fontSize: '14px' }}>{error}</p>
             <button
               onClick={fetchIntakeHistory}
               style={{
                 marginTop: '8px',
-                padding: '6px 14px',
-                backgroundColor: 'var(--color-deep)',
+                padding: '8px 16px',
+                backgroundColor: '#0F172A',
                 color: '#FFFFFF',
                 borderRadius: 'var(--radius-sm)',
                 border: 'none',
-                cursor: 'pointer'
+                cursor: 'pointer',
+                fontWeight: 700
               }}
             >
               Thử lại
             </button>
           </div>
         ) : filteredItems.length === 0 ? (
-          <div style={{ padding: '60px 20px', textAlign: 'center', color: 'var(--color-text-muted)' }}>
-            Không có dữ liệu nhập hàng nào phù hợp với bộ lọc hiện tại
+          <div style={{ padding: '60px 20px', textAlign: 'center', color: '#334155', fontSize: '14px', fontWeight: 600 }}>
+            Không có dữ liệu đặt hàng nào phù hợp với bộ lọc hiện tại
           </div>
         ) : (
           <div style={{ overflowX: 'auto' }}>
-            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 'var(--font-size-xs)', textAlign: 'left' }}>
+            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13px', textAlign: 'left' }}>
               <thead>
-                <tr style={{ backgroundColor: 'var(--color-bg)', borderBottom: '1px solid var(--color-border)' }}>
-                  <th style={{ padding: '12px 14px', fontWeight: 800, color: 'var(--color-deep)', whiteSpace: 'nowrap' }}>Thời gian nhập</th>
-                  <th style={{ padding: '12px 14px', fontWeight: 800, color: 'var(--color-deep)' }}>Sản phẩm</th>
-                  <th style={{ padding: '12px 14px', fontWeight: 800, color: 'var(--color-deep)', textAlign: 'right' }}>Số lượng</th>
-                  <th style={{ padding: '12px 14px', fontWeight: 800, color: 'var(--color-deep)', textAlign: 'right' }}>Giá vào (Vốn)</th>
-                  <th style={{ padding: '12px 14px', fontWeight: 800, color: 'var(--color-deep)', textAlign: 'right' }}>Giá bán ra</th>
-                  <th style={{ padding: '12px 14px', fontWeight: 800, color: 'var(--color-deep)', textAlign: 'right' }}>Lãi / chai</th>
-                  <th style={{ padding: '12px 14px', fontWeight: 800, color: 'var(--color-deep)', textAlign: 'right' }}>Tổng tiền vốn</th>
-                  <th style={{ padding: '12px 14px', fontWeight: 800, color: 'var(--color-deep)', textAlign: 'center' }}>Tồn sau nhập</th>
+                <tr style={{ backgroundColor: '#F1F5F9', borderBottom: '2px solid #CBD5E1' }}>
+                  <th style={{ padding: '12px 14px', fontWeight: 900, color: '#0F172A', whiteSpace: 'nowrap', fontSize: '13px', textTransform: 'uppercase' }}>Thời gian nhập</th>
+                  <th style={{ padding: '12px 14px', fontWeight: 900, color: '#0F172A', fontSize: '13px', textTransform: 'uppercase' }}>Sản phẩm</th>
+                  <th style={{ padding: '12px 14px', fontWeight: 900, color: '#0F172A', textAlign: 'right', fontSize: '13px', textTransform: 'uppercase' }}>Số lượng</th>
+                  <th style={{ padding: '12px 14px', fontWeight: 900, color: '#0F172A', textAlign: 'right', fontSize: '13px', textTransform: 'uppercase' }}>Giá vào (Vốn)</th>
+                  <th style={{ padding: '12px 14px', fontWeight: 900, color: '#0F172A', textAlign: 'right', fontSize: '13px', textTransform: 'uppercase' }}>Giá bán ra</th>
+                  <th style={{ padding: '12px 14px', fontWeight: 900, color: '#0F172A', textAlign: 'right', fontSize: '13px', textTransform: 'uppercase' }}>Lãi / chai</th>
+                  <th style={{ padding: '12px 14px', fontWeight: 900, color: '#0F172A', textAlign: 'right', fontSize: '13px', textTransform: 'uppercase' }}>Tổng tiền vốn</th>
+                  <th style={{ padding: '12px 14px', fontWeight: 900, color: '#0F172A', textAlign: 'center', fontSize: '13px', textTransform: 'uppercase' }}>Tồn sau nhập</th>
                 </tr>
               </thead>
               <tbody>
@@ -518,57 +494,57 @@ export const StockIntakeTab: React.FC<StockIntakeTabProps> = ({
                     <tr
                       key={item.id || idx}
                       style={{
-                        borderBottom: '1px solid var(--color-border)',
-                        backgroundColor: idx % 2 === 0 ? 'transparent' : 'rgba(0,0,0,0.015)'
+                        borderBottom: '1px solid #E2E8F0',
+                        backgroundColor: idx % 2 === 0 ? 'transparent' : '#F8FAFC'
                       }}
                     >
                       {/* Thời gian */}
-                      <td style={{ padding: '12px 14px', color: 'var(--color-text-muted)', whiteSpace: 'nowrap', fontWeight: 500 }}>
+                      <td style={{ padding: '12px 14px', color: '#334155', whiteSpace: 'nowrap', fontWeight: 600, fontSize: '13px' }}>
                         {formatDate(item.createdAt)}
                       </td>
 
                       {/* Tên sản phẩm & Quy cách */}
                       <td style={{ padding: '12px 14px' }}>
-                        <div style={{ fontWeight: 800, color: 'var(--color-deep)' }}>{item.productName}</div>
+                        <div style={{ fontWeight: 900, color: '#0F172A', fontSize: '14px' }}>{item.productName}</div>
                         {item.volume && (
-                          <div style={{ fontSize: '11px', color: 'var(--color-text-muted)' }}>{item.volume}</div>
+                          <div style={{ fontSize: '12px', color: '#475569', fontWeight: 600 }}>{item.volume}</div>
                         )}
                       </td>
 
                       {/* Số lượng */}
-                      <td style={{ padding: '12px 14px', textAlign: 'right', fontWeight: 800, color: '#2563EB' }}>
+                      <td style={{ padding: '12px 14px', textAlign: 'right', fontWeight: 900, color: '#1D4ED8', fontSize: '14px' }}>
                         +{item.quantity}
                       </td>
 
                       {/* Giá vào (Vốn) */}
-                      <td style={{ padding: '12px 14px', textAlign: 'right', fontWeight: 700, color: 'var(--color-deep)' }}>
+                      <td style={{ padding: '12px 14px', textAlign: 'right', fontWeight: 800, color: '#0F172A', fontSize: '14px' }}>
                         {formatVnd(item.costPriceVnd)}
                       </td>
 
                       {/* Giá bán ra */}
-                      <td style={{ padding: '12px 14px', textAlign: 'right', fontWeight: 700, color: 'var(--color-primary)' }}>
+                      <td style={{ padding: '12px 14px', textAlign: 'right', fontWeight: 800, color: '#059669', fontSize: '14px' }}>
                         {formatVnd(item.sellingPriceVnd)}
                       </td>
 
                       {/* Lãi / chai */}
-                      <td style={{ padding: '12px 14px', textAlign: 'right', fontWeight: 800, color: perUnitProfit >= 0 ? '#15803D' : '#DC2626' }}>
+                      <td style={{ padding: '12px 14px', textAlign: 'right', fontWeight: 900, color: perUnitProfit >= 0 ? '#15803D' : '#DC2626', fontSize: '14px' }}>
                         +{formatVnd(perUnitProfit)}
                       </td>
 
                       {/* Tổng tiền vốn lô */}
-                      <td style={{ padding: '12px 14px', textAlign: 'right', fontWeight: 800, color: 'var(--color-deep)' }}>
+                      <td style={{ padding: '12px 14px', textAlign: 'right', fontWeight: 900, color: '#0F172A', fontSize: '14px' }}>
                         {formatVnd(item.totalCostVnd)}
                       </td>
 
                       {/* Tồn sau nhập */}
                       <td style={{ padding: '12px 14px', textAlign: 'center' }}>
                         <span style={{
-                          padding: '2px 8px',
+                          padding: '3px 10px',
                           borderRadius: 'var(--radius-full)',
-                          backgroundColor: '#F3F4F6',
-                          color: 'var(--color-deep)',
-                          fontWeight: 700,
-                          fontSize: '11px'
+                          backgroundColor: '#E2E8F0',
+                          color: '#0F172A',
+                          fontWeight: 800,
+                          fontSize: '12px'
                         }}>
                           {item.stockAfter}
                         </span>
@@ -584,12 +560,13 @@ export const StockIntakeTab: React.FC<StockIntakeTabProps> = ({
 
       {/* FOOTER SUMMARY & PAGINATION */}
       <div style={{
-        padding: '12px 16px',
+        padding: '14px 18px',
         backgroundColor: 'var(--color-surface)',
         borderRadius: 'var(--radius-sm)',
         border: '1px solid var(--color-border)',
-        fontSize: '12px',
-        color: 'var(--color-text-muted)',
+        fontSize: '13px',
+        color: '#0F172A',
+        fontWeight: 600,
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'space-between',
@@ -597,7 +574,7 @@ export const StockIntakeTab: React.FC<StockIntakeTabProps> = ({
         gap: '12px'
       }}>
         <div>
-          Hiển thị <strong>{filteredItems.length}</strong> / <strong>{totalItems}</strong> lượt nhập kho • Tổng lượng: <strong>{activeSummary.totalQuantity.toLocaleString()}</strong> sản phẩm
+          Hiển thị <strong style={{ fontWeight: 900, color: '#0F172A' }}>{filteredItems.length}</strong> / <strong style={{ fontWeight: 900, color: '#0F172A' }}>{totalItems}</strong> lượt nhập kho • Tổng lượng: <strong style={{ fontWeight: 900, color: '#1D4ED8' }}>{activeSummary.totalQuantity.toLocaleString()}</strong> sản phẩm
         </div>
 
         {/* Nút phân trang */}
@@ -606,33 +583,33 @@ export const StockIntakeTab: React.FC<StockIntakeTabProps> = ({
             disabled={page <= 1 || isLoading}
             onClick={() => setPage(p => Math.max(1, p - 1))}
             style={{
-              padding: '6px 12px',
+              padding: '7px 14px',
               borderRadius: 'var(--radius-sm)',
-              backgroundColor: page <= 1 ? '#F3F4F6' : 'var(--color-surface)',
-              border: '1px solid var(--color-border)',
-              color: page <= 1 ? '#9CA3AF' : 'var(--color-deep)',
+              backgroundColor: page <= 1 ? '#F1F5F9' : 'var(--color-surface)',
+              border: '1.5px solid var(--color-border)',
+              color: page <= 1 ? '#94A3B8' : '#0F172A',
               cursor: page <= 1 ? 'not-allowed' : 'pointer',
-              fontWeight: 700,
-              fontSize: '11px'
+              fontWeight: 800,
+              fontSize: '12px'
             }}
           >
             ← Trước
           </button>
-          <span style={{ fontWeight: 700, fontSize: '12px', color: 'var(--color-deep)' }}>
+          <span style={{ fontWeight: 800, fontSize: '13px', color: '#0F172A' }}>
             Trang {page} / {totalPages}
           </span>
           <button
             disabled={page >= totalPages || isLoading}
             onClick={() => setPage(p => Math.min(totalPages, p + 1))}
             style={{
-              padding: '6px 12px',
+              padding: '7px 14px',
               borderRadius: 'var(--radius-sm)',
-              backgroundColor: page >= totalPages ? '#F3F4F6' : 'var(--color-surface)',
-              border: '1px solid var(--color-border)',
-              color: page >= totalPages ? '#9CA3AF' : 'var(--color-deep)',
+              backgroundColor: page >= totalPages ? '#F1F5F9' : 'var(--color-surface)',
+              border: '1.5px solid var(--color-border)',
+              color: page >= totalPages ? '#94A3B8' : '#0F172A',
               cursor: page >= totalPages ? 'not-allowed' : 'pointer',
-              fontWeight: 700,
-              fontSize: '11px'
+              fontWeight: 800,
+              fontSize: '12px'
             }}
           >
             Sau →

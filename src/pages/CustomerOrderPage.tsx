@@ -63,6 +63,7 @@ export const CustomerOrderPage: React.FC = () => {
   const [cartItems, setCartItems] = useState<OrderItem[]>([]);
   const [isCartOpen, setIsCartOpen] = useState<boolean>(false);
   const [isSubmittingOrder, setIsSubmittingOrder] = useState<boolean>(false);
+  const [selectedCategory, setSelectedCategory] = useState<string>('all');
 
   const [activeTrackingOrder, setActiveTrackingOrder] = useState<Order | null>(null);
   const [isTrackingModalOpen, setIsTrackingModalOpen] = useState<boolean>(false);
@@ -71,7 +72,7 @@ export const CustomerOrderPage: React.FC = () => {
   useEffect(() => {
     try {
       localStorage.removeItem('tl_customer_profile');
-    } catch {}
+    } catch { }
   }, []);
 
   // ================= 1. KHỞI TẠO VÀ ĐỒNG BỘ PHIÊN KHÁCH HÀNG =================
@@ -92,7 +93,7 @@ export const CustomerOrderPage: React.FC = () => {
           let currentToken = sessionToken;
           try {
             currentToken = currentToken || sessionStorage.getItem(SESSION_TOKEN_KEY) || '';
-          } catch {}
+          } catch { }
 
           if (currentToken) {
             try {
@@ -100,7 +101,7 @@ export const CustomerOrderPage: React.FC = () => {
                 method: 'POST',
                 headers: { 'x-customer-session': currentToken }
               });
-            } catch {}
+            } catch { }
           }
 
           // Gọi backend để xác thực chữ ký số và sinh session token 256-bit an toàn
@@ -122,7 +123,7 @@ export const CustomerOrderPage: React.FC = () => {
             sessionStorage.setItem(SESSION_COURT_KEY, JSON.stringify(data.court));
             sessionStorage.setItem('tl_tab_owner', tabOwnerId);
             sessionStorage.removeItem('tl_session_customer_info');
-          } catch {}
+          } catch { }
 
           setSessionToken(data.sessionToken);
           setCourtInfo(data.court);
@@ -138,7 +139,7 @@ export const CustomerOrderPage: React.FC = () => {
             sessionStorage.removeItem(SESSION_TOKEN_KEY);
             sessionStorage.removeItem(SESSION_COURT_KEY);
             sessionStorage.removeItem('tl_tab_owner');
-          } catch {}
+          } catch { }
           setSessionToken('');
           setCourtInfo(null);
           setCourtCode('');
@@ -159,7 +160,7 @@ export const CustomerOrderPage: React.FC = () => {
     try {
       storedTabOwner = sessionStorage.getItem('tl_tab_owner') || '';
       existingToken = existingToken || sessionStorage.getItem(SESSION_TOKEN_KEY) || '';
-    } catch {}
+    } catch { }
 
     // BẢO VỆ DUPLICATE TAB: Nếu tab bị nhân bản (cloned context), window.name sẽ rỗng hoặc không khớp với tl_tab_owner
     if (existingToken && (!currentTabId || currentTabId !== storedTabOwner)) {
@@ -169,7 +170,7 @@ export const CustomerOrderPage: React.FC = () => {
         sessionStorage.removeItem(SESSION_TOKEN_KEY);
         sessionStorage.removeItem(SESSION_COURT_KEY);
         sessionStorage.removeItem('tl_tab_owner');
-      } catch {}
+      } catch { }
       setSessionToken('');
       setCourtInfo(null);
       setCourtCode('');
@@ -192,14 +193,14 @@ export const CustomerOrderPage: React.FC = () => {
           setCourtCode(data.court.code);
           try {
             sessionStorage.setItem(SESSION_COURT_KEY, JSON.stringify(data.court));
-          } catch {}
+          } catch { }
         } catch (err: any) {
           if (err?.status === 401 || err?.code === 'SESSION_EXPIRED' || err?.code === 'SESSION_REQUIRED' || err?.code === 'INVALID_SESSION') {
             // Phiên hết hạn hoặc không hợp lệ -> xóa sạch phiên cũ
             try {
               sessionStorage.removeItem(SESSION_TOKEN_KEY);
               sessionStorage.removeItem(SESSION_COURT_KEY);
-            } catch {}
+            } catch { }
             setSessionToken('');
             setCourtInfo(null);
             setCourtCode('');
@@ -229,7 +230,7 @@ export const CustomerOrderPage: React.FC = () => {
       sessionStorage.removeItem(SESSION_TOKEN_KEY);
       sessionStorage.removeItem(SESSION_COURT_KEY);
       sessionStorage.removeItem('tl_session_customer_info');
-    } catch {}
+    } catch { }
 
     setSessionToken('');
     setCourtInfo(null);
@@ -283,13 +284,12 @@ export const CustomerOrderPage: React.FC = () => {
             return [];
           }
           const clampedQty = Math.min(item.quantity, match.stock);
-          const clampedIce = Math.min(item.iceQuantity, clampedQty);
-          if (clampedQty !== item.quantity || match.priceVnd !== item.unitPrice || clampedIce !== item.iceQuantity) {
+          if (clampedQty !== item.quantity || match.priceVnd !== item.unitPrice) {
             modified = true;
             return [{
               ...item,
               quantity: clampedQty,
-              iceQuantity: clampedIce,
+              iceQuantity: 0,
               unitPrice: match.priceVnd,
               lineTotal: clampedQty * match.priceVnd
             }];
@@ -458,7 +458,7 @@ export const CustomerOrderPage: React.FC = () => {
             } else if (msg.type === 'stock_updated') {
               void fetchCatalog();
             }
-          } catch {}
+          } catch { }
         };
         ws.onclose = () => {
           if (isMounted) {
@@ -468,7 +468,7 @@ export const CustomerOrderPage: React.FC = () => {
         ws.onerror = () => {
           ws?.close();
         };
-      } catch {}
+      } catch { }
     };
 
     connect();
@@ -499,11 +499,11 @@ export const CustomerOrderPage: React.FC = () => {
         return prev.map(item =>
           item.productId === product.id
             ? {
-                ...item,
-                quantity: item.quantity + 1,
-                iceQuantity: item.iceQuantity + 1,
-                lineTotal: (item.quantity + 1) * item.unitPrice
-              }
+              ...item,
+              quantity: item.quantity + 1,
+              iceQuantity: 0,
+              lineTotal: (item.quantity + 1) * item.unitPrice
+            }
             : item
         );
       }
@@ -514,9 +514,10 @@ export const CustomerOrderPage: React.FC = () => {
           imageSvg: product.imageSvg,
           name: product.name,
           volume: product.volume,
+          category: product.category,
           unitPrice: product.priceVnd,
           quantity: 1,
-          iceQuantity: 1,
+          iceQuantity: 0,
           lineTotal: product.priceVnd
         }
       ];
@@ -538,11 +539,10 @@ export const CustomerOrderPage: React.FC = () => {
       setCartItems(prev =>
         prev.map(item => {
           if (item.productId === productId) {
-            const clampedIce = Math.min(item.iceQuantity, newQty);
             return {
               ...item,
               quantity: newQty,
-              iceQuantity: clampedIce,
+              iceQuantity: 0,
               lineTotal: newQty * item.unitPrice
             };
           }
@@ -551,20 +551,6 @@ export const CustomerOrderPage: React.FC = () => {
       );
     }
   }, [products]);
-
-  const handleUpdateIce = useCallback((productId: string, newIce: number) => {
-    if (submitLock.current) return;
-    sound.playActionClick();
-    setCartItems(prev =>
-      prev.map(item => {
-        if (item.productId === productId) {
-          const clamped = Math.max(0, Math.min(item.quantity, newIce));
-          return { ...item, iceQuantity: clamped };
-        }
-        return item;
-      })
-    );
-  }, []);
 
   const handleRemoveItem = useCallback((productId: string) => {
     if (submitLock.current) return;
@@ -662,17 +648,29 @@ export const CustomerOrderPage: React.FC = () => {
           gap: '20px'
         }}>
           <div style={{
-            width: '84px',
-            height: '84px',
+            width: '120px',
+            height: '120px',
             borderRadius: '50%',
-            backgroundColor: '#ECFDF5',
-            border: '3px solid #10B981',
+            overflow: 'hidden',
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
-            fontSize: '40px'
+            border: '3.5px solid #10B981',
+            boxShadow: '0 10px 30px rgba(16, 185, 129, 0.35)',
+            backgroundColor: '#09251B',
+            flexShrink: 0
           }}>
-            🏸
+            <img
+              src="/images/logo.jpg"
+              alt="Sân Cầu Lông Trần Lựu"
+              style={{
+                width: '100%',
+                height: '100%',
+                objectFit: 'cover',
+                transform: 'scale(1.3)',
+                display: 'block'
+              }}
+            />
           </div>
 
           <div>
@@ -680,7 +678,7 @@ export const CustomerOrderPage: React.FC = () => {
               Sân Cầu Lông Trần Lựu
             </h1>
             <p style={{ fontSize: '14px', color: 'var(--color-text-muted)', lineHeight: 1.6 }}>
-              Hệ thống gọi nước giải khát & ly đá miễn phí phục vụ tận sân
+              Hệ thống gọi nước giải khát phục vụ tận sân
             </p>
           </div>
 
@@ -883,9 +881,64 @@ export const CustomerOrderPage: React.FC = () => {
           </div>
         ) : null}
 
-        {/* Thực đơn nước giải khát */}
+        {/* Thanh chọn nhóm danh mục ngang */}
+        <div style={{
+          padding: '12px 16px 4px',
+          display: 'flex',
+          gap: '8px',
+          overflowX: 'auto',
+          scrollbarWidth: 'none',
+          WebkitOverflowScrolling: 'touch'
+        }}>
+          {(() => {
+            const defaultTabs: Array<{ key: string; label: string }> = [
+              { key: 'all', label: 'Tất cả' },
+              { key: 'water', label: 'Nước suối' },
+              { key: 'isotonic', label: 'Bù khoáng' },
+              { key: 'soda', label: 'Có gas' },
+              { key: 'energy', label: 'Tăng lực' },
+              { key: 'tea', label: 'Trà' },
+              { key: 'juice', label: 'Trái cây/Sữa' },
+              { key: 'food', label: 'Thức ăn' }
+            ];
+            const extraCats = Array.from(
+              new Set(products.map(p => p.category).filter(c => c && !defaultTabs.some(t => t.key === c)))
+            );
+            const allTabs = [
+              ...defaultTabs,
+              ...extraCats.map(cat => ({ key: cat, label: cat.charAt(0).toUpperCase() + cat.slice(1) }))
+            ];
+            return allTabs.map(cat => {
+              const isSelected = selectedCategory === cat.key;
+              return (
+                <button
+                  key={cat.key}
+                  type="button"
+                  onClick={() => setSelectedCategory(cat.key)}
+                  style={{
+                    padding: '7px 14px',
+                    borderRadius: '20px',
+                    border: isSelected ? '1.5px solid var(--color-primary)' : '1px solid var(--color-border)',
+                    backgroundColor: isSelected ? 'var(--color-primary)' : '#FFFFFF',
+                    color: isSelected ? '#FFFFFF' : '#334155',
+                    fontSize: '12px',
+                    fontWeight: 800,
+                    whiteSpace: 'nowrap',
+                    cursor: 'pointer',
+                    boxShadow: isSelected ? '0 2px 6px rgba(10, 107, 74, 0.25)' : 'none',
+                    transition: 'all 0.15s ease'
+                  }}
+                >
+                  {cat.label}
+                </button>
+              );
+            });
+          })()}
+        </div>
+
+        {/* Thực đơn nước giải khát & đồ ăn */}
         <main style={{
-          padding: '16px',
+          padding: '12px 16px',
           paddingBottom: totalCartCount > 0 ? '110px' : '40px',
           display: 'grid',
           gridTemplateColumns: 'repeat(2, 1fr)',
@@ -900,19 +953,21 @@ export const CustomerOrderPage: React.FC = () => {
               Hiện chưa có sản phẩm nào sẵn sàng phục vụ.
             </div>
           ) : (
-            products.map(product => {
-              const inCart = cartItems.find(i => i.productId === product.id)?.quantity || 0;
-              return (
-                <ProductCard
-                  key={product.id}
-                  product={product}
-                  quantityInCart={inCart}
-                  onAddToCart={() => handleAddToCart(product)}
-                  onIncrease={() => handleUpdateQuantity(product.id, inCart + 1)}
-                  onDecrease={() => handleUpdateQuantity(product.id, inCart - 1)}
-                />
-              );
-            })
+            products
+              .filter(p => selectedCategory === 'all' || p.category === selectedCategory)
+              .map(product => {
+                const inCart = cartItems.find(i => i.productId === product.id)?.quantity || 0;
+                return (
+                  <ProductCard
+                    key={product.id}
+                    product={product}
+                    quantityInCart={inCart}
+                    onAddToCart={() => handleAddToCart(product)}
+                    onIncrease={() => handleUpdateQuantity(product.id, inCart + 1)}
+                    onDecrease={() => handleUpdateQuantity(product.id, inCart - 1)}
+                  />
+                );
+              })
           )}
         </main>
 
@@ -937,7 +992,6 @@ export const CustomerOrderPage: React.FC = () => {
             setSubmitError('');
           }}
           onUpdateQuantity={handleUpdateQuantity}
-          onUpdateIce={handleUpdateIce}
           onRemoveItem={handleRemoveItem}
           onSubmitOrder={handleSubmitOrder}
           isSubmitting={isSubmittingOrder}

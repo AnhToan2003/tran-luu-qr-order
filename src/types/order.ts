@@ -5,6 +5,7 @@ export interface OrderItem {
   productId: string;
   name: string;
   volume: string;
+  category?: string;
   unitPrice: number;
   costPrice?: number;
   quantity: number;
@@ -19,7 +20,9 @@ export interface Order {
   courtName: string; // e.g. Sân 05
   customerName?: string;
   customerPhone?: string;
+  orderType?: 'drinks' | 'sports_pos';
   paymentStatus?: 'unpaid' | 'paid';
+  paymentMethod?: 'cash' | 'transfer' | null;
   paidAt?: number | null;
   items: OrderItem[];
   totalVnd: number;

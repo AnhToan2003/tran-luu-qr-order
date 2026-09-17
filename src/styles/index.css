@@ -69,6 +69,17 @@ input, select, textarea {
   100% { transform: rotate(0deg); }
 }
 
+@keyframes navDropdownSlide {
+  0% {
+    opacity: 0;
+    transform: translateY(-8px) scale(0.98);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
 .animate-fade-in {
   animation: fadeIn var(--transition-base) forwards;
 }
@@ -79,6 +90,11 @@ input, select, textarea {
 
 .animate-chime {
   animation: chimeRing 800ms ease-in-out infinite;
+  transform-origin: top center;
+}
+
+.animate-nav-dropdown {
+  animation: navDropdownSlide 160ms cubic-bezier(0.16, 1, 0.3, 1) forwards;
   transform-origin: top center;
 }
 
@@ -134,4 +150,37 @@ input, select, textarea {
   overflow-x: auto;
   -webkit-overflow-scrolling: touch;
 }
+
+/* ================= THERMAL POS PRINT RULES ================= */
+@media print {
+  body * {
+    visibility: hidden !important;
+  }
+
+  #receipt-print-area,
+  #receipt-print-area * {
+    visibility: visible !important;
+  }
+
+  #receipt-print-area {
+    position: fixed !important;
+    left: 0 !important;
+    top: 0 !important;
+    width: 100% !important;
+    max-width: 80mm !important;
+    margin: 0 auto !important;
+    padding: 8px !important;
+    background: #ffffff !important;
+    color: #000000 !important;
+    box-shadow: none !important;
+    border: none !important;
+  }
+
+  .no-print,
+  .no-print * {
+    display: none !important;
+    visibility: hidden !important;
+  }
+}
+
 
