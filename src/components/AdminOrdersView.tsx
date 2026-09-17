@@ -127,16 +127,6 @@ export const AdminOrdersView: React.FC<AdminOrdersViewProps> = ({
     }
   };
 
-  // Nút hành động nhanh: Giao và Thu tiền ngay (1 chạm tại quầy)
-  const handleFastDeliverAndPay = (orderId: string, paymentMethod: 'cash' | 'transfer' = 'cash') => {
-    if (onDeliverWithPayment) {
-      onDeliverWithPayment(orderId, 'paid', paymentMethod);
-    } else {
-      onUpdatePayment(orderId, 'paid', paymentMethod);
-      onDeliverOrder(orderId);
-    }
-  };
-
   // Render thẻ đơn hàng trực quan theo 4 bước điều hành
   const renderOrderCard = (order: Order, _cardContext?: 'pending' | 'delivering' | 'unpaid' | 'completed' | 'all') => {
     const totalBottles = order.items.reduce((s, i) => s + i.quantity, 0);
@@ -432,27 +422,6 @@ export const AdminOrdersView: React.FC<AdminOrdersViewProps> = ({
                   Hủy
                 </button>
               </div>
-
-              {/* Nút chính 2: Giao & Thu tiền ngay (nếu khách trả tiền luôn tại quầy) */}
-              <button
-                onClick={() => handleFastDeliverAndPay(order.id)}
-                style={{
-                  width: '100%',
-                  padding: '9px 12px',
-                  backgroundColor: 'var(--color-primary)',
-                  color: '#FFFFFF',
-                  borderRadius: 'var(--radius-md)',
-                  fontSize: '13px',
-                  fontWeight: 900,
-                  cursor: 'pointer',
-                  border: 'none',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center'
-                }}
-              >
-                <span>Giao & Thu tiền ngay ({formatVnd(order.totalVnd)})</span>
-              </button>
             </>
           )}
 

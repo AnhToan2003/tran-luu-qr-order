@@ -117,7 +117,6 @@ export const AdminEntry: React.FC=()=>{
       </label>
       {error&&<p role="alert" style={{color:'#b91c1c'}}>{error}</p>}
       <button disabled={busy} style={{padding:14,color:'white',background:'#137A49',borderRadius:8}}>{busy?'Đang đăng nhập…':'Đăng nhập'}</button>
-      <a href="/" style={{ fontSize: '13px', color: '#6B7280', textDecoration: 'none' }}>← Về trang gọi nước</a>
     </form>
   </main>;
 };

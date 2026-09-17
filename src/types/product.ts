@@ -11,6 +11,7 @@ export interface Product {
   tag?: string;
   isAvailable?: boolean;
   imageSvg: string;
+  imageUrl?: string;
   allowIce?: boolean;
 }
 

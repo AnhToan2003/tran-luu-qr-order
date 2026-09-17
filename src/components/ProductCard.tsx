@@ -62,7 +62,7 @@ export const ProductCard: React.FC<ProductCardProps> = ({
         overflow: 'hidden'
       }}>
         <img
-          src={product.imageSvg}
+          src={product.imageUrl || product.imageSvg}
           alt={product.name}
           style={{
             width: '100%',

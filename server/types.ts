@@ -26,6 +26,7 @@ export interface ProductDoc {
   stock: number;
   minStockThreshold?: number;
   imageSvg?: string;
+  imageUrl?: string;
   imageKey?: string;
   tag?: string;
   isAvailable: boolean;

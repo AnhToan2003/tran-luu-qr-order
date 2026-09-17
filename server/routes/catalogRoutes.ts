@@ -85,7 +85,8 @@ catalogRouter.get('/', async (req, res) => {
       priceVnd: p.priceVnd,
       stock: p.stock,
       tag: p.tag,
-      imageSvg: p.imageSvg,
+      imageSvg: p.imageUrl || p.imageSvg,
+      imageUrl: p.imageUrl,
       isAvailable: p.isAvailable !== false
     }));
 
