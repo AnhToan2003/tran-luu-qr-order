@@ -23,7 +23,8 @@ interface UserItem {
   roleId: string;
   roleName: string;
   isActive: boolean;
-  createdAt: string;
+  isSystemAdmin?: boolean;
+  createdAt: string | null;
 }
 
 export const RbacUsersTab: React.FC = () => {
@@ -435,9 +436,9 @@ export const RbacUsersTab: React.FC = () => {
                   >
                     <td style={{ padding: '12px 16px', fontWeight: 800, color: '#0F172A' }}>
                       {u.username}
-                      {u.username === 'admin' && (
-                        <span style={{ marginLeft: '6px', fontSize: '10px', backgroundColor: '#F1F5F9', padding: '2px 6px', borderRadius: '4px', color: '#64748B' }}>
-                          Gốc
+                      {u.isSystemAdmin && (
+                        <span style={{ marginLeft: '6px', fontSize: '10px', backgroundColor: '#FEF3C7', padding: '2px 6px', borderRadius: '4px', color: '#B45309' }}>
+                          Admin hệ thống
                         </span>
                       )}
                     </td>
@@ -471,38 +472,45 @@ export const RbacUsersTab: React.FC = () => {
                       </span>
                     </td>
                     <td style={{ padding: '12px 16px', textAlign: 'right' }}>
-                      <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px' }}>
-                        <button
-                          onClick={() => handleOpenEditUser(u)}
-                          style={{
-                            padding: '5px 10px',
-                            backgroundColor: '#FFFFFF',
-                            border: '1px solid #CBD5E1',
-                            borderRadius: '6px',
-                            fontSize: '12px',
-                            fontWeight: 700,
-                            color: '#334155',
-                            cursor: 'pointer'
-                          }}
+                      {u.isSystemAdmin ? (
+                        <span
+                          title="Tài khoản này được cấu hình bằng ADMIN_USERNAME và ADMIN_PASSWORD_HASH trên Railway"
+                          style={{ fontSize: '11px', color: '#64748B', fontWeight: 600 }}
                         >
-                          Sửa
-                        </button>
-                        <button
-                          onClick={() => handleOpenChangePassword(u)}
-                          style={{
-                            padding: '5px 10px',
-                            backgroundColor: '#FFFFFF',
-                            border: '1px solid #CBD5E1',
-                            borderRadius: '6px',
-                            fontSize: '12px',
-                            fontWeight: 700,
-                            color: '#0284C7',
-                            cursor: 'pointer'
-                          }}
-                        >
-                          Đổi mật khẩu
-                        </button>
-                        {u.username !== 'admin' && (
+                          Quản lý qua Railway ENV
+                        </span>
+                      ) : (
+                        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px' }}>
+                          <button
+                            onClick={() => handleOpenEditUser(u)}
+                            style={{
+                              padding: '5px 10px',
+                              backgroundColor: '#FFFFFF',
+                              border: '1px solid #CBD5E1',
+                              borderRadius: '6px',
+                              fontSize: '12px',
+                              fontWeight: 700,
+                              color: '#334155',
+                              cursor: 'pointer'
+                            }}
+                          >
+                            Sửa
+                          </button>
+                          <button
+                            onClick={() => handleOpenChangePassword(u)}
+                            style={{
+                              padding: '5px 10px',
+                              backgroundColor: '#FFFFFF',
+                              border: '1px solid #CBD5E1',
+                              borderRadius: '6px',
+                              fontSize: '12px',
+                              fontWeight: 700,
+                              color: '#0284C7',
+                              cursor: 'pointer'
+                            }}
+                          >
+                            Đổi mật khẩu
+                          </button>
                           <button
                             onClick={() => handleDeleteUser(u)}
                             style={{
@@ -518,8 +526,8 @@ export const RbacUsersTab: React.FC = () => {
                           >
                             Xóa
                           </button>
-                        )}
-                      </div>
+                        </div>
+                      )}
                     </td>
                   </tr>
                 ))}

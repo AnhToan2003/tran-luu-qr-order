@@ -154,12 +154,25 @@ rbacRouter.get('/users', async (_req, res) => {
   const roles = await c.roles.find({}).toArray();
   const roleMap = new Map(roles.map(r => [r.roleId, r.name]));
 
+  const systemAdmin = {
+    userId: 'system-env-admin',
+    username: process.env.ADMIN_USERNAME || 'admin',
+    fullName: 'Quản trị viên hệ thống',
+    roleId: 'admin',
+    roleName: roleMap.get('admin') || 'Toàn quyền Admin',
+    isActive: true,
+    isSystemAdmin: true,
+    createdAt: null,
+    updatedAt: null
+  };
+
   const enrichedUsers = users.map(u => ({
     ...u,
-    roleName: roleMap.get(u.roleId) || u.roleId
+    roleName: roleMap.get(u.roleId) || u.roleId,
+    isSystemAdmin: false
   }));
 
-  res.json({ users: enrichedUsers });
+  res.json({ users: [systemAdmin, ...enrichedUsers] });
 });
 
 /**
