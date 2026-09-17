@@ -5,6 +5,7 @@ export const AdminEntry: React.FC=()=>{
   const [state,setState]=useState<'loading'|'login'|'ready'>('loading');
   const [username,setUsername]=useState('admin');
   const [password,setPassword]=useState('');
+  const [showPassword,setShowPassword]=useState(false);
   const [error,setError]=useState('');
   const [busy,setBusy]=useState(false);
   useEffect(()=>{
@@ -60,7 +61,60 @@ export const AdminEntry: React.FC=()=>{
       <h1 style={{ color: '#12432E', fontSize: 24, margin: 0, textAlign: 'center' }}>Đăng nhập quầy nước</h1>
       <p style={{ margin: 0, textAlign: 'center', color: '#64748B', fontSize: '13px' }}>Sân Cầu Lông Trần Lựu</p>
       <label>Tên đăng nhập<input autoComplete="username" value={username} onChange={e=>setUsername(e.target.value)} required style={{display:'block',width:'100%',padding:12,border:'1px solid #ccc',borderRadius:8}} /></label>
-      <label>Mật khẩu<input type="password" autoComplete="current-password" value={password} onChange={e=>setPassword(e.target.value)} required style={{display:'block',width:'100%',padding:12,border:'1px solid #ccc',borderRadius:8}} /></label>
+      <label style={{ display: 'block' }}>
+        Mật khẩu
+        <div style={{ position: 'relative', width: '100%', marginTop: '4px' }}>
+          <input
+            type={showPassword ? 'text' : 'password'}
+            autoComplete="current-password"
+            value={password}
+            onChange={e => setPassword(e.target.value)}
+            required
+            placeholder="Nhập mật khẩu"
+            style={{
+              display: 'block',
+              width: '100%',
+              padding: '12px 42px 12px 12px',
+              border: '1px solid #ccc',
+              borderRadius: 8,
+              fontSize: 15,
+              boxSizing: 'border-box'
+            }}
+          />
+          <button
+            type="button"
+            onClick={() => setShowPassword(v => !v)}
+            title={showPassword ? 'Ẩn mật khẩu' : 'Hiện mật khẩu'}
+            aria-label={showPassword ? 'Ẩn mật khẩu' : 'Hiện mật khẩu'}
+            style={{
+              position: 'absolute',
+              right: '8px',
+              top: '50%',
+              transform: 'translateY(-50%)',
+              background: 'none',
+              border: 'none',
+              cursor: 'pointer',
+              padding: '6px',
+              color: '#64748B',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center'
+            }}
+          >
+            {showPassword ? (
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24" />
+                <line x1="1" y1="1" x2="23" y2="23" />
+              </svg>
+            ) : (
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
+                <circle cx="12" cy="12" r="3" />
+              </svg>
+            )}
+          </button>
+        </div>
+      </label>
       {error&&<p role="alert" style={{color:'#b91c1c'}}>{error}</p>}
       <button disabled={busy} style={{padding:14,color:'white',background:'#137A49',borderRadius:8}}>{busy?'Đang đăng nhập…':'Đăng nhập'}</button>
       <a href="/" style={{ fontSize: '13px', color: '#6B7280', textDecoration: 'none' }}>← Về trang gọi nước</a>
