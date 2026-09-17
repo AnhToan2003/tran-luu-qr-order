@@ -154,9 +154,10 @@ rbacRouter.get('/users', async (_req, res) => {
   const roles = await c.roles.find({}).toArray();
   const roleMap = new Map(roles.map(r => [r.roleId, r.name]));
 
+  const systemAdminUsername = (process.env.ADMIN_USERNAME || 'admin').trim();
   const systemAdmin = {
     userId: 'system-env-admin',
-    username: process.env.ADMIN_USERNAME || 'admin',
+    username: systemAdminUsername,
     fullName: 'Quản trị viên hệ thống',
     roleId: 'admin',
     roleName: roleMap.get('admin') || 'Toàn quyền Admin',
@@ -166,11 +167,15 @@ rbacRouter.get('/users', async (_req, res) => {
     updatedAt: null
   };
 
-  const enrichedUsers = users.map(u => ({
-    ...u,
-    roleName: roleMap.get(u.roleId) || u.roleId,
-    isSystemAdmin: false
-  }));
+  const enrichedUsers = users
+    // Dữ liệu cũ có thể chứa user trùng tên admin ENV. Tài khoản đó bị luồng
+    // đăng nhập ENV che khuất, nên không hiển thị thành một tài khoản thứ hai.
+    .filter(u => u.username.toLowerCase() !== systemAdminUsername.toLowerCase())
+    .map(u => ({
+      ...u,
+      roleName: roleMap.get(u.roleId) || u.roleId,
+      isSystemAdmin: false
+    }));
 
   res.json({ users: [systemAdmin, ...enrichedUsers] });
 });
