@@ -513,12 +513,17 @@ export const SportsIntakeTab: React.FC = () => {
       return;
     }
 
+    if (!batchResponsiblePerson.trim()) {
+      setBatchError('Vui lòng nhập tên người phụ trách khi nhập hàng');
+      return;
+    }
+
     setIsSubmittingBatch(true);
     try {
       const batchPayload = {
         items: itemsToSubmit,
         transferDate: batchTransferDate || undefined,
-        responsiblePerson: batchResponsiblePerson.trim() || undefined,
+        responsiblePerson: batchResponsiblePerson.trim(),
         note: batchNote.trim() || 'Nhập hàng vào kho thể thao'
       };
       const clientRequestId = stableRequestId('sports-batch', batchPayload);
@@ -1642,10 +1647,11 @@ export const SportsIntakeTab: React.FC = () => {
                 </div>
                 <div>
                   <label style={{ display: 'block', fontWeight: 800, fontSize: '11px', color: '#475569', marginBottom: '4px' }}>
-                    NGƯỜI PHỤ TRÁCH / GIAO NHẬN
+                    NGƯỜI PHỤ TRÁCH / GIAO NHẬN <span style={{ color: '#DC2626' }}>*</span>
                   </label>
                   <input
                     type="text"
+                    required
                     placeholder="VD: Anh Tuấn (Kho), Quản lý ca..."
                     value={batchResponsiblePerson}
                     onChange={e => setBatchResponsiblePerson(e.target.value)}

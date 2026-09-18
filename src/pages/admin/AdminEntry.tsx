@@ -9,38 +9,84 @@ export const AdminEntry: React.FC = () => {
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
   useEffect(() => {
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 10000);
-
-    fetch('/api/admin/auth/session', { signal: controller.signal })
-      .then(r => setState(r.ok ? 'ready' : 'login'))
-      .catch(() => {
-        setState('login');
-        setError('Hãy Đăng Nhập VÀo Trang Quản Lí ');
-      })
-      .finally(() => clearTimeout(timeoutId));
+    let isCancelled = false;
 
     const expired = () => {
-      setState('login');
-      setError('Phiên đăng nhập hết hạn. Vui lòng đăng nhập lại.');
+      sessionStorage.removeItem('tl_admin_tab_authenticated');
+      if (!isCancelled) {
+        setState('login');
+        setError('');
+      }
     };
     const loggedOut = () => {
-      setState('login');
-      setError('');
+      sessionStorage.removeItem('tl_admin_tab_authenticated');
+      if (!isCancelled) {
+        setState('login');
+        setError('');
+      }
     };
     window.addEventListener('admin-session-expired', expired);
     window.addEventListener('admin-logged-out', loggedOut);
+
+    // Kiểm tra cờ phiên làm việc theo từng tab
+    // (sessionStorage lưu trong suốt quá trình mở tab, F5 / reload không mất, nhưng đóng tab là mất)
+    const isTabAuthenticated = sessionStorage.getItem('tl_admin_tab_authenticated') === 'true';
+    if (!isTabAuthenticated) {
+      // Tab mới bật lên hoặc vừa mở lại sau khi đóng: bắt buộc đăng nhập
+      setState('login');
+      setError('');
+      return () => {
+        isCancelled = true;
+        window.removeEventListener('admin-session-expired', expired);
+        window.removeEventListener('admin-logged-out', loggedOut);
+      };
+    }
+
+    // Tab đang sử dụng bình thường (F5 / refresh lại trang):
+    // Gọi API kiểm tra session với server
+    fetch('/api/admin/auth/session', {
+      credentials: 'include',
+      headers: { 'Cache-Control': 'no-cache' }
+    })
+      .then(r => {
+        if (isCancelled) return;
+        if (r.ok) {
+          setState('ready');
+        } else if (r.status === 401 || r.status === 403) {
+          // Phiên thực sự đã hết hạn trên server
+          sessionStorage.removeItem('tl_admin_tab_authenticated');
+          setState('login');
+          setError('');
+        } else {
+          // Trường hợp lỗi server tạm thời khi refresh: vẫn giữ phiên ready
+          setState('ready');
+        }
+      })
+      .catch((err) => {
+        if (isCancelled) return;
+        if (err?.name === 'AbortError') return;
+        // Nếu mạng chập chờn hoặc reload dở chừng: KHÔNG xoá sessionStorage, giữ phiên ready
+        setState('ready');
+      });
+
     return () => {
-      clearTimeout(timeoutId);
-      controller.abort();
+      isCancelled = true;
       window.removeEventListener('admin-session-expired', expired);
       window.removeEventListener('admin-logged-out', loggedOut);
     };
   }, []);
   if (state === 'loading') return <p style={{ padding: 24 }}>Đang kiểm tra phiên đăng nhập…</p>;
-  if (state === 'ready') return <Suspense fallback={<p>Đang tải quầy…</p>}><Portal /></Suspense>;
+  if (state === 'ready') return (
+    <Suspense fallback={<p>Đang tải quầy…</p>}>
+      <Portal onLogout={() => {
+        sessionStorage.removeItem('tl_admin_tab_authenticated');
+        setState('login');
+        setError('');
+      }} />
+    </Suspense>
+  );
   return <main style={{ minHeight: '100vh', display: 'grid', placeItems: 'center', background: '#E5EDE7', padding: 20 }}>
-    <form onSubmit={async e => { e.preventDefault(); if (busy) return; setBusy(true); setError(''); try { await apiFetch('/api/admin/auth/login', { method: 'POST', body: JSON.stringify({ username, password }) }); setPassword(''); setState('ready'); } catch (e) { setError((e as Error).message); } finally { setBusy(false); } }} style={{ width: '100%', maxWidth: 380, padding: 28, background: 'white', borderRadius: 20, display: 'grid', gap: 16 }}>
+    <form onSubmit={async e => { e.preventDefault(); if (busy) return; setBusy(true); setError(''); try { await apiFetch('/api/admin/auth/login', { method: 'POST', body: JSON.stringify({ username, password }) }); sessionStorage.setItem('tl_admin_tab_authenticated', 'true'); setPassword(''); setState('ready'); } catch (e) { setError((e as Error).message); } finally { setBusy(false); } }} style={{ width: '100%', maxWidth: 380, padding: 28, background: 'white', borderRadius: 20, display: 'grid', gap: 16 }}>
       <div style={{ textAlign: 'center', marginBottom: '8px', display: 'flex', justifyContent: 'center' }}>
         <div style={{
           width: '100px',

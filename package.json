@@ -11,13 +11,15 @@
     "dev:server": "tsx watch server/index.ts",
     "build": "tsc -p tsconfig.json && tsc -p tsconfig.server.json && node scripts/build.mjs",
     "start": "node dist-server/index.js",
+    "start:prod": "node scripts/start-production.mjs",
     "build:ci": "npm run build",
     "preview": "vite preview",
     "test:ui:server": "tsx scripts/preview-test.ts",
     "seed": "tsx server/seedData.ts",
     "mongo:replica": "tsx scripts/setup-mongo-replica.ts",
     "generate:secrets": "tsx scripts/generate-secrets.ts",
-    "check:prod": "tsx scripts/verify-production.ts"
+    "check:prod": "tsx scripts/verify-production.ts",
+    "check:prod:strict": "tsx scripts/verify-production.ts --strict"
   },
   "dependencies": {
     "cookie-parser": "^1.4.7",

@@ -7,6 +7,8 @@ interface HistoryTabProps {
   historySummary: {
     totalMatched: number;
     totalRevenueVnd: number;
+    totalCostVnd: number;
+    totalProfitVnd: number;
     totalBottles: number;
   };
   historyCourtFilter: string;
@@ -55,13 +57,15 @@ export const HistoryTab: React.FC<HistoryTabProps> = ({
   setHistoryEndDate,
   setHistorySearchQuery,
 }) => {
+  const [selectedOrderForDetail, setSelectedOrderForDetail] = React.useState<Order | null>(null);
+
   return (
     <div style={{ padding: '24px', maxWidth: '1200px', margin: '0 auto', display: 'flex', flexDirection: 'column', gap: '20px' }}>
       {/* Header with Title and Export button */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '12px' }}>
         <div>
           <h2 style={{ fontSize: 'var(--font-size-xl)', fontWeight: 800, color: 'var(--color-deep)', margin: 0 }}>
-            Lịch sử đơn nước & đồ ăn
+            Lịch sử bán nước & thực phẩm
           </h2>
         </div>
 
@@ -111,6 +115,13 @@ export const HistoryTab: React.FC<HistoryTabProps> = ({
           <div style={{ fontSize: '12px', color: '#1E293B', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.4px' }}>Số chai nước đã phục vụ</div>
           <div style={{ fontSize: '24px', fontWeight: 900, color: '#0284C7', marginTop: '4px' }}>
             {historySummary.totalBottles} <span style={{ fontSize: '13px', fontWeight: 700, color: '#334155' }}>chai</span>
+          </div>
+        </div>
+
+        <div style={{ backgroundColor: 'var(--color-surface)', padding: '14px 18px', borderRadius: 'var(--radius-md)', border: '1px solid var(--color-border)' }}>
+          <div style={{ fontSize: '12px', color: '#1E293B', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.4px' }}>Tổng lợi nhuận thực thu</div>
+          <div style={{ fontSize: '24px', fontWeight: 900, color: '#0A6B4A', marginTop: '4px' }}>
+            +{formatVnd(historySummary.totalProfitVnd !== undefined ? historySummary.totalProfitVnd : Math.max(0, historySummary.totalRevenueVnd - (historySummary.totalCostVnd || 0)))}
           </div>
         </div>
       </div>
@@ -318,20 +329,22 @@ export const HistoryTab: React.FC<HistoryTabProps> = ({
         <div style={{ overflowX: 'auto' }}>
           <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: 'var(--font-size-sm)' }}>
             <thead>
-              <tr style={{ backgroundColor: '#F1F5F9', borderBottom: '1.5px solid var(--color-border)' }}>
-                <th style={{ padding: '14px 16px', fontWeight: 900, fontSize: '13px', color: '#0F172A', textTransform: 'uppercase', letterSpacing: '0.4px' }}>Mã đơn</th>
-                <th style={{ padding: '14px 16px', fontWeight: 900, fontSize: '13px', color: '#0F172A', textTransform: 'uppercase', letterSpacing: '0.4px' }}>Sân</th>
-                <th style={{ padding: '14px 16px', fontWeight: 900, fontSize: '13px', color: '#0F172A', textTransform: 'uppercase', letterSpacing: '0.4px' }}>Chi tiết món</th>
-                <th style={{ padding: '14px 16px', fontWeight: 900, fontSize: '13px', color: '#0F172A', textTransform: 'uppercase', letterSpacing: '0.4px' }}>Tổng tiền</th>
-                <th style={{ padding: '14px 16px', fontWeight: 900, fontSize: '13px', color: '#0F172A', textTransform: 'uppercase', letterSpacing: '0.4px' }}>Trạng thái</th>
-                <th style={{ padding: '14px 16px', fontWeight: 900, fontSize: '13px', color: '#0F172A', textTransform: 'uppercase', letterSpacing: '0.4px' }}>Thời gian đặt</th>
-                <th style={{ padding: '14px 16px', fontWeight: 900, fontSize: '13px', color: '#0F172A', textTransform: 'uppercase', letterSpacing: '0.4px' }}>Thời gian giao</th>
+              <tr style={{ backgroundColor: '#0A6B4A', color: '#FFFFFF', height: '44px' }}>
+                <th style={{ padding: '12px 16px', fontWeight: 800, fontSize: '12px', color: '#FFFFFF', textTransform: 'uppercase', letterSpacing: '0.4px' }}>Mã đơn</th>
+                <th style={{ padding: '12px 16px', fontWeight: 800, fontSize: '12px', color: '#FFFFFF', textTransform: 'uppercase', letterSpacing: '0.4px' }}>Sân</th>
+                <th style={{ padding: '12px 16px', fontWeight: 800, fontSize: '12px', color: '#FFFFFF', textTransform: 'uppercase', letterSpacing: '0.4px' }}>Chi tiết món</th>
+                <th style={{ padding: '12px 16px', fontWeight: 800, fontSize: '12px', color: '#FFFFFF', textTransform: 'uppercase', letterSpacing: '0.4px' }}>Tổng tiền</th>
+                <th style={{ padding: '12px 16px', fontWeight: 800, fontSize: '12px', color: '#FFFFFF', textTransform: 'uppercase', letterSpacing: '0.4px' }}>Lợi nhuận</th>
+                <th style={{ padding: '12px 16px', fontWeight: 800, fontSize: '12px', color: '#FFFFFF', textTransform: 'uppercase', letterSpacing: '0.4px' }}>Trạng thái</th>
+                <th style={{ padding: '12px 16px', fontWeight: 800, fontSize: '12px', color: '#FFFFFF', textTransform: 'uppercase', letterSpacing: '0.4px' }}>Thời gian đặt</th>
+                <th style={{ padding: '12px 16px', fontWeight: 800, fontSize: '12px', color: '#FFFFFF', textTransform: 'uppercase', letterSpacing: '0.4px' }}>Thời gian giao</th>
+                <th style={{ padding: '12px 16px', fontWeight: 800, fontSize: '12px', color: '#FFFFFF', textTransform: 'uppercase', letterSpacing: '0.4px', textAlign: 'center' }}>Thao tác</th>
               </tr>
             </thead>
             <tbody>
               {historyOrders.length === 0 ? (
                 <tr>
-                  <td colSpan={7} style={{ padding: '48px 20px', textAlign: 'center', color: '#475569' }}>
+                  <td colSpan={9} style={{ padding: '48px 20px', textAlign: 'center', color: '#475569' }}>
                     <div style={{ fontWeight: 900, fontSize: '16px', color: '#0F172A' }}>Không có đơn hàng nào khớp với bộ lọc hiện tại</div>
                     <div style={{ fontSize: '13px', marginTop: '6px', color: '#475569', fontWeight: 600 }}>Vui lòng thay đổi thời gian, chọn sân khác hoặc xoá từ khoá tìm kiếm.</div>
                   </td>
@@ -358,6 +371,8 @@ export const HistoryTab: React.FC<HistoryTabProps> = ({
                     ? (isTransfer ? 'ĐÃ THU CHUYỂN KHOẢN' : 'ĐÃ THU TIỀN MẶT')
                     : 'CHƯA THU TIỀN';
 
+                  const orderProfit = isCancelled ? 0 : ((o as any).totalProfitVnd ?? Math.max(0, o.totalVnd - ((o as any).totalCostVnd || 0)));
+
                   return (
                     <tr key={o.id} style={{ borderBottom: '1px solid var(--color-border)' }}>
                       <td style={{ padding: '14px 16px', fontWeight: 900, color: '#0F172A' }}>
@@ -374,6 +389,9 @@ export const HistoryTab: React.FC<HistoryTabProps> = ({
                         </div>
                       </td>
                       <td style={{ padding: '14px 16px', fontWeight: 900, fontSize: '15px', color: 'var(--color-primary)' }}>{formatVnd(o.totalVnd)}</td>
+                      <td style={{ padding: '14px 16px', fontWeight: 900, fontSize: '14px', color: '#0A6B4A' }}>
+                        {isCancelled ? '0 ₫' : `+${formatVnd(orderProfit)}`}
+                      </td>
                       <td style={{ padding: '14px 16px' }}>
                         <span style={{
                           fontSize: '12px',
@@ -394,6 +412,26 @@ export const HistoryTab: React.FC<HistoryTabProps> = ({
                       </td>
                       <td style={{ padding: '14px 16px', fontSize: '13px', color: '#334155', fontWeight: 600, whiteSpace: 'nowrap' }}>
                         {deliveredStr}
+                      </td>
+                      <td style={{ padding: '14px 16px', textAlign: 'center', whiteSpace: 'nowrap' }}>
+                        <button
+                          onClick={() => setSelectedOrderForDetail(o)}
+                          style={{
+                            padding: '6px 12px',
+                            borderRadius: '6px',
+                            backgroundColor: '#F1F5F9',
+                            border: '1px solid #CBD5E1',
+                            color: '#0F172A',
+                            fontWeight: 800,
+                            fontSize: '12px',
+                            cursor: 'pointer',
+                            transition: 'all 0.15s ease'
+                          }}
+                          onMouseEnter={e => e.currentTarget.style.backgroundColor = '#E2E8F0'}
+                          onMouseLeave={e => e.currentTarget.style.backgroundColor = '#F1F5F9'}
+                        >
+                          Xem chi tiết
+                        </button>
                       </td>
                     </tr>
                   );
@@ -496,6 +534,205 @@ export const HistoryTab: React.FC<HistoryTabProps> = ({
           </div>
         </div>
       </div>
+
+      {/* MODAL XEM CHI TIẾT ĐƠN BÁN NƯỚC */}
+      {selectedOrderForDetail && (
+        <div style={{
+          position: 'fixed',
+          inset: 0,
+          backgroundColor: 'rgba(15, 23, 42, 0.65)',
+          backdropFilter: 'blur(4px)',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          zIndex: 9999,
+          padding: '16px'
+        }}>
+          <div style={{
+            backgroundColor: '#FFFFFF',
+            borderRadius: '16px',
+            maxWidth: '650px',
+            width: '100%',
+            boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.25)',
+            overflow: 'hidden',
+            display: 'flex',
+            flexDirection: 'column',
+            maxHeight: '90vh'
+          }}>
+            {/* Header */}
+            <div style={{
+              padding: '18px 24px',
+              borderBottom: '1px solid #E2E8F0',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              backgroundColor: '#F8FAFC'
+            }}>
+              <div>
+                <h3 style={{ margin: 0, fontSize: '16px', fontWeight: 900, color: '#0F172A' }}>
+                  Chi Tiết Đơn Hàng Bán Nước & Thực Phẩm
+                </h3>
+                <div style={{ fontSize: '12px', color: '#64748B', marginTop: '2px', fontWeight: 600 }}>
+                  Mã đơn: <span style={{ fontFamily: 'monospace', fontWeight: 900, color: '#0F172A' }}>{selectedOrderForDetail.displayCode}</span>
+                </div>
+              </div>
+              <button
+                onClick={() => setSelectedOrderForDetail(null)}
+                style={{
+                  border: 'none',
+                  background: 'none',
+                  fontSize: '20px',
+                  fontWeight: 800,
+                  cursor: 'pointer',
+                  color: '#64748B',
+                  padding: '4px 8px'
+                }}
+              >
+                ✕
+              </button>
+            </div>
+
+            {/* Body */}
+            <div style={{ padding: '20px 24px', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '16px' }}>
+              {/* Info grid */}
+              <div style={{
+                display: 'grid',
+                gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))',
+                gap: '12px',
+                backgroundColor: '#F8FAFC',
+                padding: '14px',
+                borderRadius: '10px',
+                border: '1px solid #E2E8F0'
+              }}>
+                <div>
+                  <div style={{ fontSize: '11px', fontWeight: 800, color: '#64748B', textTransform: 'uppercase' }}>VỊ TRÍ SÂN</div>
+                  <div style={{ fontSize: '14px', fontWeight: 900, color: '#0F172A', marginTop: '2px' }}>
+                    {selectedOrderForDetail.courtName}
+                  </div>
+                </div>
+                <div>
+                  <div style={{ fontSize: '11px', fontWeight: 800, color: '#64748B', textTransform: 'uppercase' }}>NGƯỜI PHỤ TRÁCH / THU NGÂN</div>
+                  <div style={{ fontSize: '13px', fontWeight: 800, color: '#0F172A', marginTop: '2px' }}>
+                    {(selectedOrderForDetail as any).createdBy || (selectedOrderForDetail as any).staffName || 'Nhân viên quầy'}
+                  </div>
+                </div>
+                <div>
+                  <div style={{ fontSize: '11px', fontWeight: 800, color: '#64748B', textTransform: 'uppercase' }}>THANH TOÁN</div>
+                  <div style={{ fontSize: '13px', fontWeight: 800, color: selectedOrderForDetail.paymentMethod === 'transfer' ? '#0369A1' : '#15803D', marginTop: '2px' }}>
+                    {selectedOrderForDetail.paymentMethod === 'transfer' ? 'Chuyển khoản QR' : 'Tiền mặt'}
+                  </div>
+                </div>
+                <div>
+                  <div style={{ fontSize: '11px', fontWeight: 800, color: '#64748B', textTransform: 'uppercase' }}>THỜI GIAN ĐẶT</div>
+                  <div style={{ fontSize: '12px', fontWeight: 700, color: '#0F172A', marginTop: '2px' }}>
+                    {new Date(selectedOrderForDetail.createdAt).toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' })} - {new Date(selectedOrderForDetail.createdAt).toLocaleDateString('vi-VN', { day: '2-digit', month: '2-digit', year: 'numeric' })}
+                  </div>
+                </div>
+              </div>
+
+              {/* Items Table */}
+              <div>
+                <div style={{ fontSize: '13px', fontWeight: 900, color: '#0F172A', marginBottom: '8px' }}>
+                  DANH SÁCH MÓN ĐÃ BÁN
+                </div>
+                <div style={{ border: '1px solid #E2E8F0', borderRadius: '8px', overflow: 'hidden' }}>
+                  <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13px' }}>
+                    <thead>
+                      <tr style={{ backgroundColor: '#0A6B4A', color: '#FFFFFF', height: '40px' }}>
+                        <th style={{ padding: '10px 12px', textAlign: 'left', fontWeight: 800, color: '#FFFFFF' }}>Tên món</th>
+                        <th style={{ padding: '10px 12px', textAlign: 'center', fontWeight: 800, color: '#FFFFFF' }}>Số lượng</th>
+                        <th style={{ padding: '10px 12px', textAlign: 'right', fontWeight: 800, color: '#FFFFFF' }}>Đơn giá</th>
+                        <th style={{ padding: '10px 12px', textAlign: 'right', fontWeight: 800, color: '#FFFFFF' }}>Thành tiền</th>
+                        <th style={{ padding: '10px 12px', textAlign: 'right', fontWeight: 800, color: '#FFFFFF' }}>Tiền lời</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {selectedOrderForDetail.items.map((it, idx) => {
+                        const lineTotal = it.lineTotal || (it.quantity * it.unitPrice);
+                        const itemProfit = (it as any).profitVnd ?? Math.max(0, lineTotal - (((it as any).costPrice || 0) * it.quantity));
+                        return (
+                          <tr key={idx} style={{ borderBottom: '1px solid #E2E8F0' }}>
+                            <td style={{ padding: '12px', fontWeight: 800, color: '#0F172A' }}>
+                              {it.name}
+                            </td>
+                            <td style={{ padding: '12px', textAlign: 'center', fontWeight: 900, color: 'var(--color-primary)' }}>
+                              {it.quantity}
+                            </td>
+                            <td style={{ padding: '12px', textAlign: 'right', fontWeight: 600 }}>
+                              {formatVnd(it.unitPrice)}
+                            </td>
+                            <td style={{ padding: '12px', textAlign: 'right', fontWeight: 900, color: '#0F172A' }}>
+                              {formatVnd(lineTotal)}
+                            </td>
+                            <td style={{ padding: '12px', textAlign: 'right', fontWeight: 900, color: '#0A6B4A' }}>
+                              +{formatVnd(itemProfit)}
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+
+              {/* Total Card */}
+              <div style={{
+                display: 'grid',
+                gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))',
+                gap: '12px',
+                backgroundColor: '#F0FDF4',
+                border: '1.5px solid #86EFAC',
+                borderRadius: '12px',
+                padding: '14px 18px'
+              }}>
+                <div>
+                  <div style={{ fontSize: '12px', fontWeight: 800, color: '#166534' }}>TỔNG SỐ LƯỢNG MÓN</div>
+                  <div style={{ fontSize: '14px', color: '#15803D', fontWeight: 800 }}>
+                    {selectedOrderForDetail.items.reduce((s, i) => s + i.quantity, 0)} đồ uống / thực phẩm
+                  </div>
+                </div>
+                <div>
+                  <div style={{ fontSize: '11px', color: '#166534', fontWeight: 700, textTransform: 'uppercase' }}>TỔNG TIỀN ĐƠN HÀNG</div>
+                  <div style={{ fontSize: '20px', fontWeight: 900, color: '#15803D' }}>
+                    {formatVnd(selectedOrderForDetail.totalVnd)}
+                  </div>
+                </div>
+                <div style={{ textAlign: 'right' }}>
+                  <div style={{ fontSize: '11px', color: '#166534', fontWeight: 700, textTransform: 'uppercase' }}>TỔNG LỢI NHUẬN</div>
+                  <div style={{ fontSize: '20px', fontWeight: 900, color: '#0A6B4A' }}>
+                    +{formatVnd((selectedOrderForDetail as any).totalProfitVnd || 0)}
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Footer */}
+            <div style={{
+              padding: '12px 24px',
+              borderTop: '1px solid #E2E8F0',
+              display: 'flex',
+              justifyContent: 'flex-end',
+              backgroundColor: '#F8FAFC'
+            }}>
+              <button
+                onClick={() => setSelectedOrderForDetail(null)}
+                style={{
+                  padding: '8px 18px',
+                  borderRadius: '8px',
+                  backgroundColor: '#0F172A',
+                  color: '#FFFFFF',
+                  border: 'none',
+                  fontWeight: 800,
+                  fontSize: '13px',
+                  cursor: 'pointer'
+                }}
+              >
+                Đóng
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

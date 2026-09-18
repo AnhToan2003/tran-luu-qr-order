@@ -42,17 +42,25 @@ export const adminOrderJson = (o: OrderDoc) => ({
   deliveredAt: o.deliveredAt?.getTime() ?? null,
   cancelledAt: o.cancelledAt?.getTime() ?? null,
   cancelReason: o.cancelReason,
-  items: o.items.map(i => ({
-    productId: i.productId,
-    name: i.nameSnapshot,
-    volume: i.volumeSnapshot,
-    unitPrice: i.unitPriceVnd,
-    costPrice: i.costPriceVnd ?? 0,
-    quantity: i.quantity,
-    iceQuantity: i.iceQuantity,
-    lineTotal: i.lineTotalVnd,
-    itemType: i.itemType || 'drink'
-  }))
+  totalCostVnd: o.items.reduce((s, i) => s + ((i.costPriceVnd ?? 0) * i.quantity), 0),
+  totalProfitVnd: Math.max(0, o.totalVnd - o.items.reduce((s, i) => s + ((i.costPriceVnd ?? 0) * i.quantity), 0)),
+  items: o.items.map(i => {
+    const cost = (i.costPriceVnd ?? 0) * i.quantity;
+    const profit = Math.max(0, i.lineTotalVnd - cost);
+    return {
+      productId: i.productId,
+      name: i.nameSnapshot,
+      volume: i.volumeSnapshot,
+      unitPrice: i.unitPriceVnd,
+      costPrice: i.costPriceVnd ?? 0,
+      quantity: i.quantity,
+      iceQuantity: i.iceQuantity,
+      lineTotal: i.lineTotalVnd,
+      costTotalVnd: cost,
+      profitVnd: profit,
+      itemType: i.itemType || 'drink'
+    };
+  })
 });
 
 export const orderJson = adminOrderJson;

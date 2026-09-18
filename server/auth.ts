@@ -42,7 +42,13 @@ export function verifyPassword(password: string, storedHash: string): boolean {
 
 export const requireAdmin: RequestHandler = async (req, res, next) => {
   try {
-    const token = req.cookies[cookieName];
+    let token = req.cookies[cookieName];
+    if (!token && typeof req.headers.authorization === 'string') {
+      const parts = req.headers.authorization.split(' ');
+      if (parts.length === 2 && /^Bearer$/i.test(parts[0])) {
+        token = parts[1];
+      }
+    }
     if (typeof token !== 'string' || !/^[a-f0-9]{64}$/.test(token)) {
       throw new ApiError(401, 'UNAUTHORIZED', 'Vui lòng đăng nhập quản trị');
     }
@@ -290,7 +296,16 @@ authRouter.post('/login', rateLimit({ windowMs: 15 * 60 * 1000, limit: 25, skipS
       roleId,
       expiresAt
     });
-    res.cookie(cookieName, token, { ...cookieOptions(), maxAge: 12 * 60 * 60 * 1000 }).json({ username, roleId, mustChangePassword });
+    res.cookie(cookieName, token, cookieOptions()).json({
+      success: true,
+      token,
+      accessToken: token,
+      tokenType: 'Bearer',
+      expiresIn: 12 * 60 * 60,
+      username,
+      roleId,
+      mustChangePassword
+    });
   } catch (err) {
     next(err);
   }

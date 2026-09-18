@@ -96,6 +96,7 @@ export interface InventoryMovementDoc {
   reason: 'order_created' | 'order_edited' | 'order_cancelled' | 'stock_intake' | 'stock_adjustment' | 'counter_pos_order' | 'quick_restock';
   orderId?: string | null;
   operationId: string;
+  batchId?: string;
   stockAfter: number;
   createdAt: Date;
   productNameSnapshot?: string;
@@ -171,6 +172,7 @@ export interface SportsItemDoc {
 export interface SportsMovementDoc {
   _id?: ObjectId;
   operationId: string;
+  batchId?: string;
   itemId: string;
   itemNameSnapshot: string;
   unitSnapshot: string;

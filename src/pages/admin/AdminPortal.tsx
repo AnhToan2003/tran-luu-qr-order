@@ -41,7 +41,11 @@ type AdminTab =
   | 'rbac'
   | 'settings';
 
-export const AdminPortal: React.FC = () => {
+export interface AdminPortalProps {
+  onLogout?: () => void;
+}
+
+export const AdminPortal: React.FC<AdminPortalProps> = ({ onLogout }) => {
   const [currentTab, setCurrentTab] = useState<AdminTab>('orders');
 
   const [apiError, setApiError] = useState('');
@@ -270,16 +274,24 @@ export const AdminPortal: React.FC = () => {
   const [historyStartDate, setHistoryStartDate] = useState<string>('');
   const [historyEndDate, setHistoryEndDate] = useState<string>('');
   const [historySearchQuery, setHistorySearchQuery] = useState<string>('');
-  const [historySummary, setHistorySummary] = useState<{ totalMatched: number; totalRevenueVnd: number; totalBottles: number }>({
+  const [historySummary, setHistorySummary] = useState<{
+    totalMatched: number;
+    totalRevenueVnd: number;
+    totalCostVnd: number;
+    totalProfitVnd: number;
+    totalBottles: number;
+  }>({
     totalMatched: 0,
     totalRevenueVnd: 0,
+    totalCostVnd: 0,
+    totalProfitVnd: 0,
     totalBottles: 0
   });
 
   // Quick Settings Header Popover & Navigation Dropdown State
   const [isQuickSettingsOpen, setIsQuickSettingsOpen] = useState<boolean>(false);
   const quickSettingsRef = useRef<HTMLDivElement>(null);
-  const [activeNavDropdown, setActiveNavDropdown] = useState<'products' | 'reports' | 'system' | null>(null);
+  const [activeNavDropdown, setActiveNavDropdown] = useState<'products' | 'intake-history' | 'export-history' | 'system' | null>(null);
   const navDropdownRef = useRef<HTMLDivElement>(null);
 
   // Click outside or Escape to close dropdowns
@@ -572,6 +584,10 @@ export const AdminPortal: React.FC = () => {
           setHistorySummary({
             totalMatched: data.totalMatched || (data.orders ? data.orders.length : 0),
             totalRevenueVnd: data.summary.totalRevenueVnd || 0,
+            totalCostVnd: data.summary.totalCostVnd || 0,
+            totalProfitVnd: data.summary.totalProfitVnd !== undefined
+              ? data.summary.totalProfitVnd
+              : Math.max(0, (data.summary.totalRevenueVnd || 0) - (data.summary.totalCostVnd || 0)),
             totalBottles: data.summary.totalBottles || 0
           });
         }
@@ -1478,8 +1494,12 @@ export const AdminPortal: React.FC = () => {
                 {/* 4. Đăng xuất tích hợp vào Cài đặt quầy */}
                 <button
                   onClick={() => void runAction('logout', async () => {
-                    await apiFetch('/api/admin/auth/logout', { method: 'POST', body: '{}' });
-                    window.dispatchEvent(new Event('admin-session-expired'));
+                    sessionStorage.removeItem('tl_admin_tab_authenticated');
+                    try {
+                      await apiFetch('/api/admin/auth/logout', { method: 'POST', body: '{}' });
+                    } catch {}
+                    window.dispatchEvent(new Event('admin-logged-out'));
+                    onLogout?.();
                   })}
                   style={{
                     display: 'flex',
@@ -1742,39 +1762,39 @@ export const AdminPortal: React.FC = () => {
             </div>
           )}
 
-          {/* 4. Thống Kê & Lịch Sử (Dropdown) */}
-          {(hasPermission('revenue-report') || hasPermission('order-history') || hasPermission('sports-order-history') || hasPermission('intake-history')) && (
+          {/* 4. Lịch Sử Nhập Hàng (Dropdown Mới) */}
+          {(hasPermission('intake-history') || hasPermission('sports-intake')) && (
             <div data-dropdown-container="true" style={{ position: 'relative', display: 'flex', alignItems: 'stretch' }}>
               <button
-                onClick={() => setActiveNavDropdown(prev => prev === 'reports' ? null : 'reports')}
-                onMouseEnter={() => { if (activeNavDropdown) setActiveNavDropdown('reports'); }}
+                onClick={() => setActiveNavDropdown(prev => prev === 'intake-history' ? null : 'intake-history')}
+                onMouseEnter={() => { if (activeNavDropdown) setActiveNavDropdown('intake-history'); }}
                 style={{
                   height: '100%',
                   padding: '0 16px',
                   fontSize: '13px',
                   fontWeight: 900,
                   letterSpacing: '0.4px',
-                  color: (currentTab === 'reports' || currentTab === 'history' || currentTab === 'stock-history' || currentTab === 'sports-stock-history') ? 'var(--color-primary)' : '#0F172A',
+                  color: (currentTab === 'stock-history' || currentTab === 'sports-stock-history') ? 'var(--color-primary)' : '#0F172A',
                   border: 'none',
-                  borderBottom: (currentTab === 'reports' || currentTab === 'history' || currentTab === 'stock-history' || currentTab === 'sports-stock-history') ? '3px solid var(--color-primary)' : '3px solid transparent',
+                  borderBottom: (currentTab === 'stock-history' || currentTab === 'sports-stock-history') ? '3px solid var(--color-primary)' : '3px solid transparent',
                   marginBottom: '-1px',
                   display: 'flex',
                   alignItems: 'center',
                   gap: '6px',
                   cursor: 'pointer',
-                  backgroundColor: activeNavDropdown === 'reports' ? 'rgba(18, 67, 46, 0.05)' : 'transparent',
-                  borderRadius: activeNavDropdown === 'reports' ? '8px 8px 0 0' : '0',
+                  backgroundColor: activeNavDropdown === 'intake-history' ? 'rgba(18, 67, 46, 0.05)' : 'transparent',
+                  borderRadius: activeNavDropdown === 'intake-history' ? '8px 8px 0 0' : '0',
                   whiteSpace: 'nowrap',
                   transition: 'all 0.15s ease'
                 }}
               >
-                <span>THỐNG KÊ & LỊCH SỬ</span>
-                <svg width="12" height="12" viewBox="0 0 20 20" fill="currentColor" style={{ marginLeft: '2px', transition: 'transform 0.2s', transform: activeNavDropdown === 'reports' ? 'rotate(180deg)' : 'none' }}>
+                <span>LỊCH SỬ NHẬP HÀNG</span>
+                <svg width="12" height="12" viewBox="0 0 20 20" fill="currentColor" style={{ marginLeft: '2px', transition: 'transform 0.2s', transform: activeNavDropdown === 'intake-history' ? 'rotate(180deg)' : 'none' }}>
                   <path fillRule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clipRule="evenodd" />
                 </svg>
               </button>
 
-              {activeNavDropdown === 'reports' && (
+              {activeNavDropdown === 'intake-history' && (
                 <div
                   className="animate-nav-dropdown"
                   style={{
@@ -1793,9 +1813,9 @@ export const AdminPortal: React.FC = () => {
                     gap: '2px'
                   }}
                 >
-                  {hasPermission('revenue-report') && (
+                  {hasPermission('intake-history') && (
                     <button
-                      onClick={() => { setCurrentTab('reports'); setActiveNavDropdown(null); }}
+                      onClick={() => { setCurrentTab('stock-history'); setActiveNavDropdown(null); }}
                       style={{
                         width: '100%',
                         padding: '10px 14px',
@@ -1803,8 +1823,8 @@ export const AdminPortal: React.FC = () => {
                         alignItems: 'center',
                         border: 'none',
                         borderRadius: '10px',
-                        backgroundColor: currentTab === 'reports' ? 'var(--color-primary-light)' : 'transparent',
-                        color: currentTab === 'reports' ? 'var(--color-primary)' : '#0F172A',
+                        backgroundColor: currentTab === 'stock-history' ? 'var(--color-primary-light)' : 'transparent',
+                        color: currentTab === 'stock-history' ? 'var(--color-primary)' : '#0F172A',
                         fontWeight: 800,
                         fontSize: '13px',
                         cursor: 'pointer',
@@ -1812,19 +1832,106 @@ export const AdminPortal: React.FC = () => {
                         transition: 'all 0.15s ease'
                       }}
                       onMouseEnter={(e) => {
-                        if (currentTab !== 'reports') e.currentTarget.style.backgroundColor = '#F8FAFC';
+                        if (currentTab !== 'stock-history') e.currentTarget.style.backgroundColor = '#F8FAFC';
                       }}
                       onMouseLeave={(e) => {
-                        if (currentTab !== 'reports') e.currentTarget.style.backgroundColor = 'transparent';
+                        if (currentTab !== 'stock-history') e.currentTarget.style.backgroundColor = 'transparent';
                       }}
                     >
                       <div>
-                        <div>Báo Cáo Doanh Thu</div>
-                        <div style={{ fontSize: '11px', color: '#64748B', fontWeight: 500 }}>Doanh thu, sản lượng & lợi nhuận</div>
+                        <div>Lịch Sử Nhập Hàng (Nước)</div>
+                        <div style={{ fontSize: '11px', color: '#64748B', fontWeight: 500 }}>Biến động tồn kho & giá vốn nước uống</div>
                       </div>
                     </button>
                   )}
 
+                  {hasPermission('sports-intake') && (
+                    <button
+                      onClick={() => { setCurrentTab('sports-stock-history'); setActiveNavDropdown(null); }}
+                      style={{
+                        width: '100%',
+                        padding: '10px 14px',
+                        display: 'flex',
+                        alignItems: 'center',
+                        border: 'none',
+                        borderRadius: '10px',
+                        backgroundColor: currentTab === 'sports-stock-history' ? 'var(--color-primary-light)' : 'transparent',
+                        color: currentTab === 'sports-stock-history' ? 'var(--color-primary)' : '#0F172A',
+                        fontWeight: 800,
+                        fontSize: '13px',
+                        cursor: 'pointer',
+                        textAlign: 'left',
+                        transition: 'all 0.15s ease'
+                      }}
+                      onMouseEnter={(e) => {
+                        if (currentTab !== 'sports-stock-history') e.currentTarget.style.backgroundColor = '#F8FAFC';
+                      }}
+                      onMouseLeave={(e) => {
+                        if (currentTab !== 'sports-stock-history') e.currentTarget.style.backgroundColor = 'transparent';
+                      }}
+                    >
+                      <div>
+                        <div>Lịch Sử Nhập Hàng (Thể Thao)</div>
+                        <div style={{ fontSize: '11px', color: '#64748B', fontWeight: 500 }}>Phiếu nhập hàng dụng cụ & đan lưới</div>
+                      </div>
+                    </button>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* 5. Lịch Sử Xuất Hàng (Đổi từ Thống Kê & Lịch Sử) */}
+          {(hasPermission('revenue-report') || hasPermission('order-history') || hasPermission('sports-order-history')) && (
+            <div data-dropdown-container="true" style={{ position: 'relative', display: 'flex', alignItems: 'stretch' }}>
+              <button
+                onClick={() => setActiveNavDropdown(prev => prev === 'export-history' ? null : 'export-history')}
+                onMouseEnter={() => { if (activeNavDropdown) setActiveNavDropdown('export-history'); }}
+                style={{
+                  height: '100%',
+                  padding: '0 16px',
+                  fontSize: '13px',
+                  fontWeight: 900,
+                  letterSpacing: '0.4px',
+                  color: (currentTab === 'history' || currentTab === 'sports-order-history' || currentTab === 'reports') ? 'var(--color-primary)' : '#0F172A',
+                  border: 'none',
+                  borderBottom: (currentTab === 'history' || currentTab === 'sports-order-history' || currentTab === 'reports') ? '3px solid var(--color-primary)' : '3px solid transparent',
+                  marginBottom: '-1px',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '6px',
+                  cursor: 'pointer',
+                  backgroundColor: activeNavDropdown === 'export-history' ? 'rgba(18, 67, 46, 0.05)' : 'transparent',
+                  borderRadius: activeNavDropdown === 'export-history' ? '8px 8px 0 0' : '0',
+                  whiteSpace: 'nowrap',
+                  transition: 'all 0.15s ease'
+                }}
+              >
+                <span>LỊCH SỬ XUẤT HÀNG</span>
+                <svg width="12" height="12" viewBox="0 0 20 20" fill="currentColor" style={{ marginLeft: '2px', transition: 'transform 0.2s', transform: activeNavDropdown === 'export-history' ? 'rotate(180deg)' : 'none' }}>
+                  <path fillRule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clipRule="evenodd" />
+                </svg>
+              </button>
+
+              {activeNavDropdown === 'export-history' && (
+                <div
+                  className="animate-nav-dropdown"
+                  style={{
+                    position: 'absolute',
+                    top: 'calc(100% + 4px)',
+                    left: 0,
+                    backgroundColor: '#FFFFFF',
+                    borderRadius: '14px',
+                    boxShadow: '0 20px 32px -4px rgba(15, 23, 42, 0.16), 0 8px 16px -2px rgba(15, 23, 42, 0.08), 0 0 0 1px rgba(15, 23, 42, 0.06)',
+                    border: '1px solid var(--color-border)',
+                    minWidth: '310px',
+                    zIndex: 1000,
+                    padding: '6px',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: '2px'
+                  }}
+                >
                   {hasPermission('order-history') && (
                     <button
                       onClick={() => { setCurrentTab('history'); setActiveNavDropdown(null); }}
@@ -1889,9 +1996,9 @@ export const AdminPortal: React.FC = () => {
                     </button>
                   )}
 
-                  {hasPermission('intake-history') && (
+                  {hasPermission('revenue-report') && (
                     <button
-                      onClick={() => { setCurrentTab('stock-history'); setActiveNavDropdown(null); }}
+                      onClick={() => { setCurrentTab('reports'); setActiveNavDropdown(null); }}
                       style={{
                         width: '100%',
                         padding: '10px 14px',
@@ -1899,8 +2006,8 @@ export const AdminPortal: React.FC = () => {
                         alignItems: 'center',
                         border: 'none',
                         borderRadius: '10px',
-                        backgroundColor: currentTab === 'stock-history' ? 'var(--color-primary-light)' : 'transparent',
-                        color: currentTab === 'stock-history' ? 'var(--color-primary)' : '#0F172A',
+                        backgroundColor: currentTab === 'reports' ? 'var(--color-primary-light)' : 'transparent',
+                        color: currentTab === 'reports' ? 'var(--color-primary)' : '#0F172A',
                         fontWeight: 800,
                         fontSize: '13px',
                         cursor: 'pointer',
@@ -1908,47 +2015,15 @@ export const AdminPortal: React.FC = () => {
                         transition: 'all 0.15s ease'
                       }}
                       onMouseEnter={(e) => {
-                        if (currentTab !== 'stock-history') e.currentTarget.style.backgroundColor = '#F8FAFC';
+                        if (currentTab !== 'reports') e.currentTarget.style.backgroundColor = '#F8FAFC';
                       }}
                       onMouseLeave={(e) => {
-                        if (currentTab !== 'stock-history') e.currentTarget.style.backgroundColor = 'transparent';
+                        if (currentTab !== 'reports') e.currentTarget.style.backgroundColor = 'transparent';
                       }}
                     >
                       <div>
-                        <div>Lịch Sử Nhập Hàng (Nước)</div>
-                        <div style={{ fontSize: '11px', color: '#64748B', fontWeight: 500 }}>Biến động tồn kho & giá vốn nước uống</div>
-                      </div>
-                    </button>
-                  )}
-
-                  {hasPermission('sports-intake') && (
-                    <button
-                      onClick={() => { setCurrentTab('sports-stock-history'); setActiveNavDropdown(null); }}
-                      style={{
-                        width: '100%',
-                        padding: '10px 14px',
-                        display: 'flex',
-                        alignItems: 'center',
-                        border: 'none',
-                        borderRadius: '10px',
-                        backgroundColor: currentTab === 'sports-stock-history' ? 'var(--color-primary-light)' : 'transparent',
-                        color: currentTab === 'sports-stock-history' ? 'var(--color-primary)' : '#0F172A',
-                        fontWeight: 800,
-                        fontSize: '13px',
-                        cursor: 'pointer',
-                        textAlign: 'left',
-                        transition: 'all 0.15s ease'
-                      }}
-                      onMouseEnter={(e) => {
-                        if (currentTab !== 'sports-stock-history') e.currentTarget.style.backgroundColor = '#F8FAFC';
-                      }}
-                      onMouseLeave={(e) => {
-                        if (currentTab !== 'sports-stock-history') e.currentTarget.style.backgroundColor = 'transparent';
-                      }}
-                    >
-                      <div>
-                        <div>Lịch Sử Nhập Hàng (Thể Thao)</div>
-                        <div style={{ fontSize: '11px', color: '#64748B', fontWeight: 500 }}>Phiếu nhập hàng dụng cụ & đan lưới</div>
+                        <div>Báo Cáo Doanh Thu & Xuất Hàng</div>
+                        <div style={{ fontSize: '11px', color: '#64748B', fontWeight: 500 }}>Doanh thu, sản lượng xuất kho & lợi nhuận</div>
                       </div>
                     </button>
                   )}

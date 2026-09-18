@@ -19,6 +19,8 @@ interface SportsOrderHistoryItem {
   paymentStatus: string;
   status: string;
   totalVnd: number;
+  totalCostVnd?: number;
+  totalProfitVnd?: number;
   items: Array<{
     productId: string;
     name: string;
@@ -28,11 +30,16 @@ interface SportsOrderHistoryItem {
     quantity: number;
     unitPrice: number;
     unitPriceVnd?: number;
+    costPrice?: number;
     lineTotal: number;
     lineTotalVnd?: number;
+    costTotalVnd?: number;
+    profitVnd?: number;
   }>;
   createdAt: string;
   deliveredAt?: string;
+  createdBy?: string;
+  staffName?: string;
 }
 
 export const SportsOrderHistoryTab: React.FC = () => {
@@ -53,7 +60,8 @@ export const SportsOrderHistoryTab: React.FC = () => {
   const [summary, setSummary] = useState({
     totalMatched: 0,
     totalRevenueVnd: 0,
-    totalItems: 0
+    totalItems: 0,
+    totalProfitVnd: 0
   });
 
   // Modal in lại hóa đơn
@@ -85,29 +93,55 @@ export const SportsOrderHistoryTab: React.FC = () => {
       const data = await res.json();
 
       const rawOrders: any[] = data.orders || [];
-      const normalizedOrders: SportsOrderHistoryItem[] = rawOrders.map(o => ({
-        id: o.id || o.orderId,
-        orderId: o.orderId,
-        displayCode: o.displayCode,
-        courtId: o.courtId,
-        courtName: o.courtName || o.courtNameSnapshot || 'Quầy lễ tân',
-        customerName: o.customerName || 'Khách tại quầy',
-        customerPhone: o.customerPhone || '',
-        paymentMethod: o.paymentMethod || 'cash',
-        paymentStatus: o.paymentStatus || 'paid',
-        status: o.status || 'delivered',
-        totalVnd: o.totalVnd || 0,
-        items: (o.items || []).map((i: any) => ({
-          productId: i.productId,
-          name: i.name || i.nameSnapshot,
-          volume: i.volume || i.volumeSnapshot || 'Cái',
-          quantity: i.quantity,
-          unitPrice: i.unitPrice || i.unitPriceVnd || 0,
-          lineTotal: i.lineTotal || i.lineTotalVnd || 0
-        })),
-        createdAt: o.createdAt,
-        deliveredAt: o.deliveredAt
-      }));
+      const normalizedOrders: SportsOrderHistoryItem[] = rawOrders.map(o => {
+        const totalVnd = o.totalVnd || 0;
+        const totalCostVnd = o.totalCostVnd || 0;
+        const totalProfitVnd = o.totalProfitVnd !== undefined
+          ? o.totalProfitVnd
+          : Math.max(0, totalVnd - totalCostVnd);
+
+        return {
+          id: o.id || o.orderId,
+          orderId: o.orderId,
+          displayCode: o.displayCode,
+          courtId: o.courtId,
+          courtName: o.courtName || o.courtNameSnapshot || 'Quầy lễ tân',
+          customerName: o.customerName || 'Khách tại quầy',
+          customerPhone: o.customerPhone || '',
+          paymentMethod: o.paymentMethod || 'cash',
+          paymentStatus: o.paymentStatus || 'paid',
+          status: o.status || 'delivered',
+          totalVnd,
+          totalCostVnd,
+          totalProfitVnd,
+          items: (o.items || []).map((i: any) => {
+            const qty = i.quantity || 0;
+            const unitPrice = i.unitPrice || i.unitPriceVnd || 0;
+            const lineTotal = i.lineTotal || i.lineTotalVnd || (qty * unitPrice);
+            const costPrice = i.costPrice || 0;
+            const costTotalVnd = i.costTotalVnd || (costPrice * qty);
+            const profitVnd = i.profitVnd !== undefined
+              ? i.profitVnd
+              : Math.max(0, lineTotal - costTotalVnd);
+
+            return {
+              productId: i.productId,
+              name: i.name || i.nameSnapshot,
+              volume: i.volume || i.volumeSnapshot || 'Cái',
+              quantity: qty,
+              unitPrice,
+              costPrice,
+              lineTotal,
+              costTotalVnd,
+              profitVnd
+            };
+          }),
+          createdAt: o.createdAt,
+          deliveredAt: o.deliveredAt,
+          createdBy: o.createdBy || o.staffName || '',
+          staffName: o.staffName || o.createdBy || ''
+        };
+      });
 
       setOrders(normalizedOrders);
       setTotalPages(data.totalPages || 1);
@@ -116,7 +150,10 @@ export const SportsOrderHistoryTab: React.FC = () => {
       setSummary({
         totalMatched: data.summary?.totalOrders || data.totalMatched || normalizedOrders.length,
         totalRevenueVnd: data.summary?.totalRevenueVnd || normalizedOrders.reduce((s, o) => s + o.totalVnd, 0),
-        totalItems: data.summary?.totalBottles || itemsTotal
+        totalItems: data.summary?.totalBottles || itemsTotal,
+        totalProfitVnd: data.summary?.totalProfitVnd !== undefined
+          ? data.summary.totalProfitVnd
+          : normalizedOrders.reduce((s, o) => s + (o.totalProfitVnd || 0), 0)
       });
     } catch (err: any) {
       setError(err.message || 'Lỗi tải lịch sử');
@@ -193,14 +230,14 @@ export const SportsOrderHistoryTab: React.FC = () => {
       {/* KPI SUMMARY BANNER */}
       <div style={{
         display: 'grid',
-        gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))',
+        gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))',
         gap: '14px'
       }}>
         <div style={{ backgroundColor: '#FFFFFF', padding: '16px 20px', borderRadius: '10px', border: '1px solid #E2E8F0' }}>
           <div style={{ fontSize: '12px', color: '#475569', fontWeight: 800, textTransform: 'uppercase' }}>
             Tổng đơn thể thao
           </div>
-          <div style={{ fontSize: '26px', fontWeight: 900, color: '#0F172A', marginTop: '4px' }}>
+          <div style={{ fontSize: '24px', fontWeight: 900, color: '#0F172A', marginTop: '4px' }}>
             {summary.totalMatched} <span style={{ fontSize: '14px', fontWeight: 700, color: '#64748B' }}>đơn</span>
           </div>
         </div>
@@ -209,8 +246,17 @@ export const SportsOrderHistoryTab: React.FC = () => {
           <div style={{ fontSize: '12px', color: '#475569', fontWeight: 800, textTransform: 'uppercase' }}>
             Doanh thu bán thể thao
           </div>
-          <div style={{ fontSize: '26px', fontWeight: 900, color: 'var(--color-primary)', marginTop: '4px' }}>
+          <div style={{ fontSize: '24px', fontWeight: 900, color: 'var(--color-primary)', marginTop: '4px' }}>
             {formatVnd(summary.totalRevenueVnd)}
+          </div>
+        </div>
+
+        <div style={{ backgroundColor: '#FFFFFF', padding: '16px 20px', borderRadius: '10px', border: '1px solid #E2E8F0' }}>
+          <div style={{ fontSize: '12px', color: '#475569', fontWeight: 800, textTransform: 'uppercase' }}>
+            Tổng lợi nhuận thực thu
+          </div>
+          <div style={{ fontSize: '24px', fontWeight: 900, color: '#0A6B4A', marginTop: '4px' }}>
+            +{formatVnd(summary.totalProfitVnd)}
           </div>
         </div>
 
@@ -218,7 +264,7 @@ export const SportsOrderHistoryTab: React.FC = () => {
           <div style={{ fontSize: '12px', color: '#475569', fontWeight: 800, textTransform: 'uppercase' }}>
             Sản phẩm / Dịch vụ bán ra
           </div>
-          <div style={{ fontSize: '26px', fontWeight: 900, color: '#0F172A', marginTop: '4px' }}>
+          <div style={{ fontSize: '24px', fontWeight: 900, color: '#0F172A', marginTop: '4px' }}>
             {summary.totalItems} <span style={{ fontSize: '14px', fontWeight: 700, color: '#64748B' }}>món</span>
           </div>
         </div>
@@ -340,26 +386,27 @@ export const SportsOrderHistoryTab: React.FC = () => {
         <div style={{ overflowX: 'auto' }}>
           <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', minWidth: '850px' }}>
             <thead>
-              <tr style={{ backgroundColor: '#F8FAFC', borderBottom: '1.5px solid #E2E8F0' }}>
-                <th style={{ padding: '14px 16px', fontWeight: 900, fontSize: '12px', color: '#475569', textTransform: 'uppercase' }}>Mã đơn</th>
-                <th style={{ padding: '14px 16px', fontWeight: 900, fontSize: '12px', color: '#475569', textTransform: 'uppercase' }}>Thời gian</th>
-                <th style={{ padding: '14px 16px', fontWeight: 900, fontSize: '12px', color: '#475569', textTransform: 'uppercase' }}>Khu vực / Khách hàng</th>
-                <th style={{ padding: '14px 16px', fontWeight: 900, fontSize: '12px', color: '#475569', textTransform: 'uppercase' }}>Chi tiết dụng cụ & dịch vụ</th>
-                <th style={{ padding: '14px 16px', fontWeight: 900, fontSize: '12px', color: '#475569', textTransform: 'uppercase' }}>Hình thức</th>
-                <th style={{ padding: '14px 16px', fontWeight: 900, fontSize: '12px', color: '#475569', textTransform: 'uppercase', textAlign: 'right' }}>Tổng thanh toán</th>
-                <th style={{ padding: '14px 16px', fontWeight: 900, fontSize: '12px', color: '#475569', textTransform: 'uppercase', textAlign: 'right' }}>Thao tác</th>
+              <tr style={{ backgroundColor: '#0A6B4A', color: '#FFFFFF', height: '44px' }}>
+                <th style={{ padding: '12px 16px', fontWeight: 800, fontSize: '12px', color: '#FFFFFF', textTransform: 'uppercase', letterSpacing: '0.4px' }}>Mã đơn</th>
+                <th style={{ padding: '12px 16px', fontWeight: 800, fontSize: '12px', color: '#FFFFFF', textTransform: 'uppercase', letterSpacing: '0.4px' }}>Thời gian</th>
+                <th style={{ padding: '12px 16px', fontWeight: 800, fontSize: '12px', color: '#FFFFFF', textTransform: 'uppercase', letterSpacing: '0.4px' }}>Khu vực / Khách hàng</th>
+                <th style={{ padding: '12px 16px', fontWeight: 800, fontSize: '12px', color: '#FFFFFF', textTransform: 'uppercase', letterSpacing: '0.4px' }}>Chi tiết dụng cụ & dịch vụ</th>
+                <th style={{ padding: '12px 16px', fontWeight: 800, fontSize: '12px', color: '#FFFFFF', textTransform: 'uppercase', letterSpacing: '0.4px', textAlign: 'right' }}>Tổng thanh toán</th>
+                <th style={{ padding: '12px 16px', fontWeight: 800, fontSize: '12px', color: '#FFFFFF', textTransform: 'uppercase', letterSpacing: '0.4px', textAlign: 'right' }}>Lợi nhuận</th>
+                <th style={{ padding: '12px 16px', fontWeight: 800, fontSize: '12px', color: '#FFFFFF', textTransform: 'uppercase', letterSpacing: '0.4px' }}>Hình thức</th>
+                <th style={{ padding: '12px 16px', fontWeight: 800, fontSize: '12px', color: '#FFFFFF', textTransform: 'uppercase', letterSpacing: '0.4px', textAlign: 'center' }}>Thao tác</th>
               </tr>
             </thead>
             <tbody>
               {isLoading ? (
                 <tr>
-                  <td colSpan={7} style={{ padding: '40px 16px', textAlign: 'center', color: '#64748B' }}>
+                  <td colSpan={8} style={{ padding: '40px 16px', textAlign: 'center', color: '#64748B' }}>
                     Đang tải dữ liệu bán hàng thể thao...
                   </td>
                 </tr>
               ) : orders.length === 0 ? (
                 <tr>
-                  <td colSpan={7} style={{ padding: '48px 16px', textAlign: 'center', color: '#64748B' }}>
+                  <td colSpan={8} style={{ padding: '48px 16px', textAlign: 'center', color: '#64748B' }}>
                     <div style={{ fontWeight: 800, fontSize: '15px', color: '#0F172A' }}>Chưa có đơn bán thể thao nào trong khoảng thời gian này</div>
                     <div style={{ fontSize: '13px', marginTop: '4px' }}>Hãy thử chọn mốc thời gian khác hoặc kiểm tra tại Quầy Thể Thao POS.</div>
                   </td>
@@ -400,6 +447,12 @@ export const SportsOrderHistoryTab: React.FC = () => {
                           ))}
                         </div>
                       </td>
+                      <td style={{ padding: '14px 16px', textAlign: 'right', fontWeight: 900, fontSize: '14px', color: 'var(--color-primary)' }}>
+                        {formatVnd(o.totalVnd)}
+                      </td>
+                      <td style={{ padding: '14px 16px', textAlign: 'right', fontWeight: 900, fontSize: '14px', color: '#0A6B4A' }}>
+                        +{formatVnd(o.totalProfitVnd || 0)}
+                      </td>
                       <td style={{ padding: '14px 16px' }}>
                         <span style={{
                           fontSize: '11px',
@@ -413,10 +466,7 @@ export const SportsOrderHistoryTab: React.FC = () => {
                           {o.paymentMethod === 'transfer' ? 'Chuyển khoản QR' : 'Tiền mặt'}
                         </span>
                       </td>
-                      <td style={{ padding: '14px 16px', textAlign: 'right', fontWeight: 900, fontSize: '14px', color: 'var(--color-primary)' }}>
-                        {formatVnd(o.totalVnd)}
-                      </td>
-                      <td style={{ padding: '14px 16px', textAlign: 'right' }}>
+                      <td style={{ padding: '14px 16px', textAlign: 'center' }}>
                         <button
                           onClick={() => setSelectedOrderForBill(o)}
                           style={{
@@ -430,7 +480,7 @@ export const SportsOrderHistoryTab: React.FC = () => {
                             cursor: 'pointer'
                           }}
                         >
-                          Xem & In Phiếu
+                          Xem chi tiết
                         </button>
                       </td>
                     </tr>
@@ -490,7 +540,7 @@ export const SportsOrderHistoryTab: React.FC = () => {
         )}
       </div>
 
-      {/* MODAL IN LẠI HÓA ĐƠN NHIỆT (CHUẨN CHUYÊN NGHIỆP, ẨN TOÀN BỘ NÚT BẤM KHI IN) */}
+      {/* MODAL CHI TIẾT & IN PHIẾU BÁN DỤNG CỤ / DỊCH VỤ */}
       {selectedOrderForBill && (
         <div style={{
           position: 'fixed',
@@ -511,10 +561,12 @@ export const SportsOrderHistoryTab: React.FC = () => {
               backgroundColor: '#FFFFFF',
               borderRadius: '12px',
               width: '100%',
-              maxWidth: '420px',
+              maxWidth: '560px',
               boxShadow: '0 20px 25px -5px rgba(0, 0, 0, 0.25)',
               border: '1px solid #CBD5E1',
-              padding: '24px'
+              padding: '24px',
+              maxHeight: '90vh',
+              overflowY: 'auto'
             }}
           >
             {/* Tiêu đề phiếu */}
@@ -523,7 +575,7 @@ export const SportsOrderHistoryTab: React.FC = () => {
                 SÂN CẦU LÔNG TRẦN LỰU
               </div>
               <div style={{ fontSize: '13px', color: '#475569', marginTop: '2px', fontWeight: 700 }}>
-                PHIẾU BÁN HÀNG TẠI QUẦY
+                CHI TIẾT ĐƠN HÀNG BÁN THỂ THAO & DỊCH VỤ
               </div>
               <div style={{ fontSize: '15px', fontWeight: 900, color: 'var(--color-primary)', marginTop: '6px' }}>
                 MÃ ĐƠN: {selectedOrderForBill.displayCode}
@@ -533,45 +585,88 @@ export const SportsOrderHistoryTab: React.FC = () => {
               </div>
             </div>
 
-            {/* Thông tin người mua */}
-            <div style={{ margin: '14px 0', fontSize: '13px', display: 'flex', flexDirection: 'column', gap: '4px' }}>
+            {/* Thông tin người mua & Người phụ trách */}
+            <div style={{ margin: '14px 0', fontSize: '13px', display: 'flex', flexDirection: 'column', gap: '6px' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between' }}>
                 <span style={{ color: '#64748B', fontWeight: 600 }}>Đối tượng:</span>
                 <span style={{ fontWeight: 800, color: '#0F172A' }}>{selectedOrderForBill.courtName}</span>
               </div>
               <div style={{ display: 'flex', justifyContent: 'space-between' }}>
                 <span style={{ color: '#64748B', fontWeight: 600 }}>Khách hàng:</span>
-                <span style={{ fontWeight: 800, color: '#0F172A' }}>{selectedOrderForBill.customerName}</span>
+                <span style={{ fontWeight: 800, color: '#0F172A' }}>
+                  {selectedOrderForBill.customerName} {selectedOrderForBill.customerPhone ? `(${selectedOrderForBill.customerPhone})` : ''}
+                </span>
               </div>
               <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                <span style={{ color: '#64748B', fontWeight: 600 }}>Phương thức:</span>
+                <span style={{ color: '#64748B', fontWeight: 600 }}>Người phụ trách / Thu ngân:</span>
                 <span style={{ fontWeight: 800, color: '#0F172A' }}>
+                  {selectedOrderForBill.createdBy || selectedOrderForBill.staffName || 'Nhân viên quầy'}
+                </span>
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                <span style={{ color: '#64748B', fontWeight: 600 }}>Phương thức thanh toán:</span>
+                <span style={{ fontWeight: 800, color: selectedOrderForBill.paymentMethod === 'transfer' ? '#0369A1' : '#15803D' }}>
                   {selectedOrderForBill.paymentMethod === 'cash' ? 'Tiền mặt' : 'Chuyển khoản QR'}
                 </span>
               </div>
             </div>
 
-            {/* Danh sách món */}
-            <div style={{ borderTop: '1px solid #E2E8F0', borderBottom: '1px solid #E2E8F0', padding: '10px 0', display: 'flex', flexDirection: 'column', gap: '8px' }}>
-              {selectedOrderForBill.items.map((it, idx) => (
-                <div key={idx} style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px' }}>
-                  <div>
-                    <span style={{ fontWeight: 800, color: '#0F172A' }}>{it.name}</span>
-                    <span style={{ color: '#64748B', marginLeft: '6px' }}>x{it.quantity}</span>
-                  </div>
-                  <span style={{ fontWeight: 800, color: '#0F172A' }}>
-                    {formatVnd(it.lineTotal)}
-                  </span>
-                </div>
-              ))}
+            {/* Danh sách món chi tiết có cột Lợi nhuận */}
+            <div style={{ border: '1px solid #E2E8F0', borderRadius: '8px', overflow: 'hidden', margin: '14px 0' }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12px' }}>
+                <thead>
+                  <tr style={{ backgroundColor: '#0A6B4A', color: '#FFFFFF', height: '36px' }}>
+                    <th style={{ padding: '8px 10px', textAlign: 'left', fontWeight: 800, color: '#FFFFFF' }}>Mặt hàng / Dịch vụ</th>
+                    <th style={{ padding: '8px 10px', textAlign: 'center', fontWeight: 800, color: '#FFFFFF' }}>SL</th>
+                    <th style={{ padding: '8px 10px', textAlign: 'right', fontWeight: 800, color: '#FFFFFF' }}>Đơn giá</th>
+                    <th style={{ padding: '8px 10px', textAlign: 'right', fontWeight: 800, color: '#FFFFFF' }}>Thành tiền</th>
+                    <th style={{ padding: '8px 10px', textAlign: 'right', fontWeight: 800, color: '#FFFFFF' }}>Tiền lời</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {selectedOrderForBill.items.map((it, idx) => {
+                    const lineTotal = it.lineTotal || (it.quantity * it.unitPrice);
+                    const itemProfit = it.profitVnd !== undefined
+                      ? it.profitVnd
+                      : Math.max(0, lineTotal - ((it.costPrice || 0) * it.quantity));
+
+                    return (
+                      <tr key={idx} style={{ borderBottom: '1px solid #F1F5F9' }}>
+                        <td style={{ padding: '8px 10px', fontWeight: 700, color: '#0F172A' }}>{it.name}</td>
+                        <td style={{ padding: '8px 10px', textAlign: 'center', fontWeight: 800, color: '#0F172A' }}>{it.quantity}</td>
+                        <td style={{ padding: '8px 10px', textAlign: 'right', color: '#475569' }}>{formatVnd(it.unitPrice)}</td>
+                        <td style={{ padding: '8px 10px', textAlign: 'right', fontWeight: 800, color: '#0F172A' }}>{formatVnd(lineTotal)}</td>
+                        <td style={{ padding: '8px 10px', textAlign: 'right', fontWeight: 800, color: '#0A6B4A' }}>+{formatVnd(itemProfit)}</td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
             </div>
 
-            {/* Tổng cộng */}
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '14px', marginBottom: '20px' }}>
-              <span style={{ fontSize: '15px', fontWeight: 900, color: '#0F172A' }}>TỔNG CỘNG:</span>
-              <span style={{ fontSize: '20px', fontWeight: 900, color: 'var(--color-primary)' }}>
-                {formatVnd(selectedOrderForBill.totalVnd)}
-              </span>
+            {/* Tổng cộng & Tổng tiền lời */}
+            <div style={{
+              display: 'flex',
+              flexDirection: 'column',
+              gap: '8px',
+              backgroundColor: '#F8FAFC',
+              padding: '12px 16px',
+              borderRadius: '8px',
+              marginBottom: '18px',
+              border: '1px solid #E2E8F0'
+            }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <span style={{ fontSize: '13px', fontWeight: 800, color: '#475569' }}>TỔNG THANH TOÁN:</span>
+                <span style={{ fontSize: '18px', fontWeight: 900, color: 'var(--color-primary)' }}>
+                  {formatVnd(selectedOrderForBill.totalVnd)}
+                </span>
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <span style={{ fontSize: '13px', fontWeight: 800, color: '#475569' }}>TỔNG LỢI NHUẬN:</span>
+                <span style={{ fontSize: '16px', fontWeight: 900, color: '#0A6B4A' }}>
+                  +{formatVnd(selectedOrderForBill.totalProfitVnd || 0)}
+                </span>
+              </div>
             </div>
 
             {/* Cụm nút thao tác (bị ẩn khi in bằng class no-print) */}

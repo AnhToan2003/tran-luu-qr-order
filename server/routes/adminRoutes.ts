@@ -568,7 +568,7 @@ adminRouter.post('/inventory/batch-intake', requirePermission('drink-intake'), a
       sellingPriceVnd: z.number().int().min(0).max(100_000_000).optional()
     })).min(1, 'Cần ít nhất một món có số lượng nhập lớn hơn 0'),
     transferDate: z.string().optional(),
-    responsiblePerson: z.string().trim().max(100).optional(),
+    responsiblePerson: z.string().trim().min(1, 'Vui lòng nhập tên người phụ trách khi nhập hàng').max(100),
     note: z.string().trim().max(200).optional()
   });
   const input = schema.parse(req.body);
@@ -654,6 +654,7 @@ adminRouter.post('/inventory/batch-intake', requirePermission('drink-intake'), a
         delta: item.delta,
         reason: 'stock_intake',
         operationId,
+        batchId: intakeBatchId,
         stockAfter: nextStock,
         requestFingerprint: fingerprint,
         createdAt: now,
@@ -664,7 +665,7 @@ adminRouter.post('/inventory/batch-intake', requirePermission('drink-intake'), a
         totalCostVnd,
         responsiblePerson: input.responsiblePerson,
         transferDate: parsedTransferDate,
-        note: input.note ? `${input.note} (Lô ${intakeBatchId})` : `Nhập hàng theo lô (${intakeBatchId})`
+        note: input.note ? input.note.trim() : 'Nhập hàng vào kho'
       } as any, { session });
 
       updatedProducts.push({
@@ -736,20 +737,95 @@ adminRouter.get('/inventory/intake-history', requirePermission('intake-history')
   const [aggregationResult] = await c.inventoryMovements.aggregate([
     { $match: query },
     {
+      $addFields: {
+        effectiveBatchId: {
+          $let: {
+            vars: {
+              rawBatchId: {
+                $regexFind: {
+                  input: { $ifNull: ['$batchId', ''] },
+                  regex: 'batch-[0-9]+-[a-zA-Z0-9]{4,8}',
+                  options: 'i'
+                }
+              },
+              foundInOp: {
+                $regexFind: {
+                  input: { $ifNull: ['$operationId', ''] },
+                  regex: 'batch-[0-9]+-[a-zA-Z0-9]{4,8}',
+                  options: 'i'
+                }
+              },
+              foundInNote: {
+                $regexFind: {
+                  input: { $ifNull: ['$note', ''] },
+                  regex: 'batch-[0-9]+-[a-zA-Z0-9]{4,8}',
+                  options: 'i'
+                }
+              }
+            },
+            in: {
+              $ifNull: [
+                '$$rawBatchId.match',
+                {
+                  $ifNull: [
+                    '$batchId',
+                    {
+                      $ifNull: [
+                        '$$foundInOp.match',
+                        {
+                          $ifNull: [
+                            '$$foundInNote.match',
+                            {
+                              $concat: [
+                                'batch-legacy-',
+                                { $ifNull: ['$responsiblePerson', 'admin'] },
+                                '-',
+                                { $dateToString: { format: '%Y-%m-%d-%H-%M', date: '$createdAt' } }
+                              ]
+                            }
+                          ]
+                        }
+                      ]
+                    }
+                  ]
+                }
+              ]
+            }
+          }
+        }
+      }
+    },
+    {
+      $group: {
+        _id: '$effectiveBatchId',
+        createdAt: { $max: '$createdAt' },
+        responsiblePerson: { $first: '$responsiblePerson' },
+        note: { $first: '$note' },
+        batchQuantity: { $sum: '$delta' },
+        batchCostValueVnd: {
+          $sum: { $ifNull: ['$totalCostVnd', { $multiply: [{ $ifNull: ['$costPriceVnd', 0] }, '$delta'] }] }
+        },
+        batchExpectedRevenueVnd: {
+          $sum: { $multiply: [{ $ifNull: ['$sellingPriceVnd', 0] }, '$delta'] }
+        },
+        movements: { $push: '$$ROOT' }
+      }
+    },
+    {
       $facet: {
         summary: [
           {
             $group: {
               _id: null,
               totalBatches: { $sum: 1 },
-              totalQuantity: { $sum: '$delta' },
-              totalCostValueVnd: { $sum: { $ifNull: ['$totalCostVnd', { $multiply: ['$costPriceVnd', '$delta'] }] } },
-              totalExpectedRevenueVnd: { $sum: { $multiply: ['$sellingPriceVnd', '$delta'] } }
+              totalQuantity: { $sum: '$batchQuantity' },
+              totalCostValueVnd: { $sum: '$batchCostValueVnd' },
+              totalExpectedRevenueVnd: { $sum: '$batchExpectedRevenueVnd' }
             }
           }
         ],
         totalCount: [{ $count: 'count' }],
-        items: [
+        batches: [
           { $sort: { createdAt: -1 } },
           { $skip: skip },
           { $limit: limit }
@@ -767,7 +843,8 @@ adminRouter.get('/inventory/intake-history', requirePermission('intake-history')
   const totalItems = aggregationResult?.totalCount[0]?.count || 0;
   const totalPages = Math.ceil(totalItems / limit) || 1;
 
-  const rawItems = aggregationResult?.items || [];
+  const paginatedBatches = aggregationResult?.batches || [];
+  const rawItems = paginatedBatches.flatMap((b: any) => b.movements || []);
   const productIds = Array.from(new Set<string>(rawItems.map((m: any) => String(m.productId))));
   const products = await c.products.find({ productId: { $in: productIds } }).toArray();
   const productMap = new Map(products.map(p => [p.productId, p]));
@@ -783,8 +860,26 @@ adminRouter.get('/inventory/intake-history', requirePermission('intake-history')
     const expectedRevenue = sellingPrice * quantity;
     const profitMarginVnd = expectedRevenue - totalCost;
 
+    let batchId = m.batchId;
+    if (batchId) {
+      const match = batchId.match(/(batch-[0-9]+-[a-zA-Z0-9]{4,8})/i);
+      if (match) batchId = match[1];
+    }
+    if (!batchId && m.operationId) {
+      const match = m.operationId.match(/(batch-[0-9]+-[a-zA-Z0-9]{4,8})/i);
+      if (match) batchId = match[1];
+    }
+    if (!batchId && m.note) {
+      const match = m.note.match(/(batch-[0-9]+-[a-zA-Z0-9]{4,8})/i) || m.note.match(/\(Lô\s+([^)]+)\)/i);
+      if (match) batchId = match[1];
+    }
+    if (!batchId) {
+      batchId = m.operationId;
+    }
+
     return {
       id: m._id ? m._id.toString() : m.operationId,
+      batchId,
       operationId: m.operationId,
       productId: m.productId,
       productName,
@@ -798,7 +893,8 @@ adminRouter.get('/inventory/intake-history', requirePermission('intake-history')
       profitMarginVnd,
       profitMarginPct: expectedRevenue > 0 ? Math.round(((profitMarginVnd / expectedRevenue) * 100) * 10) / 10 : 0,
       stockAfter: m.stockAfter,
-      note: m.note || (m.reason === 'stock_intake' ? 'Nhập hàng vào kho' : 'Điều chỉnh tồn kho tăng'),
+      responsiblePerson: (m as any).responsiblePerson || 'Quản trị viên',
+      note: ((m.note || (m.reason === 'stock_intake' ? 'Nhập hàng vào kho' : 'Điều chỉnh tồn kho tăng')) as string).replace(/\s*\((?:Lô\s+)?[a-zA-Z0-9_-]+\)/gi, '').trim() || 'Nhập hàng vào kho',
       createdAt: m.createdAt
     };
   });
@@ -976,7 +1072,16 @@ adminRouter.get('/reports/history', requirePermission(['order-history', 'sports-
             $group: {
               _id: null,
               totalBottles: { $sum: '$items.quantity' },
-              totalIce: { $sum: '$items.iceQuantity' }
+              totalIce: { $sum: '$items.iceQuantity' },
+              totalCostVnd: {
+                $sum: {
+                  $cond: [
+                    { $eq: ['$status', 'delivered'] },
+                    { $multiply: [{ $ifNull: ['$items.costPriceVnd', 0] }, '$items.quantity'] },
+                    0
+                  ]
+                }
+              }
             }
           }
         ]
@@ -987,6 +1092,8 @@ adminRouter.get('/reports/history', requirePermission(['order-history', 'sports-
   const totalMatched = summaryAgg?.stats?.[0]?.totalOrders || 0;
   const totalRevenueVnd = summaryAgg?.stats?.[0]?.totalRevenueVnd || 0;
   const totalBottles = summaryAgg?.bottles?.[0]?.totalBottles || 0;
+  const totalCostVnd = summaryAgg?.bottles?.[0]?.totalCostVnd || 0;
+  const totalProfitVnd = Math.max(0, totalRevenueVnd - totalCostVnd);
 
   const queryFilter: Record<string, unknown> = { ...baseFilter };
   if(query.cursor) {
@@ -1016,6 +1123,8 @@ adminRouter.get('/reports/history', requirePermission(['order-history', 'sports-
     limit: pageSize,
     summary: {
       totalRevenueVnd,
+      totalCostVnd,
+      totalProfitVnd,
       totalBottles
     }
   });

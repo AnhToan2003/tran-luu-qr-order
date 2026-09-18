@@ -39,6 +39,7 @@ export interface SportsItem {
 
 export interface SportsIntakeItem {
   id: string;
+  batchId?: string;
   operationId: string;
   itemId: string;
   itemName: string;
@@ -47,7 +48,11 @@ export interface SportsIntakeItem {
   costPriceVnd: number;
   sellingPriceVnd: number;
   totalCostVnd: number;
+  expectedRevenueVnd?: number;
+  profitMarginVnd?: number;
+  profitMarginPct?: number;
   stockAfter: number;
+  responsiblePerson?: string;
   note: string;
   createdAt: string;
 }
@@ -56,6 +61,9 @@ export interface SportsIntakeSummary {
   totalBatches: number;
   totalQuantity: number;
   totalCostValueVnd: number;
+  totalExpectedRevenueVnd?: number;
+  totalExpectedProfitVnd?: number;
+  overallMarginPct?: number;
 }
 
 export interface PosCartItem {

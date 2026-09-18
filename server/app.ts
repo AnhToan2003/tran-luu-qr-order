@@ -14,26 +14,49 @@ import { rbacRouter } from './routes/rbacRoutes.js';
 import { getDb } from './db.js';
 import { ApiError } from './errors.js';
 import { isRedisAvailable } from './redis.js';
+import { openapiSpec } from './swagger/openapiSpec.js';
+import { getSwaggerUiHtml } from './swagger/swaggerUiHtml.js';
 
 export function createApp() {
   const app = express();
   app.disable('x-powered-by');
   app.set('trust proxy',1);
-  app.use(helmet({
+  const mainHelmet = helmet({
     contentSecurityPolicy: {
       directives: {
         defaultSrc: ["'self'"],
-        scriptSrc:  ["'self'"],
-        styleSrc:   ["'self'", "'unsafe-inline'"],
+        scriptSrc:  ["'self'", "'unsafe-inline'"],
+        styleSrc:   ["'self'", "'unsafe-inline'", "https://fonts.googleapis.com"],
         imgSrc:     ["'self'", 'data:', 'blob:'],
-        fontSrc:    ["'self'", 'data:'],
+        fontSrc:    ["'self'", 'data:', "https://fonts.gstatic.com"],
         connectSrc: ["'self'", 'ws:', 'wss:'],
-        // Chỉ bật upgradeInsecureRequests trong production để tránh CSP warning ở dev
-        ...(process.env.NODE_ENV === 'production' ? { upgradeInsecureRequests: [] } : {})
+        // Chỉ bật upgradeInsecureRequests khi production thực sự chạy trên domain HTTPS
+        ...(process.env.NODE_ENV === 'production' && process.env.PUBLIC_ORIGIN?.startsWith('https://') ? { upgradeInsecureRequests: [] } : {})
       }
     },
     crossOriginEmbedderPolicy: false
-  }));
+  });
+
+  const swaggerHelmet = helmet({
+    contentSecurityPolicy: {
+      directives: {
+        defaultSrc: ["'self'"],
+        scriptSrc:  ["'self'", "'unsafe-inline'", "'unsafe-eval'", "https://cdn.jsdelivr.net"],
+        styleSrc:   ["'self'", "'unsafe-inline'", "https://cdn.jsdelivr.net", "https://fonts.googleapis.com"],
+        imgSrc:     ["'self'", 'data:', 'blob:', "https://cdn.jsdelivr.net", "https://validator.swagger.io"],
+        fontSrc:    ["'self'", 'data:', "https://fonts.gstatic.com"],
+        connectSrc: ["'self'", 'http:', 'https:', 'ws:', 'wss:']
+      }
+    },
+    crossOriginEmbedderPolicy: false
+  });
+
+  app.use((req, res, next) => {
+    if (req.path.startsWith('/api-docs')) {
+      return swaggerHelmet(req, res, next);
+    }
+    return mainHelmet(req, res, next);
+  });
   app.use('/api/admin/catalog/import', express.json({ limit: '50mb' }));
   app.use(express.json({ limit: '3mb' }));
   app.use(cookieParser());
@@ -43,26 +66,43 @@ export function createApp() {
     (req as any).id = requestId;
     res.setHeader('x-request-id', requestId);
     res.setHeader('Cache-Control', 'no-store');
+
+    const isProd = process.env.NODE_ENV === 'production';
+    const origin = req.headers.origin;
+    if (origin) {
+      const isLocalOrigin = origin.includes('localhost') || origin.includes('127.0.0.1');
+      const isAllowedProd = isProd && process.env.PUBLIC_ORIGIN && origin === process.env.PUBLIC_ORIGIN;
+      const isAllowedDev = !isProd && isLocalOrigin;
+      if (isAllowedProd || isAllowedDev) {
+        res.setHeader('Access-Control-Allow-Origin', origin);
+        res.setHeader('Access-Control-Allow-Credentials', 'true');
+        res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, PATCH, OPTIONS');
+        res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, x-request-id, X-Requested-With');
+      }
+    }
+    if (req.method === 'OPTIONS') {
+      return res.sendStatus(204);
+    }
+
     if (!['GET', 'HEAD', 'OPTIONS'].includes(req.method)) {
-      const origin = req.headers.origin;
       const host = req.get('host') || '';
       const expected = process.env.PUBLIC_ORIGIN || `${req.protocol}://${host}`;
       if (origin) {
-        let isAllowed = origin === expected;
-        if (!isAllowed) {
+        let isAllowed = false;
+        if (isProd) {
+          isAllowed = (origin === expected) || (Boolean(process.env.PUBLIC_ORIGIN) && origin === process.env.PUBLIC_ORIGIN);
+        } else {
           try {
             const originUrl = new URL(origin);
-            const hostOnly = host.split(':')[0];
-            const isLocal = ['localhost', '127.0.0.1'].includes(originUrl.hostname) || originUrl.hostname === hostOnly;
+            const isLocalHost = ['localhost', '127.0.0.1'].includes(originUrl.hostname);
             const isDevPort = ['3000', '3001', '5173'].includes(originUrl.port);
-            if (process.env.NODE_ENV !== 'production' && (isLocal || isDevPort)) {
-              isAllowed = true;
-            }
+            isAllowed = (origin === expected) || (isLocalHost && isDevPort);
           } catch {
             isAllowed = false;
           }
         }
-        if (!isAllowed || req.headers['sec-fetch-site'] === 'cross-site') {
+        const isLocalOrigin = origin.includes('localhost') || origin.includes('127.0.0.1');
+        if (!isAllowed || (req.headers['sec-fetch-site'] === 'cross-site' && isProd && !isLocalOrigin)) {
           throw new ApiError(403, 'CROSS_SITE_REQUEST', 'Yêu cầu không hợp lệ');
         }
       }
@@ -91,6 +131,53 @@ export function createApp() {
       res.status(503).json({ status: 'unavailable' });
     }
   });
+
+  // Swagger Documentation & Independent API Test Interface
+  app.get('/api-docs/openapi.json', (_req, res) => {
+    res.setHeader('Content-Type', 'application/json');
+    res.setHeader('Cache-Control', 'no-cache');
+    
+    const isProd = process.env.NODE_ENV === 'production';
+    const prodUrl = (process.env.PUBLIC_ORIGIN && !process.env.PUBLIC_ORIGIN.includes('localhost'))
+      ? process.env.PUBLIC_ORIGIN
+      : 'https://api.tranluubadminton.vn';
+
+    const localBackendUrl = `http://localhost:${process.env.PORT || 3001}`;
+    const localFrontendUrl = 'http://localhost:3000';
+
+    const servers = isProd
+      ? [
+          {
+            url: prodUrl,
+            description: 'Production'
+          },
+          {
+            url: localBackendUrl,
+            description: 'Local'
+          }
+        ]
+      : [
+          {
+            url: localBackendUrl,
+            description: 'Local'
+          },
+          {
+            url: prodUrl,
+            description: 'Production'
+          }
+        ];
+
+    res.json({
+      ...openapiSpec,
+      servers
+    });
+  });
+  app.get(['/api-docs', '/api-docs/'], (_req, res) => {
+    res.setHeader('Content-Type', 'text/html; charset=utf-8');
+    res.setHeader('Cache-Control', 'no-cache');
+    res.send(getSwaggerUiHtml('/api-docs/openapi.json'));
+  });
+
   app.use('/api', (_req, res) => res.status(404).json({ code: 'NOT_FOUND', message: 'Không tìm thấy API' }));
   const distPath = path.resolve('dist');
   app.use('/assets', express.static(path.join(distPath, 'assets'), {

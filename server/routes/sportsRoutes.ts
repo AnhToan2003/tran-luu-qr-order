@@ -321,7 +321,7 @@ const sportsIntakeSchema = z.object({
   quantity: z.number().int().min(1, 'Số lượng nhập phải từ 1 trở lên').max(100_000),
   costPriceVnd: z.number().int().min(0, 'Giá nhập không được âm').max(100_000_000),
   sellingPriceVnd: z.number().int().min(0, 'Giá bán không được âm').max(100_000_000).optional(),
-  responsiblePerson: z.string().trim().max(100).optional(),
+  responsiblePerson: z.string().trim().min(1, 'Vui lòng nhập tên người phụ trách khi nhập hàng').max(100),
   transferDate: z.string().optional(),
   note: z.string().trim().max(200).optional().default('Nhập kho thể thao')
 }).strict();
@@ -427,7 +427,7 @@ const sportsBatchIntakeSchema = z.object({
     sellingPriceVnd: z.number().int().min(0).max(100_000_000).optional()
   })).min(1, 'Cần ít nhất một món có số lượng nhập lớn hơn 0'),
   transferDate: z.string().optional(),
-  responsiblePerson: z.string().trim().max(100).optional(),
+  responsiblePerson: z.string().trim().min(1, 'Vui lòng nhập tên người phụ trách khi nhập hàng').max(100),
   note: z.string().trim().max(200).optional()
 }).strict();
 
@@ -508,6 +508,7 @@ sportsRouter.post('/batch-intake', requirePermission('sports-intake'), async (re
 
       const movementDoc: SportsMovementDoc = {
         operationId: `mov-${batchId}-${itemInput.itemId}`,
+        batchId,
         itemId: itemInput.itemId,
         itemNameSnapshot: item.name,
         unitSnapshot: item.unit,
@@ -519,7 +520,7 @@ sportsRouter.post('/batch-intake', requirePermission('sports-intake'), async (re
         reason: 'stock_intake',
         responsiblePerson: input.responsiblePerson,
         transferDate: parsedTransferDate,
-        note: input.note ? `${input.note} (Lô ${batchId})` : `Nhập hàng thể thao theo lô (${batchId})`,
+        note: input.note ? input.note.trim() : 'Nhập kho thể thao',
         createdAt: now
       };
       await c.sportsMovements.insertOne(movementDoc, { session });
@@ -590,48 +591,171 @@ sportsRouter.get('/intake-history', requirePermission('sports-intake'), async (r
     filter.createdAt = { $gte: new Date(todayStart.getTime() - 29 * 86_400_000) };
   }
 
-  const [totalItems, movements, summaryAggregate] = await Promise.all([
-    c.sportsMovements.countDocuments(filter),
-    c.sportsMovements
-      .find(filter)
-      .sort({ createdAt: -1 })
-      .skip((page - 1) * limit)
-      .limit(limit)
-      .toArray(),
-    c.sportsMovements.aggregate([
-      { $match: filter },
-      {
-        $group: {
-          _id: null,
-          totalBatches: { $sum: 1 },
-          totalQuantity: { $sum: '$delta' },
-          totalCostValueVnd: { $sum: '$totalCostVnd' }
+  const [aggregationResult] = await c.sportsMovements.aggregate([
+    { $match: filter },
+    {
+      $addFields: {
+        effectiveBatchId: {
+          $let: {
+            vars: {
+              rawBatchId: {
+                $regexFind: {
+                  input: { $ifNull: ['$batchId', ''] },
+                  regex: '(spbatch|batch)-[0-9]+-[a-f0-9]{6}',
+                  options: 'i'
+                }
+              },
+              foundInOp: {
+                $regexFind: {
+                  input: { $ifNull: ['$operationId', ''] },
+                  regex: '(spbatch|batch)-[0-9]+-[a-f0-9]{6}',
+                  options: 'i'
+                }
+              },
+              foundInNote: {
+                $regexFind: {
+                  input: { $ifNull: ['$note', ''] },
+                  regex: '(spbatch|batch)-[0-9]+-[a-f0-9]{6}',
+                  options: 'i'
+                }
+              }
+            },
+            in: {
+              $ifNull: [
+                '$$rawBatchId.match',
+                {
+                  $ifNull: [
+                    '$batchId',
+                    {
+                      $ifNull: [
+                        '$$foundInOp.match',
+                        {
+                          $ifNull: [
+                            '$$foundInNote.match',
+                            {
+                              $concat: [
+                                'spbatch-legacy-',
+                                { $ifNull: ['$responsiblePerson', 'admin'] },
+                                '-',
+                                { $dateToString: { format: '%Y-%m-%d-%H-%M', date: '$createdAt' } }
+                              ]
+                            }
+                          ]
+                        }
+                      ]
+                    }
+                  ]
+                }
+              ]
+            }
+          }
         }
       }
-    ]).toArray()
-  ]);
+    },
+    {
+      $group: {
+        _id: '$effectiveBatchId',
+        createdAt: { $max: '$createdAt' },
+        responsiblePerson: { $first: '$responsiblePerson' },
+        note: { $first: '$note' },
+        batchQuantity: { $sum: '$delta' },
+        batchCostValueVnd: { $sum: '$totalCostVnd' },
+        batchExpectedRevenueVnd: {
+          $sum: { $multiply: [{ $ifNull: ['$sellingPriceVnd', 0] }, '$delta'] }
+        },
+        movements: { $push: '$$ROOT' }
+      }
+    },
+    {
+      $facet: {
+        summary: [
+          {
+            $group: {
+              _id: null,
+              totalBatches: { $sum: 1 },
+              totalQuantity: { $sum: '$batchQuantity' },
+              totalCostValueVnd: { $sum: '$batchCostValueVnd' },
+              totalExpectedRevenueVnd: { $sum: '$batchExpectedRevenueVnd' }
+            }
+          }
+        ],
+        totalCount: [{ $count: 'count' }],
+        batches: [
+          { $sort: { createdAt: -1 } },
+          { $skip: (page - 1) * limit },
+          { $limit: limit }
+        ]
+      }
+    }
+  ]).toArray();
 
-  const summary = summaryAggregate[0] || {
+  const summary = aggregationResult?.summary[0] || {
     totalBatches: 0,
     totalQuantity: 0,
-    totalCostValueVnd: 0
+    totalCostValueVnd: 0,
+    totalExpectedRevenueVnd: 0
   };
 
+  const totalCostValue = summary.totalCostValueVnd || 0;
+  const totalExpectedRevenue = summary.totalExpectedRevenueVnd || 0;
+  const totalExpectedProfit = totalExpectedRevenue - totalCostValue;
+  const overallMarginPct = totalExpectedRevenue > 0 ? Math.round(((totalExpectedProfit / totalExpectedRevenue) * 100) * 10) / 10 : 0;
+  const totalItems = aggregationResult?.totalCount[0]?.count || 0;
+  const totalPages = Math.ceil(totalItems / limit) || 1;
+
+  const paginatedBatches = aggregationResult?.batches || [];
+  const movements = paginatedBatches.flatMap((b: any) => b.movements || []);
+
   res.json({
-    items: movements.map(m => ({
-      id: m.operationId,
-      operationId: m.operationId,
-      itemId: m.itemId,
-      itemName: m.itemNameSnapshot,
-      unit: m.unitSnapshot,
-      quantity: m.delta,
-      costPriceVnd: m.costPriceVnd,
-      sellingPriceVnd: m.sellingPriceVnd,
-      totalCostVnd: m.totalCostVnd,
-      stockAfter: m.stockAfter,
-      note: m.note || '',
-      createdAt: m.createdAt
-    })),
+    items: movements.map((m: any) => {
+      let batchId = m.batchId;
+      if (batchId) {
+        const match = batchId.match(/((?:spbatch|batch)-[0-9]+-[a-f0-9]{6})/i);
+        if (match) batchId = match[1];
+      }
+      if (!batchId && m.operationId) {
+        const match = m.operationId.match(/((?:spbatch|batch)-[0-9]+-[a-f0-9]{6})/i);
+        if (match) batchId = match[1];
+      }
+      if (!batchId && m.note) {
+        const match = m.note.match(/((?:spbatch|batch)-[0-9]+-[a-f0-9]{6})/i) || m.note.match(/\(Lô\s+([^)]+)\)/i);
+        if (match) batchId = match[1];
+      }
+      if (!batchId) {
+        batchId = m.operationId;
+      }
+
+      const costPrice = m.costPriceVnd || 0;
+      const sellingPrice = m.sellingPriceVnd || 0;
+      const quantity = m.delta;
+      const totalCost = m.totalCostVnd ?? (costPrice * quantity);
+      const expectedRevenue = sellingPrice * quantity;
+      const profitMarginVnd = expectedRevenue - totalCost;
+      const profitMarginPct = expectedRevenue > 0 ? Math.round(((profitMarginVnd / expectedRevenue) * 100) * 10) / 10 : 0;
+
+      let cleanNote = (m.note || '').replace(/\s*\((?:Lô\s+)?[a-zA-Z0-9_-]+\)/gi, '').trim();
+      if (!cleanNote) cleanNote = 'Nhập kho thể thao';
+
+      return {
+        id: m.operationId,
+        batchId,
+        operationId: m.operationId,
+        itemId: m.itemId,
+        itemName: m.itemNameSnapshot,
+        unit: m.unitSnapshot,
+        quantity,
+        costPriceVnd: costPrice,
+        sellingPriceVnd: sellingPrice,
+        totalCostVnd: totalCost,
+        expectedRevenueVnd: expectedRevenue,
+        profitMarginVnd,
+        profitMarginPct,
+        stockAfter: m.stockAfter,
+        responsiblePerson: (m as any).responsiblePerson || 'Quản trị viên',
+        note: cleanNote,
+        createdAt: m.createdAt
+      };
+    }),
     totalItems,
     totalPages: Math.ceil(totalItems / limit) || 1,
     page,
@@ -639,7 +763,10 @@ sportsRouter.get('/intake-history', requirePermission('sports-intake'), async (r
     summary: {
       totalBatches: summary.totalBatches || 0,
       totalQuantity: summary.totalQuantity || 0,
-      totalCostValueVnd: summary.totalCostValueVnd || 0
+      totalCostValueVnd: totalCostValue,
+      totalExpectedRevenueVnd: totalExpectedRevenue,
+      totalExpectedProfitVnd: totalExpectedProfit,
+      overallMarginPct
     }
   });
 });

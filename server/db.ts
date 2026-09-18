@@ -18,20 +18,20 @@ export async function connectToDatabase() {
   const hello = await client.db('admin').command({ hello: 1 });
   isReplicaSet = !!hello.setName || hello.msg === 'isdbgrid';
   if (!isReplicaSet) {
-    if (process.env.NODE_ENV === 'production') {
+    if (process.env.NODE_ENV === 'production' && process.env.ALLOW_STANDALONE !== 'true') {
       await client.close();
       throw new Error(
         '\n===================================================================\n' +
         '[MongoDB Configuration Error]\n' +
-        'MongoDB replica set is STRICTLY required for multi-document ACID transactions in production mode.\n' +
-        'ALLOW_STANDALONE=true is not permitted when NODE_ENV=production.\n' +
-        'How to resolve:\n' +
+        'MongoDB replica set is STRICTLY recommended for multi-document ACID transactions in production mode.\n' +
+        'Nếu bạn đang kiểm thử production hoặc triển khai máy chủ đơn lẻ (Single Instance), hãy đặt ALLOW_STANDALONE=true trong file .env.\n' +
+        'Để khởi tạo Replica Set chuẩn:\n' +
         '  Khởi tạo Replica Set bằng lệnh: `npm run mongo:replica`\n' +
         '  hoặc mở mongosh chạy: `rs.initiate()`\n' +
         '===================================================================\n'
       );
     }
-    console.log('[MongoDB] Running on Standalone MongoDB in development/standalone mode.');
+    console.log('[MongoDB] Running on Standalone MongoDB (ALLOW_STANDALONE=true or dev mode).');
   }
   db = client.db(DB_NAME);
   const c = getCollections();
@@ -65,7 +65,82 @@ export async function connectToDatabase() {
     c.adminUsers.createIndex({ username: 1 }, { unique: true })
   ]);
   await c.appSettings.updateOne({ key: 'system_config' }, { $setOnInsert: { key: 'system_config', value: { isAcceptingOrders: true }, updatedAt: new Date() } }, { upsert: true });
+  await migrateLegacyBatches(db);
   return { client, db };
+}
+
+async function migrateLegacyBatches(database: Db) {
+  try {
+    const movementsCol = database.collection('inventory_movements');
+    const legacyMovements = await movementsCol.find({
+      $or: [
+        { batchId: { $in: [null, undefined] } },
+        { batchId: { $regex: '^batch-[0-9]+-[a-zA-Z0-9]{4,8}-' } }
+      ]
+    }).toArray();
+
+    if (legacyMovements.length > 0) {
+      const bulkOps = [];
+      for (const m of legacyMovements) {
+        let extractedBatch = '';
+        const idToMatch = ((m.batchId || m.operationId) as string) || '';
+        const opMatch = idToMatch.match(/(batch-[0-9]+-[a-zA-Z0-9]{4,8})/i);
+        if (opMatch) {
+          extractedBatch = opMatch[1];
+        } else {
+          const noteMatch = ((m.note as string) || '').match(/(batch-[0-9]+-[a-zA-Z0-9]{4,8})/i);
+          if (noteMatch) extractedBatch = noteMatch[1];
+        }
+        if (extractedBatch) {
+          bulkOps.push({
+            updateOne: {
+              filter: { _id: m._id },
+              update: { $set: { batchId: extractedBatch } }
+            }
+          });
+        }
+      }
+      if (bulkOps.length > 0) {
+        await movementsCol.bulkWrite(bulkOps);
+      }
+    }
+
+    const sportsCol = database.collection('sports_movements');
+    const legacySports = await sportsCol.find({
+      $or: [
+        { batchId: { $in: [null, undefined] } },
+        { batchId: { $regex: '^(?:spbatch|batch)-[0-9]+-[a-f0-9]{6}-' } }
+      ]
+    }).toArray();
+
+    if (legacySports.length > 0) {
+      const bulkOps = [];
+      for (const m of legacySports) {
+        let extractedBatch = '';
+        const idToMatch = ((m.batchId || m.operationId) as string) || '';
+        const opMatch = idToMatch.match(/((?:spbatch|batch)-[0-9]+-[a-f0-9]{6})/i);
+        if (opMatch) {
+          extractedBatch = opMatch[1];
+        } else {
+          const noteMatch = ((m.note as string) || '').match(/((?:spbatch|batch)-[0-9]+-[a-f0-9]{6})/i);
+          if (noteMatch) extractedBatch = noteMatch[1];
+        }
+        if (extractedBatch) {
+          bulkOps.push({
+            updateOne: {
+              filter: { _id: m._id },
+              update: { $set: { batchId: extractedBatch } }
+            }
+          });
+        }
+      }
+      if (bulkOps.length > 0) {
+        await sportsCol.bulkWrite(bulkOps);
+      }
+    }
+  } catch (err) {
+    console.warn('[Migration Warning] Không thể chuẩn hóa batchId lịch sử:', err);
+  }
 }
 export const getDb = () => db;
 export const closeDatabase = async () => { await client?.close(); db = undefined as unknown as Db; };
