@@ -348,7 +348,7 @@ export const SportsIntakeTab: React.FC = () => {
   const [newCategoryNameInput, setNewCategoryNameInput] = useState('');
   const [isSavingCategory, setIsSavingCategory] = useState(false);
 
-  const handleSaveNewCategory = async (targetForm: 'create' | 'edit') => {
+  const handleSaveNewCategory = async () => {
     const trimmed = newCategoryNameInput.trim();
     if (!trimmed) return;
     setIsSavingCategory(true);
@@ -367,11 +367,7 @@ export const SportsIntakeTab: React.FC = () => {
         setCategories(data.categories);
       }
       const newCatId = data.category?.id || trimmed;
-      if (targetForm === 'create') {
-        setNewItemCategory(newCatId);
-      } else {
-        setEditCategory(newCatId);
-      }
+      setEditCategory(newCatId);
       setIsAddingCategory(false);
       setNewCategoryNameInput('');
       showToast(`Đã thêm hạng mục "${trimmed}" thành công`);
@@ -1401,26 +1397,9 @@ export const SportsIntakeTab: React.FC = () => {
               {/* Hạng mục & Đơn vị tính */}
               <div style={{ display: 'grid', gridTemplateColumns: '1.2fr 1fr', gap: '12px', marginBottom: '14px' }}>
                 <div>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
-                    <label style={{ fontWeight: 800, fontSize: '12px', color: '#475569' }}>
-                      HẠNG MỤC *
-                    </label>
-                    <button
-                      type="button"
-                      onClick={() => setIsAddingCategory(!isAddingCategory)}
-                      style={{
-                        background: 'none',
-                        border: 'none',
-                        color: 'var(--color-primary)',
-                        fontSize: '11px',
-                        fontWeight: 700,
-                        cursor: 'pointer',
-                        padding: 0
-                      }}
-                    >
-                      {isAddingCategory ? 'Đóng' : '+ Thêm hạng mục'}
-                    </button>
-                  </div>
+                  <label style={{ display: 'block', fontWeight: 800, fontSize: '12px', color: '#475569', marginBottom: '6px' }}>
+                    HẠNG MỤC *
+                  </label>
                   <select
                     value={newItemCategory}
                     onChange={e => setNewItemCategory(e.target.value)}
@@ -1445,63 +1424,6 @@ export const SportsIntakeTab: React.FC = () => {
                   />
                 </div>
               </div>
-
-              {/* Ô thêm hạng mục inline */}
-              {isAddingCategory && (
-                <div style={{
-                  marginBottom: '14px',
-                  padding: '10px 12px',
-                  backgroundColor: '#F8FAFC',
-                  border: '1px solid #E2E8F0',
-                  borderRadius: '6px',
-                  display: 'flex',
-                  gap: '8px',
-                  alignItems: 'center'
-                }}>
-                  <input
-                    type="text"
-                    placeholder="Nhập tên hạng mục thể thao mới..."
-                    value={newCategoryNameInput}
-                    onChange={e => setNewCategoryNameInput(e.target.value)}
-                    style={{ flex: 1, padding: '8px 10px', borderRadius: '4px', border: '1px solid #CBD5E1', fontSize: '12px' }}
-                  />
-                  <button
-                    type="button"
-                    disabled={isSavingCategory || !newCategoryNameInput.trim()}
-                    onClick={() => handleSaveNewCategory('create')}
-                    style={{
-                      padding: '8px 14px',
-                      backgroundColor: 'var(--color-primary)',
-                      color: '#FFFFFF',
-                      border: 'none',
-                      borderRadius: '4px',
-                      fontSize: '12px',
-                      fontWeight: 700,
-                      cursor: 'pointer'
-                    }}
-                  >
-                    {isSavingCategory ? 'Đang lưu...' : 'Thêm'}
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setIsAddingCategory(false);
-                      setNewCategoryNameInput('');
-                    }}
-                    style={{
-                      padding: '8px 10px',
-                      backgroundColor: '#FFFFFF',
-                      color: '#64748B',
-                      border: '1px solid #CBD5E1',
-                      borderRadius: '4px',
-                      fontSize: '12px',
-                      cursor: 'pointer'
-                    }}
-                  >
-                    Hủy
-                  </button>
-                </div>
-              )}
 
               {/* Giá vốn & Giá bán */}
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', marginBottom: '14px' }}>
@@ -2230,7 +2152,7 @@ export const SportsIntakeTab: React.FC = () => {
                   <button
                     type="button"
                     disabled={isSavingCategory || !newCategoryNameInput.trim()}
-                    onClick={() => handleSaveNewCategory('edit')}
+                    onClick={handleSaveNewCategory}
                     style={{
                       padding: '8px 14px',
                       backgroundColor: 'var(--color-primary)',
