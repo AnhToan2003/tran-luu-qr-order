@@ -1,4 +1,4 @@
-# ANTIGRAVITY — HỆ THỐNG GỌI NƯỚC QR SÂN CẦU LÔNG TRẦN LỰU
+# HỆ THỐNG GỌI NƯỚC QR SÂN CẦU LÔNG TRẦN LỰU
 ## TÀI LIỆU CẤU TRÚC HỆ THỐNG TOÀN DIỆN & ĐẶC TẢ KIẾN TRÚC VẬN HÀNH CHUYÊN NGHIỆP
 
 **Mã tài liệu:** `ORDER-SPEC-PRO-2026`  
