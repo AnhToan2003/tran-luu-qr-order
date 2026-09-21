@@ -1,0 +1,360 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Monitor — Sân Cầu Lông Trần Lựu</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --bg:#F0F4F8;--surface:#FFFFFF;--border:#E2E8F0;--border-light:#F1F5F9;
+      --text:#0F172A;--muted:#64748B;--light:#94A3B8;
+      --green:#059669;--green-bg:#ECFDF5;--green-border:#A7F3D0;
+      --blue:#2563EB;--blue-bg:#EFF6FF;--blue-border:#BFDBFE;
+      --amber:#D97706;--amber-bg:#FFFBEB;--amber-border:#FDE68A;
+      --red:#DC2626;--red-bg:#FEF2F2;--red-border:#FECACA;
+      --mono:'JetBrains Mono',monospace;
+      --shadow:0 1px 3px 0 rgba(0,0,0,.08),0 1px 2px -1px rgba(0,0,0,.06);
+    }
+    *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+    body{font-family:'Inter',system-ui,sans-serif;background:var(--bg);color:var(--text);line-height:1.5;-webkit-font-smoothing:antialiased;display:flex;flex-direction:column;min-height:100vh}
+    .topbar{background:var(--surface);border-bottom:1px solid var(--border);padding:0 24px;height:54px;display:flex;align-items:center;justify-content:space-between;position:sticky;top:0;z-index:200;box-shadow:var(--shadow);gap:12px}
+    .brand-tag{background:#0F172A;color:#FFF;font-size:10px;font-weight:800;padding:3px 7px;border-radius:5px;letter-spacing:.5px}
+    .brand-name{font-size:14px;font-weight:800;color:var(--text)}
+    .brand-sub{font-size:11px;color:var(--muted);font-weight:500}
+    .topbar-right{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+    .status-pill{display:flex;align-items:center;gap:6px;padding:5px 11px;border-radius:20px;font-size:12px;font-weight:700;border:1px solid}
+    .status-pill.ok{background:var(--green-bg);color:var(--green);border-color:var(--green-border)}
+    .status-pill.fail{background:var(--red-bg);color:var(--red);border-color:var(--red-border)}
+    .status-dot{width:7px;height:7px;border-radius:50%;background:currentColor}
+    .status-dot.pulse{animation:pulse 1.5s infinite}
+    @keyframes pulse{0%,100%{opacity:1}50%{opacity:.4}}
+    .error-alert{display:flex;align-items:center;gap:6px;padding:5px 11px;border-radius:20px;font-size:12px;font-weight:700;cursor:pointer;border:1px solid}
+    .error-alert.hidden{display:none}
+    .err-count{color:#FFF;font-size:10px;font-weight:900;border-radius:10px;padding:1px 6px;min-width:20px;text-align:center;background:var(--red)}
+    .layout{display:flex;flex:1}
+    .sidebar{width:196px;background:var(--surface);border-right:1px solid var(--border);padding:16px 0;flex-shrink:0;position:sticky;top:54px;height:calc(100vh - 54px);overflow-y:auto}
+    .sb-section{padding:4px 12px 8px;font-size:10px;font-weight:800;color:var(--light);text-transform:uppercase;letter-spacing:.8px}
+    .nav-item{display:flex;align-items:center;justify-content:space-between;padding:9px 16px;font-size:13px;font-weight:600;color:var(--muted);cursor:pointer;border-left:3px solid transparent;transition:all .12s;user-select:none}
+    .nav-item:hover{background:var(--bg);color:var(--text)}
+    .nav-item.active{background:#EFF6FF;color:var(--blue);border-left-color:var(--blue);font-weight:700}
+    .nav-badge{font-size:10px;font-weight:800;padding:1px 6px;border-radius:10px;background:#F1F5F9;color:var(--muted)}
+    .nav-item.active .nav-badge{background:var(--blue-bg);color:var(--blue)}
+    .nav-badge.err{background:var(--red-bg);color:var(--red)}
+    .content{flex:1;padding:20px 24px;overflow-x:auto;min-width:0}
+    .pane{display:none}.pane.active{display:block}
+    .stats-row{display:grid;grid-template-columns:repeat(auto-fill,minmax(175px,1fr));gap:12px;margin-bottom:18px}
+    .stat-card{background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:14px 16px;box-shadow:var(--shadow)}
+    .stat-label{font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.4px;margin-bottom:6px}
+    .stat-val{font-size:24px;font-weight:900;color:var(--text);line-height:1.1}
+    .stat-val.green{color:var(--green)}.stat-val.red{color:var(--red)}
+    .stat-hint{font-size:11px;color:var(--muted);margin-top:3px}
+    .card{background:var(--surface);border:1px solid var(--border);border-radius:10px;box-shadow:var(--shadow);overflow:hidden;margin-bottom:16px}
+    .card-hd{padding:12px 16px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;gap:10px;background:#FAFBFC;flex-wrap:wrap}
+    .card-title{font-size:14px;font-weight:800;color:var(--text)}
+    .card-desc{font-size:11px;color:var(--muted);margin-top:1px}
+    .card-bd{padding:14px 16px}
+    .tbl-wrap{overflow-x:auto}
+    table{width:100%;border-collapse:collapse;font-size:12px}
+    th{background:#F8FAFC;color:#475569;font-weight:800;font-size:10px;text-transform:uppercase;letter-spacing:.4px;padding:10px 14px;border-bottom:1px solid var(--border);text-align:left;white-space:nowrap}
+    td{padding:10px 14px;border-bottom:1px solid var(--border-light);vertical-align:middle}
+    tr:last-child td{border-bottom:none}
+    tr:hover td{background:#F8FAFC}
+    .badge{display:inline-flex;align-items:center;padding:2px 7px;border-radius:5px;font-size:11px;font-weight:700;white-space:nowrap}
+    .badge-ok{background:var(--green-bg);color:var(--green);border:1px solid var(--green-border)}
+    .badge-err{background:var(--red-bg);color:var(--red);border:1px solid var(--red-border)}
+    .badge-warn{background:var(--amber-bg);color:var(--amber);border:1px solid var(--amber-border)}
+    .badge-info{background:var(--blue-bg);color:var(--blue);border:1px solid var(--blue-border)}
+    .badge-neutral{background:#F1F5F9;color:#475569;border:1px solid #CBD5E1}
+    .btn{display:inline-flex;align-items:center;gap:5px;padding:6px 12px;border-radius:6px;font-size:12px;font-weight:700;cursor:pointer;border:1px solid;transition:all .12s;text-decoration:none;white-space:nowrap;font-family:inherit}
+    .btn-sm{padding:4px 9px;font-size:11px}
+    .btn-default{background:var(--surface);border-color:var(--border);color:#334155}
+    .btn-default:hover{background:#F8FAFC}
+    .btn-primary{background:var(--green);border-color:var(--green);color:#FFF}
+    .btn-primary:hover{background:#047857}
+    .btn-blue{background:var(--blue);border-color:var(--blue);color:#FFF}
+    .btn-blue:hover{background:#1D4ED8}
+    .btn-red{background:var(--red);border-color:var(--red);color:#FFF}
+    .error-feed{display:flex;flex-direction:column;gap:6px;max-height:420px;overflow-y:auto;padding:2px 0}
+    .error-entry{border:1px solid var(--border);border-radius:8px;padding:10px 14px;background:var(--surface);cursor:pointer;transition:all .12s;border-left:4px solid var(--border)}
+    .error-entry:hover{background:#F8FAFC;border-left-color:var(--blue)}
+    .error-entry.is-500{border-left-color:var(--red);background:#FFF9F9}
+    .error-entry.is-400{border-left-color:var(--amber)}
+    .error-entry.is-auth{border-left-color:#7C3AED}
+    .error-row-top{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:4px}
+    .error-time{font-size:11px;color:var(--muted);font-weight:600}
+    .error-path{font-family:var(--mono);font-size:11px;color:#1E40AF;background:var(--blue-bg);padding:2px 6px;border-radius:4px;font-weight:600}
+    .error-location{font-family:var(--mono);font-size:10px;color:var(--muted)}
+    .error-msg{font-size:12px;font-weight:700;color:var(--text);line-height:1.4;margin-top:2px}
+    .error-actions{display:flex;gap:6px;margin-top:8px}
+    input[type=text],select,textarea{padding:7px 10px;border:1px solid var(--border);border-radius:6px;font-size:13px;font-family:'Inter',sans-serif;outline:none;background:var(--surface);color:var(--text)}
+    input[type=text]:focus,select:focus{border-color:var(--blue);box-shadow:0 0 0 2px rgba(37,99,235,.1)}
+    .sig-box{font-family:var(--mono);font-size:11px;background:#F8FAFC;border:1px solid var(--border);padding:3px 7px;border-radius:4px;color:#334155;font-weight:600}
+    .code-block{background:#0F172A;color:#E2E8F0;padding:14px 16px;border-radius:8px;font-family:var(--mono);font-size:12px;line-height:1.65;overflow-x:auto;white-space:pre-wrap;word-break:break-all;max-height:300px;overflow-y:auto}
+    .progress-track{height:7px;background:#F1F5F9;border-radius:4px;overflow:hidden;margin-top:4px}
+    .progress-fill{height:100%;border-radius:4px;transition:width .3s ease}
+    .modal-bg{position:fixed;inset:0;background:rgba(15,23,42,.6);backdrop-filter:blur(4px);z-index:1000;display:none;align-items:center;justify-content:center;padding:20px}
+    .modal-bg.open{display:flex}
+    .modal-box{background:var(--surface);border-radius:12px;max-width:780px;width:100%;max-height:90vh;overflow-y:auto;box-shadow:0 20px 40px rgba(0,0,0,.2);border:1px solid var(--border);display:flex;flex-direction:column}
+    .modal-hd{padding:14px 18px;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center;background:#F8FAFC;flex-shrink:0}
+    .modal-hd-title{font-size:15px;font-weight:800;color:var(--text)}
+    .modal-hd-sub{font-size:11px;color:var(--amber);font-weight:700;margin-top:2px}
+    .modal-bd{padding:18px;overflow-y:auto}
+    .modal-ft{padding:12px 18px;border-top:1px solid var(--border);display:flex;justify-content:flex-end;gap:8px;background:#F8FAFC;flex-shrink:0}
+    .meta-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:10px;margin-bottom:14px}
+    .meta-item{background:#F8FAFC;border:1px solid var(--border);border-radius:7px;padding:8px 10px}
+    .meta-label{font-size:10px;font-weight:800;color:var(--muted);text-transform:uppercase}
+    .meta-val{font-size:13px;font-weight:800;margin-top:2px}
+    .sec-label{font-size:11px;font-weight:800;color:var(--text);margin-bottom:6px;text-transform:uppercase;letter-spacing:.3px}
+    .location-box{background:var(--blue-bg);border:1px solid var(--blue-border);border-radius:6px;padding:8px 12px;font-family:var(--mono);font-size:12px;color:#1E40AF;font-weight:600;margin-bottom:12px}
+    .message-box{background:var(--red-bg);border:1px solid var(--red-border);border-radius:6px;padding:8px 12px;font-size:13px;color:#991B1B;font-weight:700;margin-bottom:12px;line-height:1.5}
+    #toast{position:fixed;bottom:20px;right:20px;background:#0F172A;color:#FFF;padding:10px 18px;border-radius:8px;font-size:13px;font-weight:600;box-shadow:0 4px 20px rgba(0,0,0,.25);z-index:9999;opacity:0;transform:translateY(6px);transition:all .2s;pointer-events:none;max-width:360px}
+    #toast.show{opacity:1;transform:translateY(0)}
+    .mono{font-family:var(--mono)}.flex-row{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+    .spacer{flex:1}.empty-state{text-align:center;padding:28px;color:var(--muted);font-size:13px}
+    .section-title{font-size:16px;font-weight:800;color:var(--text);margin-bottom:14px}
+    .dev-row{margin-bottom:12px}.dev-label-row{display:flex;justify-content:space-between;font-size:12px;font-weight:700;margin-bottom:4px}
+    @media(max-width:768px){.sidebar{display:none}}
+  </style>
+</head>
+<body>
+
+<div class="topbar">
+  <div class="flex-row" style="gap:10px;flex-shrink:0">
+    <span class="brand-tag">PORT 3005</span>
+    <div><div class="brand-name">Trần Lựu — Monitor</div><div class="brand-sub">Hệ thống giám sát độc lập</div></div>
+  </div>
+  <div class="topbar-right">
+    <div id="errorAlertPill" class="error-alert hidden" onclick="switchPane('errors')">
+      Có lỗi cần xem <span id="errorAlertBadge" class="err-count">0</span>
+    </div>
+    <div id="mainStatusPill" class="status-pill ok">
+      <span class="status-dot pulse"></span>
+      <span id="mainStatusText">API 3001: OK</span>
+    </div>
+    <span style="font-size:11px;color:var(--muted);font-weight:600">Tự động:</span>
+    <button id="toggleRefreshBtn" class="btn btn-sm btn-primary" onclick="toggleAutoRefresh()">BẬT 3s</button>
+    <button class="btn btn-sm btn-default" onclick="fetchOverview(true)">Làm Mới</button>
+  </div>
+</div>
+
+<div class="layout">
+  <nav class="sidebar">
+    <div class="sb-section">Giám Sát</div>
+    <div class="nav-item active" id="nav-overview" onclick="switchPane('overview')">Tổng Quan</div>
+    <div class="nav-item" id="nav-errors" onclick="switchPane('errors')">Nhật Ký Lỗi <span id="errNavBadge" class="nav-badge err">0</span></div>
+    <div class="nav-item" id="nav-telemetry" onclick="switchPane('telemetry')">Đo Lường API</div>
+    <div class="sb-section" style="margin-top:8px">Công Cụ</div>
+    <div class="nav-item" id="nav-courts" onclick="switchPane('courts')">Chữ Ký QR <span class="nav-badge">16</span></div>
+    <div class="nav-item" id="nav-probe" onclick="switchPane('probe')">Kiểm Tra API</div>
+  </nav>
+
+  <div class="content">
+
+    <div id="pane-overview" class="pane active">
+      <div class="stats-row">
+        <div class="stat-card"><div class="stat-label">Tổng Phiên Khách</div><div class="stat-val" id="valTotalSessions">0</div><div class="stat-hint">Tất cả lượt quét QR</div></div>
+        <div class="stat-card"><div class="stat-label">Đang Online</div><div class="stat-val green" id="valActiveSessions">0</div><div class="stat-hint">Phiên chưa hết hạn</div></div>
+        <div class="stat-card"><div class="stat-label">Ping API 3001</div><div class="stat-val" id="valPing">—</div><div class="stat-hint">Thời gian hồi đáp</div></div>
+        <div class="stat-card"><div class="stat-label">Tỷ Lệ Thành Công</div><div class="stat-val green" id="valSuccessRate">—</div><div class="stat-hint" id="valTotalCalls">—</div></div>
+        <div class="stat-card" style="cursor:pointer" onclick="switchPane('errors')"><div class="stat-label">Lỗi Ghi Nhận</div><div class="stat-val red" id="valErrorCount">0</div><div class="stat-hint">Nhấn để xem</div></div>
+        <div class="stat-card"><div class="stat-label">RAM (Monitor)</div><div class="stat-val" id="valMemory">—</div><div class="stat-hint">Heap process này</div></div>
+      </div>
+
+      <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:16px;margin-bottom:16px">
+        <div class="card" style="margin-bottom:0">
+          <div class="card-hd"><div><div class="card-title">Thiết Bị Khách Hàng</div><div class="card-desc">Phân tích từ User-Agent phiên quét QR</div></div></div>
+          <div class="card-bd">
+            <div class="dev-row"><div class="dev-label-row"><span>iOS (iPhone / iPad)</span><span id="devIosCount">0</span></div><div class="progress-track"><div class="progress-fill" id="devIosBar" style="background:var(--blue);width:0%"></div></div></div>
+            <div class="dev-row"><div class="dev-label-row"><span>Android</span><span id="devAndroidCount">0</span></div><div class="progress-track"><div class="progress-fill" id="devAndroidBar" style="background:var(--green);width:0%"></div></div></div>
+            <div class="dev-row"><div class="dev-label-row"><span>Desktop / Laptop</span><span id="devDesktopCount">0</span></div><div class="progress-track"><div class="progress-fill" id="devDesktopBar" style="background:var(--amber);width:0%"></div></div></div>
+          </div>
+        </div>
+        <div class="card" style="margin-bottom:0">
+          <div class="card-hd"><div><div class="card-title">Mật Độ Theo Sân</div><div class="card-desc">Số phiên trên từng sân</div></div></div>
+          <div class="card-bd" style="max-height:200px;overflow-y:auto"><div id="courtDensityGrid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(105px,1fr));gap:8px"></div></div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-hd">
+          <div><div class="card-title">Nhật Ký Lỗi Gần Nhất</div><div class="card-desc">Nhấn vào để xem stack trace — tạm dừng làm mới khi đang đọc</div></div>
+          <div class="flex-row">
+            <span style="font-size:11px;color:var(--amber);font-weight:700;background:var(--amber-bg);border:1px solid var(--amber-border);padding:3px 8px;border-radius:4px">Đóng băng khi đọc</span>
+            <button class="btn btn-sm btn-default" onclick="copyAllErrors()">Sao Chép Tất Cả</button>
+            <button class="btn btn-sm btn-blue" onclick="switchPane('errors')">Xem Đầy Đủ</button>
+          </div>
+        </div>
+        <div class="card-bd" style="padding:12px"><div class="error-feed" id="overviewErrorFeed"><div class="empty-state">Chưa có lỗi nào. Hệ thống đang hoạt động tốt.</div></div></div>
+      </div>
+
+      <div class="card">
+        <div class="card-hd"><div><div class="card-title">Phiên Khách Gần Nhất</div><div class="card-desc">15 lần quét QR gần nhất</div></div></div>
+        <div class="tbl-wrap">
+          <table>
+            <thead><tr><th>Sân</th><th>Giờ Quét</th><th>Trạng Thái</th><th>Hết Hạn</th><th>IP</th></tr></thead>
+            <tbody id="recentSessionsBody"><tr><td colspan="5" class="empty-state">Đang tải...</td></tr></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <div id="pane-errors" class="pane">
+      <div class="flex-row" style="margin-bottom:14px">
+        <div class="section-title" style="margin-bottom:0">Nhật Ký Lỗi Hệ Thống <span id="errFullCount" class="nav-badge err" style="font-size:12px;margin-left:6px">0</span></div>
+        <div class="spacer"></div>
+        <button class="btn btn-sm btn-default" onclick="copyAllErrors()">Sao Chép Tất Cả</button>
+        <button class="btn btn-sm btn-default" onclick="fetchOverview(true)">Làm Mới</button>
+      </div>
+      <div class="card" style="margin-bottom:0">
+        <div class="card-hd"><div><div class="card-title">Tất Cả Lỗi Được Ghi Nhận</div><div class="card-desc">Kết hợp bộ nhớ real-time + MongoDB. Nhấn vào lỗi để xem stack trace đầy đủ.</div></div></div>
+        <div class="card-bd" style="padding:12px"><div class="error-feed" id="fullErrorFeed" style="max-height:none"><div class="empty-state">Không có lỗi nào. Hệ thống đang vận hành tốt.</div></div></div>
+      </div>
+    </div>
+
+    <div id="pane-telemetry" class="pane">
+      <div class="section-title">Đo Lường Hiệu Suất API</div>
+      <div class="card">
+        <div class="card-hd"><div><div class="card-title">Thống Kê Theo Endpoint</div><div class="card-desc">Tần suất, độ trễ và tỷ lệ lỗi trong chu kỳ vận hành</div></div><button class="btn btn-sm btn-default" onclick="fetchOverview(true)">Làm Mới</button></div>
+        <div class="tbl-wrap"><table><thead><tr><th>Endpoint</th><th>Số Lượt Gọi</th><th>Độ Trễ TB</th><th>Tỷ Lệ Lỗi</th><th>Tình Trạng</th></tr></thead><tbody id="telemetryBody"><tr><td colspan="5" class="empty-state">Đang thu thập...</td></tr></tbody></table></div>
+      </div>
+    </div>
+
+    <div id="pane-courts" class="pane">
+      <div class="section-title">Chữ Ký HMAC-SHA256 — 16 Sân</div>
+      <div class="card">
+        <div class="card-hd"><div><div class="card-title">Kiểm Tra Chữ Ký &amp; Cấp Phiên</div><div class="card-desc">Nhập mã sân và chữ ký để xác thực, hoặc thử cấp phiên thực tế với API chính</div></div></div>
+        <div class="card-bd">
+          <div class="flex-row" style="margin-bottom:10px">
+            <div><label style="display:block;font-size:11px;font-weight:700;color:var(--muted);margin-bottom:4px">MÃ SÂN</label><input type="text" id="verifyCourtInput" value="01" style="width:90px"></div>
+            <div style="flex:1"><label style="display:block;font-size:11px;font-weight:700;color:var(--muted);margin-bottom:4px">CHỮ KÝ (SIG) — để trống để tự sinh chuẩn</label><input type="text" id="verifySigInput" placeholder="Để trống → dùng chữ ký chuẩn hệ thống" style="width:100%"></div>
+            <div style="align-self:flex-end;display:flex;gap:8px">
+              <button class="btn btn-default" onclick="doVerifySig()">Xác Thực Chữ Ký</button>
+              <button class="btn btn-primary" onclick="doTestHandshake()">Thử Cấp Phiên</button>
+            </div>
+          </div>
+          <div id="verifyResultBox" style="display:none;padding:10px 14px;border-radius:7px;font-size:13px;border:1px solid;margin-top:8px"></div>
+        </div>
+      </div>
+      <div class="card">
+        <div class="card-hd"><div><div class="card-title">16 Sân &amp; Chữ Ký QR Chuẩn</div><div class="card-desc">HMAC-SHA256 (12 ký tự) khớp chính xác với server chính</div></div><button class="btn btn-sm btn-default" onclick="loadCourtsData()">Tải Lại</button></div>
+        <div class="tbl-wrap"><table><thead><tr><th>Mã</th><th>Tên Sân</th><th>Trạng Thái</th><th>Chữ Ký HMAC (12 ký tự)</th><th>Online</th><th>Tổng Phiên</th><th>Thao Tác</th></tr></thead><tbody id="courtsTableBody"><tr><td colspan="7" class="empty-state">Đang tải...</td></tr></tbody></table></div>
+      </div>
+    </div>
+
+    <div id="pane-probe" class="pane">
+      <div class="section-title">Kiểm Tra API Trực Tiếp</div>
+      <div class="card">
+        <div class="card-hd"><div><div class="card-title">Gửi Yêu Cầu Tới Port 3001</div><div class="card-desc">Đo lường thời gian phản hồi và xem kết quả JSON thực tế</div></div></div>
+        <div class="card-bd">
+          <div class="flex-row" style="margin-bottom:14px">
+            <select id="probeMethod" style="width:80px"><option>GET</option><option>POST</option></select>
+            <select id="probePreset" onchange="applyPreset()" style="max-width:280px">
+              <option value="/api/health">Health Check</option>
+              <option value="/api/catalog">Catalog nước</option>
+              <option value="/api/admin/sports/categories">Hạng mục thể thao</option>
+              <option value="/api/admin/categories">Hạng mục nước uống</option>
+              <option value="/api/orders/public-bank-info">Thông tin ngân hàng</option>
+              <option value="/api/admin/settings">Cấu hình hệ thống</option>
+            </select>
+            <input type="text" id="probePath" value="/api/health" style="flex:1;font-family:var(--mono)">
+            <button class="btn btn-primary" onclick="runProbe()">Gửi</button>
+          </div>
+          <div id="probeResult" style="display:none">
+            <div class="flex-row" style="margin-bottom:8px"><span id="probeHttpBadge" class="badge badge-ok">HTTP 200</span><span id="probeLatencyLabel" style="font-size:12px;font-weight:700;color:var(--muted)">0 ms</span><div class="spacer"></div><button class="btn btn-sm btn-default" onclick="copyProbeResult()">Sao Chép JSON</button></div>
+            <pre class="code-block" id="probeOutput"></pre>
+          </div>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<div id="errorModal" class="modal-bg">
+  <div class="modal-box">
+    <div class="modal-hd">
+      <div><div class="modal-hd-title">Chi Tiết Lỗi Hệ Thống</div><div class="modal-hd-sub">Tạm dừng làm mới tự động — đọc thoải mái, không bị nhảy</div></div>
+      <button class="btn btn-sm btn-default" onclick="closeErrorModal()">Đóng</button>
+    </div>
+    <div class="modal-bd">
+      <div class="meta-grid">
+        <div class="meta-item"><div class="meta-label">Mã Lỗi (Code)</div><div class="meta-val" id="mCode" style="color:var(--red);font-family:var(--mono)"></div></div>
+        <div class="meta-item"><div class="meta-label">HTTP Status</div><div class="meta-val" id="mStatus"></div></div>
+        <div class="meta-item"><div class="meta-label">Thời Điểm</div><div class="meta-val" id="mTime" style="font-size:12px"></div></div>
+      </div>
+      <div class="sec-label">Vị Trí Phát Sinh Lỗi</div><div class="location-box" id="mLocation"></div>
+      <div class="sec-label">Thông Điệp Lỗi (Bị Lỗi Gì)</div><div class="message-box" id="mMessage"></div>
+      <div class="sec-label">Stack Trace (Nguyên Nhân Gốc)</div><pre class="code-block" id="mStack"></pre>
+    </div>
+    <div class="modal-ft"><button class="btn btn-default" onclick="copyCurrentError()">Sao Chép Chi Tiết</button><button class="btn btn-primary" onclick="closeErrorModal()">Đóng</button></div>
+  </div>
+</div>
+
+<div id="toast"></div>
+
+<script>
+  let isAutoRefresh=true,isModalOpen=false,overviewData=null,currentError=null;
+  function toast(msg){const el=document.getElementById('toast');el.innerText=msg;el.classList.add('show');setTimeout(()=>el.classList.remove('show'),3000);}
+  function switchPane(id){document.querySelectorAll('.pane').forEach(p=>p.classList.remove('active'));document.querySelectorAll('.nav-item').forEach(n=>n.classList.remove('active'));const pane=document.getElementById('pane-'+id);const nav=document.getElementById('nav-'+id);if(pane)pane.classList.add('active');if(nav)nav.classList.add('active');if(id==='courts'&&!window._courtsLoaded)loadCourtsData();}
+  function toggleAutoRefresh(){isAutoRefresh=!isAutoRefresh;const btn=document.getElementById('toggleRefreshBtn');if(isAutoRefresh){btn.innerText='BẬT 3s';btn.className='btn btn-sm btn-primary';toast('Đã bật làm mới tự động');}else{btn.innerText='TẠM DỪNG';btn.className='btn btn-sm btn-red';toast('Đã tạm dừng làm mới');}}
+  async function fetchOverview(force=false){if(!force&&(!isAutoRefresh||isModalOpen))return;try{const res=await fetch('/api/overview');if(!res.ok)throw new Error();overviewData=await res.json();renderOverview(overviewData);}catch{}}
+  function renderOverview(data){
+    const pill=document.getElementById('mainStatusPill'),ptxt=document.getElementById('mainStatusText');
+    if(data.mainSystem.isAlive){pill.className='status-pill ok';ptxt.innerText='API 3001 — '+data.mainSystem.pingMs+' ms';}
+    else{pill.className='status-pill fail';ptxt.innerText='API 3001 — MẤT KẾT NỐI';}
+    document.getElementById('valTotalSessions').innerText=(data.users.totalSessions||0).toLocaleString();
+    document.getElementById('valActiveSessions').innerText=(data.users.activeSessions||0).toLocaleString();
+    document.getElementById('valPing').innerText=data.mainSystem.pingMs+' ms';
+    document.getElementById('valSuccessRate').innerText=(data.telemetry?.successRatePercent??'—')+'%';
+    document.getElementById('valTotalCalls').innerText=(data.telemetry?.totalCalls||0).toLocaleString()+' lượt gọi';
+    const errors=data.errors||[];
+    document.getElementById('valErrorCount').innerText=errors.length;
+    document.getElementById('valMemory').innerText=data.system.heapUsedMb+' MB';
+    document.getElementById('errNavBadge').innerText=errors.length;
+    document.getElementById('errFullCount').innerText=errors.length;
+    const errPill=document.getElementById('errorAlertPill');
+    if(errors.length>0){errPill.classList.remove('hidden');document.getElementById('errorAlertBadge').innerText=errors.length;const h5=errors.some(e=>e.statusCode>=500);errPill.style.background=h5?'var(--red-bg)':'var(--amber-bg)';errPill.style.borderColor=h5?'var(--red-border)':'var(--amber-border)';errPill.style.color=h5?'var(--red)':'var(--amber)';}
+    else{errPill.classList.add('hidden');}
+    const devs=data.users.devices||{ios:0,android:0,desktop:0,other:0},dt=Math.max(1,devs.ios+devs.android+devs.desktop+devs.other);
+    document.getElementById('devIosCount').innerText=devs.ios+' ('+Math.round(devs.ios/dt*100)+'%)';
+    document.getElementById('devIosBar').style.width=(devs.ios/dt*100)+'%';
+    document.getElementById('devAndroidCount').innerText=devs.android+' ('+Math.round(devs.android/dt*100)+'%)';
+    document.getElementById('devAndroidBar').style.width=(devs.android/dt*100)+'%';
+    document.getElementById('devDesktopCount').innerText=devs.desktop+' ('+Math.round(devs.desktop/dt*100)+'%)';
+    document.getElementById('devDesktopBar').style.width=(devs.desktop/dt*100)+'%';
+    const dg=document.getElementById('courtDensityGrid');
+    if(data.courts&&data.courts.length){dg.innerHTML=data.courts.map(c=>'<div style="background:#F8FAFC;border:1px solid var(--border);'+(c.activeCount>0?'border-left:3px solid var(--green);':'')+'border-radius:7px;padding:8px;text-align:center"><div style="font-size:11px;font-weight:800;color:#334155">'+escH(c.name)+'</div><div style="font-size:18px;font-weight:900;color:'+(c.count>0?'var(--blue)':'var(--light)')+'">'+c.count+'</div>'+(c.activeCount>0?'<div style="font-size:10px;color:var(--green);font-weight:700">'+c.activeCount+' online</div>':'')+'</div>').join('');}
+    renderErrorFeed('overviewErrorFeed',errors.slice(0,8));
+    renderErrorFeed('fullErrorFeed',errors);
+    const sb=document.getElementById('recentSessionsBody');
+    if(data.users.recentSessions&&data.users.recentSessions.length){sb.innerHTML=data.users.recentSessions.map(s=>{const a=new Date(s.expiresAt)>new Date()&&!s.terminatedAt;return '<tr><td><span class="mono" style="font-weight:800">Sân '+escH(s.courtCode)+'</span><div style="font-size:11px;color:var(--muted)">'+escH(s.courtNameSnapshot||'')+'</div></td><td style="font-size:12px;color:#475569">'+new Date(s.createdAt).toLocaleTimeString('vi-VN')+'</td><td><span class="badge '+(a?'badge-ok':'badge-neutral')+'">'+(a?'Online':'Đã kết thúc')+'</span></td><td style="font-size:12px;color:var(--muted)">'+new Date(s.expiresAt).toLocaleTimeString('vi-VN')+'</td><td class="mono" style="font-size:11px;color:var(--muted)">'+escH(s.ip||'—')+'</td></tr>';}).join('');}
+    else{sb.innerHTML='<tr><td colspan="5" class="empty-state">Chưa có phiên nào</td></tr>';}
+    const telBody=document.getElementById('telemetryBody'),eps=data.telemetry?.endpoints||[];
+    if(eps.length){const sorted=[...eps].sort((a,b)=>b.calls-a.calls);telBody.innerHTML=sorted.map(ep=>{const parts=(ep.endpoint||'').split(' ');const method=parts[0]||'?';const path=parts.slice(1).join(' ')||ep.endpoint;const lc=ep.avgMs>500?'var(--red)':ep.avgMs>200?'var(--amber)':'var(--green)';return '<tr><td class="mono" style="font-weight:700;font-size:11px">'+escH(path)+'</td><td><span class="badge badge-neutral mono">'+escH(method)+'</span></td><td style="font-weight:800">'+ep.calls.toLocaleString()+'</td><td><span class="mono" style="font-weight:700;color:'+lc+'">'+ep.avgMs+' ms</span></td><td>'+(ep.errorRate===0?'<span class="badge badge-ok">Tốt</span>':'<span class="badge badge-warn">'+ep.errorRate+'% lỗi</span>')+'</td></tr>';}).join('');}
+    else{telBody.innerHTML='<tr><td colspan="5" class="empty-state">Chưa có dữ liệu</td></tr>';}
+  }
+  function renderErrorFeed(cid,errors){
+    const el=document.getElementById(cid);
+    if(!errors||!errors.length){el.innerHTML='<div class="empty-state">Không có lỗi nào. Hệ thống đang vận hành tốt.</div>';return;}
+    el.innerHTML=errors.map((e,idx)=>{const cls=e.statusCode>=500?'is-500':(e.statusCode===401||e.statusCode===403?'is-auth':'is-400');const bc=e.statusCode>=500?'badge-err':e.statusCode>=400?'badge-warn':'badge-ok';return '<div class="error-entry '+cls+'" onclick="openErrorModal('+idx+')">'+'<div class="error-row-top"><span class="badge '+bc+'">HTTP '+e.statusCode+'</span><span class="badge badge-err mono">'+escH(e.code)+'</span><span class="error-path">'+escH(e.method)+' '+escH(e.path)+'</span><span class="error-time">'+new Date(e.timestamp).toLocaleString('vi-VN')+'</span></div>'+'<div class="error-msg">'+escH(e.message)+'</div>'+(e.location?'<div class="error-location" style="margin-top:4px">Tại: '+escH(e.location)+'</div>':'')+'<div class="error-actions" onclick="event.stopPropagation()"><button class="btn btn-sm btn-default" onclick="copySingleError('+idx+')">Sao Chép</button><button class="btn btn-sm btn-blue" onclick="openErrorModal('+idx+')">Xem Stack Trace</button></div></div>';}).join('');}
+  function openErrorModal(idx){const errors=overviewData?.errors||[];if(!errors[idx])return;currentError=errors[idx];isModalOpen=true;const e=currentError;document.getElementById('mCode').innerText=e.code;document.getElementById('mStatus').innerText='HTTP '+e.statusCode;document.getElementById('mTime').innerText=new Date(e.timestamp).toLocaleString('vi-VN');document.getElementById('mLocation').innerText=e.method+' '+e.path+'  →  '+(e.location||'Không xác định');document.getElementById('mMessage').innerText=e.message;document.getElementById('mStack').innerText=e.stack||'Không có stack trace';document.getElementById('errorModal').classList.add('open');}
+  function closeErrorModal(){document.getElementById('errorModal').classList.remove('open');isModalOpen=false;currentError=null;}
+  function copyCurrentError(){if(!currentError)return;navigator.clipboard.writeText(fmtErr(currentError)).then(()=>toast('Đã sao chép chi tiết lỗi'));}
+  function copySingleError(idx){const e=(overviewData?.errors||[])[idx];if(!e)return;navigator.clipboard.writeText(fmtErr(e)).then(()=>toast('Đã sao chép lỗi ['+e.code+']'));}
+  function copyAllErrors(){const errors=overviewData?.errors||[];if(!errors.length){toast('Không có lỗi để sao chép');return;}navigator.clipboard.writeText(errors.map((e,i)=>'=== LỖI #'+(i+1)+' ===\n'+fmtErr(e)).join('\n\n')).then(()=>toast('Đã sao chép '+errors.length+' lỗi'));}
+  function fmtErr(e){return['[SÂN CẦU LÔNG TRẦN LỰU — BÁO CÁO LỖI]','Thời điểm: '+new Date(e.timestamp).toLocaleString('vi-VN'),'Mã lỗi: '+e.code,'HTTP: '+e.statusCode,'Endpoint: '+e.method+' '+e.path,'Vị trí: '+(e.location||'?'),'Thông báo: '+e.message,'Stack Trace:\n'+(e.stack||'N/A')].join('\n');}
+  async function loadCourtsData(){window._courtsLoaded=true;try{const data=await fetch('/api/courts-signatures').then(r=>r.json());const body=document.getElementById('courtsTableBody');const courts=data.courts||[];if(!courts.length){body.innerHTML='<tr><td colspan="7" class="empty-state">Không có dữ liệu</td></tr>';return;}body.innerHTML=courts.map(c=>'<tr><td><span class="mono" style="font-weight:800;background:#0F172A;color:#FFF;padding:2px 6px;border-radius:4px">'+c.code+'</span></td><td style="font-weight:700">'+escH(c.name)+'</td><td><span class="badge '+(c.isActive?'badge-ok':'badge-err')+'">'+(c.isActive?'Đang mở':'Đóng')+'</span></td><td><span class="sig-box">'+escH(c.sig)+'</span></td><td style="font-weight:800;color:'+(c.activeSessions>0?'var(--green)':'var(--light)')+'">'+c.activeSessions+'</td><td style="font-weight:700">'+c.totalSessions+'</td><td><div class="flex-row" style="gap:6px"><button class="btn btn-sm btn-default" onclick="prefillVerify(\'' +c.code+ '\',\'' +c.sig+ '\')">Xác Thực</button><a class="btn btn-sm btn-primary" href="'+escH(c.fullUrl)+'" target="_blank">Mở QR</a></div></td></tr>').join('');}catch{document.getElementById('courtsTableBody').innerHTML='<tr><td colspan="7" class="empty-state">Không thể tải</td></tr>';}}
+  function prefillVerify(code,sig){document.getElementById('verifyCourtInput').value=code;document.getElementById('verifySigInput').value=sig;toast('Đã điền sân '+code);}
+  async function doVerifySig(){const courtCode=document.getElementById('verifyCourtInput').value.trim(),sig=document.getElementById('verifySigInput').value.trim(),box=document.getElementById('verifyResultBox');try{const data=await fetch('/api/verify-signature',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({courtCode,sig})}).then(r=>r.json());box.style.display='block';if(data.isValid){box.style.background='var(--green-bg)';box.style.borderColor='var(--green-border)';box.style.color='#065F46';box.innerHTML='<strong>HỢP LỆ</strong> — Sân <code>'+data.courtCode+'</code> | Chữ ký: <code>'+data.expectedSig+'</code><br>URL: <a href="'+data.url+'" target="_blank" style="color:var(--green);font-weight:700">'+data.url+'</a>';}else{box.style.background='var(--red-bg)';box.style.borderColor='var(--red-border)';box.style.color='#991B1B';box.innerHTML='<strong>KHÔNG HỢP LỆ</strong> — Sân <code>'+data.courtCode+'</code><br>Bạn nhập: <code>'+(data.providedSig||'(trống)')+'</code> | Phải là: <code>'+data.expectedSig+'</code>';}}catch(e){toast('Lỗi: '+e.message);}}
+  async function doTestHandshake(){const courtCode=document.getElementById('verifyCourtInput').value.trim(),sig=document.getElementById('verifySigInput').value.trim(),box=document.getElementById('verifyResultBox');box.style.display='block';box.style.background='#F8FAFC';box.style.borderColor='var(--border)';box.style.color='#334155';box.innerHTML='Đang kiểm tra phiên cho Sân '+courtCode+'...';try{const data=await fetch('/api/test-court-session',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({courtCode,sig})}).then(r=>r.json());if(data.success){box.style.background='var(--green-bg)';box.style.borderColor='var(--green-border)';box.style.color='#065F46';box.innerHTML='<strong>THÀNH CÔNG (HTTP '+data.statusCode+')</strong> — '+data.elapsedMs+' ms<br>Token: <code style="word-break:break-all">'+(data.sessionToken||'Đã cấp')+'</code>';}else{box.style.background='var(--red-bg)';box.style.borderColor='var(--red-border)';box.style.color='#991B1B';box.innerHTML='<strong>THẤT BẠI (HTTP '+data.statusCode+')</strong> — '+data.elapsedMs+' ms<br>'+escH(data.response?.message||data.error||'Từ chối');}}catch(e){box.style.background='var(--red-bg)';box.style.color='#991B1B';box.innerHTML='Lỗi mạng: '+e.message;}}
+  function applyPreset(){document.getElementById('probePath').value=document.getElementById('probePreset').value;}
+  async function runProbe(){const method=document.getElementById('probeMethod').value,path=document.getElementById('probePath').value.trim();const re=document.getElementById('probeResult'),out=document.getElementById('probeOutput'),badge=document.getElementById('probeHttpBadge'),lat=document.getElementById('probeLatencyLabel');re.style.display='block';out.innerText='Đang gửi...';const start=Date.now();try{const res=await fetch('/api/proxy?path='+encodeURIComponent(path)+'&method='+method);const elapsed=Date.now()-start;const text=await res.text();lat.innerText=elapsed+' ms';badge.innerText='HTTP '+res.status;badge.className=res.ok?'badge badge-ok':'badge badge-err';try{out.innerText=JSON.stringify(JSON.parse(text),null,2);}catch{out.innerText=text;}}catch(e){badge.innerText='LỖI';badge.className='badge badge-err';out.innerText=e.message;}}
+  function copyProbeResult(){navigator.clipboard.writeText(document.getElementById('probeOutput').innerText).then(()=>toast('Đã sao chép JSON'));}
+  function escH(s){if(!s)return'';return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
+  document.addEventListener('DOMContentLoaded',()=>{fetchOverview(true);setInterval(()=>fetchOverview(false),3000);document.getElementById('errorModal').addEventListener('click',function(e){if(e.target===this)closeErrorModal();});});
+</script>
+</body>
+</html>

@@ -477,7 +477,7 @@ export const RbacUsersTab: React.FC = () => {
                           title="Tài khoản này được cấu hình bằng ADMIN_USERNAME và ADMIN_PASSWORD_HASH trên Railway"
                           style={{ fontSize: '11px', color: '#64748B', fontWeight: 600 }}
                         >
-                          Quản lý qua Railway ENV
+                          Quản lý
                         </span>
                       ) : (
                         <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px' }}>

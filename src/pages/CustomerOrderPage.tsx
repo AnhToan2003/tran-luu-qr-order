@@ -730,10 +730,12 @@ export const CustomerOrderPage: React.FC = () => {
       justifyContent: 'center',
       backgroundColor: '#E5EDE7'
     }}>
-      <div style={{
+      <div className="customer-main-shell" style={{
         width: '100%',
         maxWidth: '480px',
         minHeight: '100vh',
+        boxSizing: 'border-box',
+        overflowX: 'hidden',
         backgroundColor: 'var(--color-bg)',
         boxShadow: '0 0 35px rgba(18, 67, 46, 0.12)',
         display: 'flex',
@@ -937,7 +939,7 @@ export const CustomerOrderPage: React.FC = () => {
         </div>
 
         {/* Thực đơn nước giải khát & đồ ăn */}
-        <main style={{
+        <main className="customer-grid-products" style={{
           padding: '12px 16px',
           paddingBottom: totalCartCount > 0 ? '110px' : '40px',
           display: 'grid',

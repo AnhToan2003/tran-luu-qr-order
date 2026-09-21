@@ -53,11 +53,11 @@ const updateSportsItemSchema = z.object({
   tag: z.string().trim().max(40).optional()
 }).strict();
 
-// 0. GET & POST /api/admin/sports/categories
+// 0. GET, POST, PUT, DELETE /api/admin/sports/categories
 sportsRouter.get('/categories', async (_req, res) => {
   const c = getCollections();
   const doc = await c.appSettings.findOne({ key: 'sports_categories' });
-  let categories: Array<{ id: string; name: string }> = Array.isArray(doc?.value) ? [...doc.value] : [...defaultSportsCategories];
+  let categories: Array<{ id: string; name: string; itemCount?: number }> = Array.isArray(doc?.value) ? [...doc.value] : [...defaultSportsCategories];
 
   const existingCats = await c.sportsItems.distinct('category', { deletedAt: null });
   for (const cat of existingCats) {
@@ -65,7 +65,24 @@ sportsRouter.get('/categories', async (_req, res) => {
       categories.push({ id: String(cat), name: String(cat) });
     }
   }
-  res.json({ categories });
+
+  // Đếm số lượng sản phẩm/dịch vụ của từng hạng mục
+  const counts = await c.sportsItems.aggregate([
+    { $match: { deletedAt: null } },
+    { $group: { _id: '$category', count: { $sum: 1 } } }
+  ]).toArray();
+
+  const countMap = new Map<string, number>();
+  for (const item of counts) {
+    countMap.set(String(item._id), item.count);
+  }
+
+  const categoriesWithCount = categories.map(cat => ({
+    ...cat,
+    itemCount: countMap.get(cat.id) || countMap.get(cat.name) || 0
+  }));
+
+  res.json({ categories: categoriesWithCount });
 });
 
 sportsRouter.post('/categories', requirePermission('sports-intake'), async (req, res) => {
@@ -95,6 +112,75 @@ sportsRouter.post('/categories', requirePermission('sports-intake'), async (req,
   );
 
   res.status(201).json({ category: newCat, categories });
+});
+
+sportsRouter.put('/categories/:id', requirePermission('sports-intake'), async (req, res) => {
+  const targetId = String(req.params.id).trim();
+  const { name } = z.object({ name: z.string().trim().min(1, 'Tên hạng mục không được rỗng').max(60) }).parse(req.body);
+  const c = getCollections();
+  const doc = await c.appSettings.findOne({ key: 'sports_categories' });
+  let categories: Array<{ id: string; name: string }> = Array.isArray(doc?.value) ? [...doc.value] : [...defaultSportsCategories];
+
+  const index = categories.findIndex(c => c.id === targetId || c.name.toLowerCase() === targetId.toLowerCase());
+  if (index === -1) {
+    categories.push({ id: targetId, name });
+  } else {
+    categories[index].name = name;
+  }
+
+  await c.appSettings.updateOne(
+    { key: 'sports_categories' },
+    { $set: { value: categories, updatedAt: new Date() } },
+    { upsert: true }
+  );
+
+  res.json({ ok: true, id: targetId, name, categories });
+});
+
+sportsRouter.delete('/categories/:id', requirePermission('sports-intake'), async (req, res) => {
+  const targetId = String(req.params.id).trim();
+  const c = getCollections();
+
+  const doc = await c.appSettings.findOne({ key: 'sports_categories' });
+  let categories: Array<{ id: string; name: string }> = Array.isArray(doc?.value) ? [...doc.value] : [...defaultSportsCategories];
+  const targetCat = categories.find(c => c.id === targetId || c.name.toLowerCase() === targetId.toLowerCase());
+  const targetName = targetCat ? targetCat.name : targetId;
+
+  // Kiểm tra an toàn xem có mặt hàng thể thao nào đang dùng hạng mục này không (cả ID lẫn tên)
+  const itemFilter = {
+    $or: [{ category: targetId }, { category: targetName }],
+    deletedAt: null
+  };
+  const inUseCount = await c.sportsItems.countDocuments(itemFilter);
+
+  const moveTo = typeof req.query.moveTo === 'string' ? req.query.moveTo.trim() : typeof req.body?.moveTo === 'string' ? req.body.moveTo.trim() : undefined;
+  const cascadeDelete = req.query.cascadeDelete === 'true' || req.body?.cascadeDelete === true;
+
+  if (inUseCount > 0) {
+    if (cascadeDelete) {
+      // Soft-delete tất cả mặt hàng thuộc hạng mục này
+      await c.sportsItems.updateMany(itemFilter, {
+        $set: { deletedAt: new Date(), isAvailable: false, updatedAt: new Date() }
+      });
+    } else if (moveTo) {
+      // Chuyển toàn bộ mặt hàng sang hạng mục mới
+      await c.sportsItems.updateMany(itemFilter, {
+        $set: { category: moveTo, updatedAt: new Date() }
+      });
+    } else {
+      throw new ApiError(400, 'CATEGORY_IN_USE', `Hạng mục "${targetName}" đang có ${inUseCount} sản phẩm/dịch vụ thể thao sử dụng. Vui lòng chọn hạng mục chuyển đổi hoặc xóa kèm sản phẩm.`);
+    }
+  }
+
+  categories = categories.filter(c => c.id !== targetId && c.name.toLowerCase() !== targetId.toLowerCase());
+
+  await c.appSettings.updateOne(
+    { key: 'sports_categories' },
+    { $set: { value: categories, updatedAt: new Date() } },
+    { upsert: true }
+  );
+
+  res.json({ ok: true, id: targetId, categories, affectedCount: inUseCount });
 });
 
 // 1. GET /api/admin/sports/items - Danh sách sản phẩm thể thao & dịch vụ

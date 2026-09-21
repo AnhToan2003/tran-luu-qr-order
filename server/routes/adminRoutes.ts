@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { randomUUID, createHash } from 'node:crypto';
 import { z } from 'zod';
-import { requireAdmin, hashPassword, requirePermission, revokeUserSessions, revokeRoleSessions } from '../auth.js';
+import { requireAdmin, hashPassword, verifyPassword, requirePermission, revokeUserSessions, revokeRoleSessions } from '../auth.js';
 import { getCollections, transaction, snapshotRead } from '../db.js';
 import { ApiError } from '../errors.js';
 import { OrderService } from '../services/orderService.js';
@@ -48,6 +48,42 @@ adminRouter.patch('/settings', requirePermission(['orders', 'rbac']), async (req
   res.json(value);
 });
 
+// Endpoint bảo mật: Xác thực mật khẩu quản trị viên trước khi thực hiện thao tác nhạy cảm (Nhập hàng, CRUD sản phẩm)
+adminRouter.post('/auth/verify-action-password', async (req, res) => {
+  const { password } = z.object({ password: z.string().min(1, 'Vui lòng nhập mật khẩu quản trị viên') }).parse(req.body);
+  const currentAdmin = res.locals.admin;
+  const currentUserId = res.locals.userId;
+  const c = getCollections();
+
+  let isValid = false;
+
+  // 1. Kiểm tra nếu là DB Admin User
+  if (currentUserId) {
+    const user = await c.adminUsers.findOne({ userId: currentUserId, isActive: true });
+    if (user && user.passwordHash) {
+      isValid = verifyPassword(password, user.passwordHash);
+    }
+  }
+
+  // 2. Kiểm tra nếu là ENV Admin
+  if (!isValid && process.env.ADMIN_PASSWORD_HASH) {
+    isValid = verifyPassword(password, process.env.ADMIN_PASSWORD_HASH);
+  }
+
+  // 3. Chế độ phát triển dev fallback
+  if (!isValid && process.env.NODE_ENV !== 'production' && (password === 'admin123' || password === 'admin')) {
+    isValid = true;
+  }
+
+  if (!isValid) {
+    await recordAuditLog(currentAdmin, 'failed_action_password_verify', undefined, { ip: req.ip }, req.ip);
+    throw new ApiError(403, 'INVALID_PASSWORD', 'Mật khẩu quản trị viên không chính xác. Thao tác bị từ chối!');
+  }
+
+  await recordAuditLog(currentAdmin, 'action_password_verified', undefined, { ip: req.ip }, req.ip);
+  res.json({ ok: true, message: 'Xác thực mật khẩu quản trị thành công', timestamp: Date.now() });
+});
+
 adminRouter.get('/categories', async (_req, res) => {
   const c = getCollections();
   const doc = await c.appSettings.findOne({ key: 'drink_categories' });
@@ -60,7 +96,7 @@ adminRouter.get('/categories', async (_req, res) => {
     { id: 'juice', name: 'Nước ép & Sữa' },
     { id: 'food', name: 'Mì ly & Đồ ăn' }
   ];
-  let categories: Array<{ id: string; name: string }> = Array.isArray(doc?.value) ? [...doc.value] : [...defaultCategories];
+  let categories: Array<{ id: string; name: string; productCount?: number }> = Array.isArray(doc?.value) ? [...doc.value] : [...defaultCategories];
 
   const existingProductCats = await c.products.distinct('category', { deletedAt: null });
   for (const cat of existingProductCats) {
@@ -68,7 +104,24 @@ adminRouter.get('/categories', async (_req, res) => {
       categories.push({ id: String(cat), name: String(cat) });
     }
   }
-  res.json({ categories });
+
+  // Đếm số lượng sản phẩm đang có của từng hạng mục
+  const counts = await c.products.aggregate([
+    { $match: { deletedAt: null } },
+    { $group: { _id: '$category', count: { $sum: 1 } } }
+  ]).toArray();
+
+  const countMap = new Map<string, number>();
+  for (const item of counts) {
+    countMap.set(String(item._id), item.count);
+  }
+
+  const categoriesWithCount = categories.map(cat => ({
+    ...cat,
+    productCount: countMap.get(cat.id) || countMap.get(cat.name) || 0
+  }));
+
+  res.json({ categories: categoriesWithCount });
 });
 
 adminRouter.post('/categories', requirePermission('drink-intake'), async (req, res) => {
@@ -107,6 +160,104 @@ adminRouter.post('/categories', requirePermission('drink-intake'), async (req, r
   );
   await recordAuditLog(res.locals.admin, 'category_create', id, { name }, req.ip);
   res.status(201).json({ category: newCat, categories });
+});
+
+adminRouter.put('/categories/:id', requirePermission('drink-intake'), async (req, res) => {
+  const targetId = String(req.params.id).trim();
+  const { name } = z.object({ name: z.string().trim().min(1, 'Tên hạng mục không được rỗng').max(60) }).parse(req.body);
+  const c = getCollections();
+  const doc = await c.appSettings.findOne({ key: 'drink_categories' });
+  const defaultCategories: Array<{ id: string; name: string }> = [
+    { id: 'water', name: 'Nước suối' },
+    { id: 'isotonic', name: 'Bù khoáng & Điện giải' },
+    { id: 'soda', name: 'Nước ngọt có gas' },
+    { id: 'energy', name: 'Nước tăng lực' },
+    { id: 'tea', name: 'Trà & Cà phê' },
+    { id: 'juice', name: 'Nước ép & Sữa' },
+    { id: 'food', name: 'Mì ly & Đồ ăn' }
+  ];
+  let categories: Array<{ id: string; name: string }> = Array.isArray(doc?.value) ? [...doc.value] : [...defaultCategories];
+
+  const index = categories.findIndex(c => c.id === targetId || c.name.toLowerCase() === targetId.toLowerCase());
+  if (index === -1) {
+    categories.push({ id: targetId, name });
+  } else {
+    categories[index].name = name;
+  }
+
+  await c.appSettings.updateOne(
+    { key: 'drink_categories' },
+    { $set: { value: categories, updatedAt: new Date() } },
+    { upsert: true }
+  );
+
+  await invalidateCatalogCache();
+  await recordAuditLog(res.locals.admin, 'category_update', targetId, { newName: name }, req.ip);
+  res.json({ ok: true, id: targetId, name, categories });
+});
+
+adminRouter.delete('/categories/:id', requirePermission('drink-intake'), async (req, res) => {
+  const targetId = String(req.params.id).trim();
+  const c = getCollections();
+
+  const doc = await c.appSettings.findOne({ key: 'drink_categories' });
+  const defaultCategories: Array<{ id: string; name: string }> = [
+    { id: 'water', name: 'Nước suối' },
+    { id: 'isotonic', name: 'Bù khoáng & Điện giải' },
+    { id: 'soda', name: 'Nước ngọt có gas' },
+    { id: 'energy', name: 'Nước tăng lực' },
+    { id: 'tea', name: 'Trà & Cà phê' },
+    { id: 'juice', name: 'Nước ép & Sữa' },
+    { id: 'food', name: 'Mì ly & Đồ ăn' }
+  ];
+  let categories: Array<{ id: string; name: string }> = Array.isArray(doc?.value) ? [...doc.value] : [...defaultCategories];
+  const targetCat = categories.find(c => c.id === targetId || c.name.toLowerCase() === targetId.toLowerCase());
+  const targetName = targetCat ? targetCat.name : targetId;
+
+  // Kiểm tra xem có sản phẩm nào đang dùng hạng mục này không (cả theo ID lẫn tên)
+  const productFilter = {
+    $or: [{ category: targetId }, { category: targetName }],
+    deletedAt: null
+  };
+  const inUseCount = await c.products.countDocuments(productFilter);
+
+  const moveTo = typeof req.query.moveTo === 'string' ? req.query.moveTo.trim() : typeof req.body?.moveTo === 'string' ? req.body.moveTo.trim() : undefined;
+  const cascadeDelete = req.query.cascadeDelete === 'true' || req.body?.cascadeDelete === true;
+
+  if (inUseCount > 0) {
+    if (cascadeDelete) {
+      // Soft-delete toàn bộ sản phẩm thuộc hạng mục này
+      await c.products.updateMany(productFilter, {
+        $set: { deletedAt: new Date(), isAvailable: false, updatedAt: new Date() },
+        $inc: { version: 1 }
+      });
+    } else if (moveTo) {
+      // Chuyển toàn bộ sản phẩm sang hạng mục mới (hoặc uncategorized)
+      await c.products.updateMany(productFilter, {
+        $set: { category: moveTo, updatedAt: new Date() },
+        $inc: { version: 1 }
+      });
+    } else {
+      throw new ApiError(400, 'CATEGORY_IN_USE', `Hạng mục "${targetName}" đang có ${inUseCount} sản phẩm sử dụng. Vui lòng chọn hạng mục chuyển đổi hoặc xóa kèm sản phẩm.`);
+    }
+  }
+
+  categories = categories.filter(c => c.id !== targetId && c.name.toLowerCase() !== targetId.toLowerCase());
+
+  await c.appSettings.updateOne(
+    { key: 'drink_categories' },
+    { $set: { value: categories, updatedAt: new Date() } },
+    { upsert: true }
+  );
+
+  await invalidateCatalogCache();
+  await recordAuditLog(res.locals.admin, 'category_delete', targetId, {
+    targetName,
+    affectedCount: inUseCount,
+    actionTaken: cascadeDelete ? 'cascade_deleted_products' : (moveTo ? `moved_to_${moveTo}` : 'none')
+  }, req.ip);
+
+  res.json({ ok: true, id: targetId, categories, affectedCount: inUseCount });
 });
 
 adminRouter.get('/orders/active', requirePermission('orders'), async (_req, res) => {

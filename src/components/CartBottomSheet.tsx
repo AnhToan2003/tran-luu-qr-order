@@ -167,12 +167,14 @@ export const CartBottomSheet: React.FC<CartBottomSheetProps> = ({
       />
 
       {/* Sheet panel */}
-      <div role="dialog" aria-modal="true" aria-label="Giỏ hàng gọi nước" className="animate-slide-up" style={{
+      <div role="dialog" aria-modal="true" aria-label="Giỏ hàng gọi nước" className="animate-slide-up cart-bottom-sheet-panel" style={{
         position: 'relative',
         zIndex: 2,
         width: '100%',
         maxWidth: '540px',
         maxHeight: '85vh',
+        boxSizing: 'border-box',
+        overflowX: 'hidden',
         backgroundColor: 'var(--color-surface)',
         borderTopLeftRadius: 'var(--radius-xl)',
         borderTopRightRadius: 'var(--radius-xl)',
@@ -464,11 +466,12 @@ export const CartBottomSheet: React.FC<CartBottomSheetProps> = ({
 
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
                 <div>
-                  <label style={{ fontSize: '12px', fontWeight: 800, color: '#0F172A', display: 'block', marginBottom: '4px' }}>
+                  <label style={{ fontSize: '13px', fontWeight: 800, color: '#0F172A', display: 'block', marginBottom: '4px' }}>
                     Họ và tên <span style={{ color: '#DC2626' }}>*</span>
                   </label>
                   <input
                     type="text"
+                    autoComplete="name"
                     value={activeName}
                     onChange={e => {
                       setCustomerName(e.target.value);
@@ -477,10 +480,11 @@ export const CartBottomSheet: React.FC<CartBottomSheetProps> = ({
                     placeholder="VD: Anh Tuấn"
                     style={{
                       width: '100%',
-                      padding: '8px 10px',
+                      boxSizing: 'border-box',
+                      padding: '10px 12px',
                       borderRadius: 'var(--radius-sm)',
                       border: '1.5px solid var(--color-border)',
-                      fontSize: '13px',
+                      fontSize: '16px', // Bắt buộc >= 16px để ngăn iOS Safari auto-zoom
                       fontWeight: 600,
                       color: '#0F172A',
                       backgroundColor: 'var(--color-surface)',
@@ -489,11 +493,13 @@ export const CartBottomSheet: React.FC<CartBottomSheetProps> = ({
                   />
                 </div>
                 <div>
-                  <label style={{ fontSize: '12px', fontWeight: 800, color: '#0F172A', display: 'block', marginBottom: '4px' }}>
+                  <label style={{ fontSize: '13px', fontWeight: 800, color: '#0F172A', display: 'block', marginBottom: '4px' }}>
                     Số điện thoại <span style={{ color: '#DC2626' }}>*</span>
                   </label>
                   <input
                     type="tel"
+                    inputMode="tel"
+                    autoComplete="tel"
                     value={activePhone}
                     onChange={e => {
                       setCustomerPhone(e.target.value);
@@ -502,10 +508,11 @@ export const CartBottomSheet: React.FC<CartBottomSheetProps> = ({
                     placeholder="VD: 0901234567"
                     style={{
                       width: '100%',
-                      padding: '8px 10px',
+                      boxSizing: 'border-box',
+                      padding: '10px 12px',
                       borderRadius: 'var(--radius-sm)',
                       border: '1.5px solid var(--color-border)',
-                      fontSize: '13px',
+                      fontSize: '16px', // Bắt buộc >= 16px để ngăn iOS Safari auto-zoom
                       fontWeight: 600,
                       color: '#0F172A',
                       backgroundColor: 'var(--color-surface)',

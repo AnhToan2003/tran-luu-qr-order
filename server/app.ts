@@ -16,6 +16,7 @@ import { ApiError } from './errors.js';
 import { isRedisAvailable } from './redis.js';
 import { openapiSpec } from './swagger/openapiSpec.js';
 import { getSwaggerUiHtml } from './swagger/swaggerUiHtml.js';
+import { telemetryMiddleware, recordSystemError, getApiStats, getTelemetryErrors, getTelemetryMetrics } from './telemetry.js';
 
 export function createApp() {
   const app = express();
@@ -60,6 +61,7 @@ export function createApp() {
   app.use('/api/admin/catalog/import', express.json({ limit: '50mb' }));
   app.use(express.json({ limit: '3mb' }));
   app.use(cookieParser());
+  app.use(telemetryMiddleware);
   app.use('/api', (req, res, next) => {
     const rawId = req.headers['x-request-id'];
     const requestId = typeof rawId === 'string' && rawId.trim() ? rawId.trim() : randomUUID();
@@ -132,6 +134,16 @@ export function createApp() {
     }
   });
 
+  app.get('/api/internal/telemetry', (_req, res) => {
+    res.setHeader('Cache-Control', 'no-cache');
+    res.json({
+      timestamp: new Date().toISOString(),
+      stats: getApiStats(),
+      recentErrors: getTelemetryErrors().slice(-50),
+      recentMetrics: getTelemetryMetrics().slice(-50)
+    });
+  });
+
   // Swagger Documentation & Independent API Test Interface
   app.get('/api-docs/openapi.json', (_req, res) => {
     res.setHeader('Content-Type', 'application/json');
@@ -194,6 +206,21 @@ export function createApp() {
   });
   const errors: ErrorRequestHandler = (error, req, res, _next) => {
     const reqId = (req as any)?.id || 'unknown';
+    const statusCode = error instanceof ZodError ? 400 : (error instanceof ApiError ? error.statusCode : (error.code === 11000 ? 409 : (error.type === 'entity.parse.failed' ? 400 : (error.type === 'entity.too.large' ? 413 : 500))));
+    const errorCode = error instanceof ApiError ? error.code : (error.code === 11000 ? 'DUPLICATE' : (error instanceof ZodError ? 'INVALID_INPUT' : error.name || 'SERVER_ERROR'));
+
+    recordSystemError({
+      id: reqId,
+      method: req.method,
+      path: req.originalUrl || req.url,
+      statusCode,
+      code: errorCode,
+      message: error.message || 'Lỗi không xác định',
+      stack: error.stack,
+      ip: req.ip,
+      userAgent: req.headers['user-agent']
+    });
+
     if (error instanceof ZodError) return void res.status(400).json({ code: 'INVALID_INPUT', message: error.issues.map(i => i.message).join('; ') });
     if (error instanceof ApiError) return void res.status(error.statusCode).json({ code: error.code, message: error.message });
     if (error.code === 11000) return void res.status(409).json({ code: 'DUPLICATE', message: 'Dữ liệu đã tồn tại. Vui lòng tải lại.' });

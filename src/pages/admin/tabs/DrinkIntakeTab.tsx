@@ -1,6 +1,8 @@
 import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { Product, formatVnd } from '../../../types/product';
 import { apiFetch, stableRequestId, completeRequest } from '../../../lib/api';
+import { AdminPasswordConfirmModal } from '../../../components/AdminPasswordConfirmModal';
+import { CategoryManagerModal } from '../../../components/CategoryManagerModal';
 
 interface DrinkIntakeTabProps {
   products: Product[];
@@ -10,6 +12,7 @@ interface DrinkIntakeTabProps {
 interface CategoryItem {
   id: string;
   name: string;
+  productCount?: number;
 }
 
 interface BatchIntakeItem {
@@ -268,7 +271,7 @@ export const DrinkIntakeTab: React.FC<DrinkIntakeTabProps> = ({
       const res = await apiFetch('/api/admin/categories');
       if (res.ok) {
         const data = await res.json();
-        if (Array.isArray(data.categories) && data.categories.length > 0) {
+        if (Array.isArray(data.categories)) {
           setCategories(data.categories);
         }
       }
@@ -280,6 +283,31 @@ export const DrinkIntakeTab: React.FC<DrinkIntakeTabProps> = ({
   useEffect(() => {
     loadCategories();
   }, []);
+
+  // Category Manager Modal state
+  const [isCategoryModalOpen, setIsCategoryModalOpen] = useState(false);
+
+  // Admin Password Confirmation Modal state
+  const [passwordModalState, setPasswordModalState] = useState<{
+    isOpen: boolean;
+    title: string;
+    actionDescription: string;
+    onSuccess: () => void;
+  }>({
+    isOpen: false,
+    title: '',
+    actionDescription: '',
+    onSuccess: () => {}
+  });
+
+  const requestAdminAuth = (title: string, actionDescription: string, onSuccess: () => void) => {
+    setPasswordModalState({
+      isOpen: true,
+      title,
+      actionDescription,
+      onSuccess
+    });
+  };
 
   const showToast = (msg: string) => {
     setToastMessage(msg);
@@ -704,10 +732,35 @@ const COMMON_UNITS = ['Chai', 'Lon', 'Ly', 'Gói', 'Hộp', 'Cây', 'Bịch', 'C
             Tách biệt riêng tạo món mới vào menu và tạo phiếu nhập kho cho nhiều món cùng lúc
           </p>
         </div>
-        <div style={{ display: 'flex', gap: '10px' }}>
-          {/* NÚT 1: THÊM MÓN MỚI (MODAL RIÊNG BIỆT) */}
+        <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
+          {/* NÚT QUẢN LÝ HẠNG MỤC */}
           <button
-            onClick={handleOpenCreateModal}
+            onClick={() => setIsCategoryModalOpen(true)}
+            style={{
+              padding: '10px 16px',
+              backgroundColor: '#FFFFFF',
+              color: '#334155',
+              border: '1px solid #CBD5E1',
+              borderRadius: '8px',
+              fontWeight: 800,
+              fontSize: '13px',
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '6px',
+              boxShadow: '0 1px 2px rgba(0,0,0,0.05)'
+            }}
+          >
+            Quản Lý Hạng Mục
+          </button>
+
+          {/* NÚT 1: THÊM MÓN MỚI (YÊU CẦU MẬT KHẨU ADMIN) */}
+          <button
+            onClick={() => requestAdminAuth(
+              'Xác Nhận Thêm Món Mới',
+              'Vui lòng nhập mật khẩu quản trị để mở form thêm sản phẩm mới vào danh mục nước uống.',
+              () => handleOpenCreateModal()
+            )}
             style={{
               padding: '10px 18px',
               backgroundColor: '#FFFFFF',
@@ -726,9 +779,13 @@ const COMMON_UNITS = ['Chai', 'Lon', 'Ly', 'Gói', 'Hộp', 'Cây', 'Bịch', 'C
             + Thêm Món Mới
           </button>
 
-          {/* NÚT 2: NHẬP HÀNG VÀO KHO (PHIẾU NHẬP ĐA MÓN RIÊNG BIỆT) */}
+          {/* NÚT 2: NHẬP HÀNG VÀO KHO (YÊU CẦU MẬT KHẨU ADMIN) */}
           <button
-            onClick={() => handleOpenBatchIntake()}
+            onClick={() => requestAdminAuth(
+              'Xác Nhận Nhập Kho Hàng',
+              'Vui lòng nhập mật khẩu quản trị để tạo phiếu nhập kho hoặc thay đổi tồn kho sản phẩm.',
+              () => handleOpenBatchIntake()
+            )}
             style={{
               padding: '10px 20px',
               backgroundColor: 'var(--color-primary)',
@@ -1094,7 +1151,11 @@ const COMMON_UNITS = ['Chai', 'Lon', 'Ly', 'Gói', 'Hộp', 'Cây', 'Bịch', 'C
                   <td style={{ padding: '10px 16px', textAlign: 'right' }}>
                     <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px' }}>
                       <button
-                        onClick={() => handleOpenBatchIntake(p.id)}
+                        onClick={() => requestAdminAuth(
+                          'Xác Nhận Nhập Hàng',
+                          `Vui lòng nhập mật khẩu quản trị để nhập thêm số lượng cho món "${p.name}".`,
+                          () => handleOpenBatchIntake(p.id)
+                        )}
                         style={{
                           padding: '6px 12px',
                           backgroundColor: 'var(--color-primary-light)',
@@ -1109,7 +1170,11 @@ const COMMON_UNITS = ['Chai', 'Lon', 'Ly', 'Gói', 'Hộp', 'Cây', 'Bịch', 'C
                         Nhập hàng
                       </button>
                       <button
-                        onClick={() => handleOpenEdit(p)}
+                        onClick={() => requestAdminAuth(
+                          'Xác Nhận Sửa Sản Phẩm',
+                          `Vui lòng nhập mật khẩu quản trị để sửa thông tin và giá của "${p.name}".`,
+                          () => handleOpenEdit(p)
+                        )}
                         style={{
                           padding: '6px 12px',
                           backgroundColor: '#F1F5F9',
@@ -1124,7 +1189,11 @@ const COMMON_UNITS = ['Chai', 'Lon', 'Ly', 'Gói', 'Hộp', 'Cây', 'Bịch', 'C
                         Sửa
                       </button>
                       <button
-                        onClick={() => handleDeleteProduct(p)}
+                        onClick={() => requestAdminAuth(
+                          'Xác Nhận Xóa Sản Phẩm',
+                          `Vui lòng nhập mật khẩu quản trị để xóa "${p.name}" khỏi danh mục bán hàng.`,
+                          () => handleDeleteProduct(p)
+                        )}
                         style={{
                           padding: '6px 10px',
                           backgroundColor: '#FFF1F2',
@@ -2213,6 +2282,29 @@ const COMMON_UNITS = ['Chai', 'Lon', 'Ly', 'Gói', 'Hộp', 'Cây', 'Bịch', 'C
           </div>
         </div>
       )}
+
+      {/* MODAL QUẢN LÝ HẠNG MỤC NƯỚC UỐNG */}
+      <CategoryManagerModal
+        isOpen={isCategoryModalOpen}
+        title="Quản Lý Hạng Mục Nước Uống & Đồ Ăn"
+        itemLabel="sản phẩm"
+        categories={categories}
+        apiEndpoint="/api/admin/categories"
+        onClose={() => setIsCategoryModalOpen(false)}
+        onRefresh={() => {
+          loadCategories();
+          onRefreshProducts();
+        }}
+      />
+
+      {/* MODAL XÁC NHẬN MẬT KHẨU ADMIN */}
+      <AdminPasswordConfirmModal
+        isOpen={passwordModalState.isOpen}
+        title={passwordModalState.title}
+        actionDescription={passwordModalState.actionDescription}
+        onClose={() => setPasswordModalState(prev => ({ ...prev, isOpen: false }))}
+        onSuccess={passwordModalState.onSuccess}
+      />
     </div>
   );
 };

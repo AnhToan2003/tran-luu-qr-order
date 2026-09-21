@@ -2,10 +2,13 @@ import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import { formatVnd } from '../../../types/product';
 import { SportsItem, SPORTS_CATEGORY_LABELS } from '../../../types/sports';
 import { apiFetch, stableRequestId, completeRequest } from '../../../lib/api';
+import { AdminPasswordConfirmModal } from '../../../components/AdminPasswordConfirmModal';
+import { CategoryManagerModal } from '../../../components/CategoryManagerModal';
 
 interface CategoryItem {
   id: string;
   name: string;
+  itemCount?: number;
 }
 
 interface BatchSportsIntakeItem {
@@ -267,7 +270,7 @@ export const SportsIntakeTab: React.FC = () => {
       const res = await apiFetch('/api/admin/sports/categories');
       if (res.ok) {
         const data = await res.json();
-        if (Array.isArray(data.categories) && data.categories.length > 0) {
+        if (Array.isArray(data.categories)) {
           setCategories(data.categories);
         }
       }
@@ -279,6 +282,31 @@ export const SportsIntakeTab: React.FC = () => {
   useEffect(() => {
     loadCategories();
   }, []);
+
+  // Category Manager Modal state
+  const [isCategoryModalOpen, setIsCategoryModalOpen] = useState(false);
+
+  // Admin Password Confirmation Modal state
+  const [passwordModalState, setPasswordModalState] = useState<{
+    isOpen: boolean;
+    title: string;
+    actionDescription: string;
+    onSuccess: () => void;
+  }>({
+    isOpen: false,
+    title: '',
+    actionDescription: '',
+    onSuccess: () => {}
+  });
+
+  const requestAdminAuth = (title: string, actionDescription: string, onSuccess: () => void) => {
+    setPasswordModalState({
+      isOpen: true,
+      title,
+      actionDescription,
+      onSuccess
+    });
+  };
 
   // Fetch all sports items
   const fetchItems = useCallback(async () => {
@@ -723,10 +751,35 @@ export const SportsIntakeTab: React.FC = () => {
             Tách biệt riêng tạo món mới vào menu và tạo phiếu nhập kho cho nhiều món cùng lúc
           </p>
         </div>
-        <div style={{ display: 'flex', gap: '10px' }}>
-          {/* NÚT 1: THÊM DỤNG CỤ / DỊCH VỤ (MODAL RIÊNG BIỆT) */}
+        <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
+          {/* NÚT QUẢN LÝ HẠNG MỤC THỂ THAO */}
           <button
-            onClick={handleOpenCreateModal}
+            onClick={() => setIsCategoryModalOpen(true)}
+            style={{
+              padding: '10px 16px',
+              backgroundColor: '#FFFFFF',
+              color: '#334155',
+              border: '1px solid #CBD5E1',
+              borderRadius: '8px',
+              fontWeight: 800,
+              fontSize: '13px',
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '6px',
+              boxShadow: '0 1px 2px rgba(0,0,0,0.05)'
+            }}
+          >
+            Quản Lý Hạng Mục
+          </button>
+
+          {/* NÚT 1: THÊM DỤNG CỤ / DỊCH VỤ (YÊU CẦU MẬT KHẨU ADMIN) */}
+          <button
+            onClick={() => requestAdminAuth(
+              'Xác Nhận Thêm Dụng Cụ / Dịch Vụ',
+              'Vui lòng nhập mật khẩu quản trị để mở form thêm mặt hàng thể thao mới.',
+              () => handleOpenCreateModal()
+            )}
             style={{
               padding: '10px 18px',
               backgroundColor: '#FFFFFF',
@@ -745,9 +798,13 @@ export const SportsIntakeTab: React.FC = () => {
             + Thêm Dụng Cụ / Dịch Vụ
           </button>
 
-          {/* NÚT 2: NHẬP HÀNG VÀO KHO (PHIẾU NHẬP ĐA MÓN RIÊNG BIỆT) */}
+          {/* NÚT 2: NHẬP HÀNG VÀO KHO (YÊU CẦU MẬT KHẨU ADMIN) */}
           <button
-            onClick={() => handleOpenBatchIntake()}
+            onClick={() => requestAdminAuth(
+              'Xác Nhận Nhập Kho Thể Thao',
+              'Vui lòng nhập mật khẩu quản trị để tạo phiếu nhập kho cho các mặt hàng thể thao.',
+              () => handleOpenBatchIntake()
+            )}
             style={{
               padding: '10px 20px',
               backgroundColor: 'var(--color-primary)',
@@ -1161,7 +1218,11 @@ export const SportsIntakeTab: React.FC = () => {
                       <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px' }}>
                         {!it.isService && (
                           <button
-                            onClick={() => handleOpenBatchIntake(it.itemId)}
+                            onClick={() => requestAdminAuth(
+                              'Xác Nhận Nhập Kho Dụng Cụ',
+                              `Vui lòng nhập mật khẩu quản trị để nhập thêm số lượng cho dụng cụ "${it.name}".`,
+                              () => handleOpenBatchIntake(it.itemId)
+                            )}
                             style={{
                               padding: '6px 12px',
                               backgroundColor: 'var(--color-primary-light)',
@@ -1177,7 +1238,11 @@ export const SportsIntakeTab: React.FC = () => {
                           </button>
                         )}
                         <button
-                          onClick={() => handleOpenEdit(it)}
+                          onClick={() => requestAdminAuth(
+                            'Xác Nhận Sửa Dụng Cụ / Dịch Vụ',
+                            `Vui lòng nhập mật khẩu quản trị để chỉnh sửa thông tin hoặc giá của "${it.name}".`,
+                            () => handleOpenEdit(it)
+                          )}
                           style={{
                             padding: '6px 12px',
                             backgroundColor: '#F1F5F9',
@@ -1192,7 +1257,11 @@ export const SportsIntakeTab: React.FC = () => {
                           Sửa
                         </button>
                         <button
-                          onClick={() => handleDeleteItem(it)}
+                          onClick={() => requestAdminAuth(
+                            'Xác Nhận Xóa Dụng Cụ / Dịch Vụ',
+                            `Vui lòng nhập mật khẩu quản trị để xóa "${it.name}" khỏi danh mục thể thao.`,
+                            () => handleDeleteItem(it)
+                          )}
                           style={{
                             padding: '6px 10px',
                             backgroundColor: '#FFF1F2',
@@ -2294,6 +2363,29 @@ export const SportsIntakeTab: React.FC = () => {
           </div>
         </div>
       )}
+
+      {/* MODAL QUẢN LÝ HẠNG MỤC THỂ THAO */}
+      <CategoryManagerModal
+        isOpen={isCategoryModalOpen}
+        title="Quản Lý Hạng Mục Dụng Cụ & Dịch Vụ Thể Thao"
+        itemLabel="mặt hàng thể thao"
+        categories={categories}
+        apiEndpoint="/api/admin/sports/categories"
+        onClose={() => setIsCategoryModalOpen(false)}
+        onRefresh={() => {
+          loadCategories();
+          fetchItems();
+        }}
+      />
+
+      {/* MODAL XÁC NHẬN MẬT KHẨU ADMIN */}
+      <AdminPasswordConfirmModal
+        isOpen={passwordModalState.isOpen}
+        title={passwordModalState.title}
+        actionDescription={passwordModalState.actionDescription}
+        onClose={() => setPasswordModalState(prev => ({ ...prev, isOpen: false }))}
+        onSuccess={passwordModalState.onSuccess}
+      />
     </div>
   );
 };
