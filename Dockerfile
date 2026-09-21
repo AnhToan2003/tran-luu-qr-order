@@ -12,6 +12,7 @@ COPY package*.json ./
 RUN npm ci --omit=dev && npm cache clean --force
 COPY --from=build /app/dist ./dist
 COPY --from=build /app/dist-server ./dist-server
+COPY monitor/dashboard.html ./monitor/dashboard.html
 COPY data ./data
 USER node
 EXPOSE 3001

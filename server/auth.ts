@@ -9,12 +9,36 @@ import { revokeAdminSession, revokeAdminUser, revokeRoleSockets } from './websoc
 import { cacheGet, cacheSet, cacheDel } from './redis.js';
 const cookieName = 'tl_admin';
 const hash = (value: string) => createHash('sha256').update(value).digest('hex');
-const cookieOptions = () => ({ httpOnly: true, secure: process.env.NODE_ENV === 'production', sameSite: 'strict' as const, path: '/' });
+const hasCookieSecret = () => Boolean(process.env.COOKIE_SECRET);
+const cookieOptions = () => ({
+  httpOnly: true,
+  secure: process.env.NODE_ENV === 'production',
+  sameSite: 'strict' as const,
+  path: '/',
+  signed: hasCookieSecret(),
+  maxAge: 12 * 60 * 60 * 1000
+});
+const cookieClearOptions = () => ({
+  httpOnly: true,
+  secure: process.env.NODE_ENV === 'production',
+  sameSite: 'strict' as const,
+  path: '/',
+  signed: hasCookieSecret()
+});
+const getAdminCookieToken = (req: Parameters<RequestHandler>[0]) => {
+  const signedToken = req.signedCookies?.[cookieName];
+  if (typeof signedToken === 'string') return signedToken;
+  if (!hasCookieSecret() && typeof req.cookies?.[cookieName] === 'string') return req.cookies[cookieName];
+  return undefined;
+};
 export function validateAuthConfig() {
   if (!process.env.ADMIN_PASSWORD_HASH || !/^[a-f0-9]{32}:[a-f0-9]{128}$/.test(process.env.ADMIN_PASSWORD_HASH)) {
     throw new Error('ADMIN_PASSWORD_HASH must be configured with 32-hex salt and 128-hex scrypt hash.');
   }
   if (process.env.NODE_ENV === 'production') {
+    if (!process.env.COOKIE_SECRET || process.env.COOKIE_SECRET.length < 32) {
+      throw new Error('[Security Fail-Fast] COOKIE_SECRET must be configured with at least 32 characters in production mode.');
+    }
     if (!process.env.QR_SIGN_SECRET || process.env.QR_SIGN_SECRET === 'tran-luu-court-qr-hmac-secret-v2') {
       throw new Error('[Security Fail-Fast] QR_SIGN_SECRET must be set to a custom private secret in production mode. Default fallback is prohibited.');
     }
@@ -42,7 +66,7 @@ export function verifyPassword(password: string, storedHash: string): boolean {
 
 export const requireAdmin: RequestHandler = async (req, res, next) => {
   try {
-    let token = req.cookies[cookieName];
+    let token = getAdminCookieToken(req);
     if (!token && typeof req.headers.authorization === 'string') {
       const parts = req.headers.authorization.split(' ');
       if (parts.length === 2 && /^Bearer$/i.test(parts[0])) {
@@ -379,8 +403,9 @@ authRouter.post('/change-password', requireAdmin, async (req, res, next) => {
           }
         }
       );
-      if (typeof req.cookies[cookieName] === 'string') {
-        const tokenHash = hash(req.cookies[cookieName]);
+      const currentToken = getAdminCookieToken(req);
+      if (currentToken) {
+        const tokenHash = hash(currentToken);
         await cacheDel(`admin_session:${tokenHash}`);
       }
       res.json({ ok: true, message: 'Đổi mật khẩu thành công!' });
@@ -393,13 +418,14 @@ authRouter.post('/change-password', requireAdmin, async (req, res, next) => {
 });
 
 authRouter.post('/logout', async (req, res) => {
-  if (typeof req.cookies[cookieName] === 'string') {
-    const tokenHash = hash(req.cookies[cookieName]);
+  const currentToken = getAdminCookieToken(req);
+  if (currentToken) {
+    const tokenHash = hash(currentToken);
     await getDb().collection('admin_sessions').deleteOne({ tokenHash });
     await cacheDel(`admin_session:${tokenHash}`);
     revokeAdminSession(tokenHash);
   }
-  res.clearCookie(cookieName, cookieOptions()).json({ ok: true });
+  res.clearCookie(cookieName, cookieClearOptions()).json({ ok: true });
 });
 
 export async function getCustomerSession(
@@ -433,4 +459,3 @@ export async function getCustomerSession(
 
   return session;
 }
-

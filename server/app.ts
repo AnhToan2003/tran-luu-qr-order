@@ -4,19 +4,20 @@ import helmet from 'helmet';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { ZodError } from 'zod';
-import { authRouter } from './auth.js';
+import { authRouter, requirePermission } from './auth.js';
 import { catalogRouter } from './routes/catalogRoutes.js';
 import { orderRouter } from './routes/orderRoutes.js';
 import { adminRouter } from './routes/adminRoutes.js';
 import { sessionRouter } from './routes/sessionRoutes.js';
 import { sportsRouter } from './routes/sportsRoutes.js';
 import { rbacRouter } from './routes/rbacRoutes.js';
+import { monitorRouter } from './routes/monitorRoutes.js';
 import { getDb } from './db.js';
 import { ApiError } from './errors.js';
 import { isRedisAvailable } from './redis.js';
 import { openapiSpec } from './swagger/openapiSpec.js';
 import { getSwaggerUiHtml } from './swagger/swaggerUiHtml.js';
-import { telemetryMiddleware, recordSystemError, getApiStats, getTelemetryErrors, getTelemetryMetrics } from './telemetry.js';
+import { telemetryMiddleware, recordSystemError } from './telemetry.js';
 
 export function createApp() {
   const app = express();
@@ -60,7 +61,7 @@ export function createApp() {
   });
   app.use('/api/admin/catalog/import', express.json({ limit: '50mb' }));
   app.use(express.json({ limit: '3mb' }));
-  app.use(cookieParser());
+  app.use(cookieParser(process.env.COOKIE_SECRET));
   app.use(telemetryMiddleware);
   app.use('/api', (req, res, next) => {
     const rawId = req.headers['x-request-id'];
@@ -116,6 +117,7 @@ export function createApp() {
   app.use('/api/admin/rbac', rbacRouter);
   app.use('/api/admin/sports', sportsRouter);
   app.use('/api/admin', adminRouter);
+  app.use('/api/monitor', monitorRouter);
   app.use('/api/catalog', catalogRouter);
   app.use('/api/orders', orderRouter);
   app.use('/api/sessions', sessionRouter);
@@ -132,16 +134,6 @@ export function createApp() {
     } catch {
       res.status(503).json({ status: 'unavailable' });
     }
-  });
-
-  app.get('/api/internal/telemetry', (_req, res) => {
-    res.setHeader('Cache-Control', 'no-cache');
-    res.json({
-      timestamp: new Date().toISOString(),
-      stats: getApiStats(),
-      recentErrors: getTelemetryErrors().slice(-50),
-      recentMetrics: getTelemetryMetrics().slice(-50)
-    });
   });
 
   // Swagger Documentation & Independent API Test Interface
@@ -188,6 +180,11 @@ export function createApp() {
     res.setHeader('Content-Type', 'text/html; charset=utf-8');
     res.setHeader('Cache-Control', 'no-cache');
     res.send(getSwaggerUiHtml('/api-docs/openapi.json'));
+  });
+
+  app.get(['/monitor', '/monitor/'], requirePermission('backup'), (_req, res) => {
+    res.setHeader('Cache-Control', 'no-store');
+    res.sendFile(path.resolve('monitor/dashboard.html'));
   });
 
   app.use('/api', (_req, res) => res.status(404).json({ code: 'NOT_FOUND', message: 'Không tìm thấy API' }));

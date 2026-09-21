@@ -2,6 +2,7 @@ import { WebSocketServer, WebSocket } from 'ws';
 import { createHash, randomUUID } from 'node:crypto';
 import type { Server as HttpServer } from 'node:http';
 import type { IncomingMessage } from 'node:http';
+import cookieParser from 'cookie-parser';
 import { getDb, getCollections } from './db.js';
 import { adminOrderJson, customerOrderJson } from './serialize.js';
 import type { OrderDoc } from './types.js';
@@ -52,7 +53,11 @@ function parseCookies(header: string | undefined): Record<string, string> {
 async function resolveAdminFromUpgrade(req: IncomingMessage): Promise<{ isValid: boolean; tokenHash?: string; expiresAt?: Date; userId?: string; permissions?: string[] }> {
   try {
     const cookies = parseCookies(req.headers.cookie);
-    const token = cookies['tl_admin'];
+    const rawToken = cookies['tl_admin'];
+    const cookieSecret = process.env.COOKIE_SECRET;
+    const token = cookieSecret
+      ? (rawToken?.startsWith('s:') ? cookieParser.signedCookie(rawToken, cookieSecret) : false)
+      : rawToken;
     if (!token || !/^[a-f0-9]{64}$/.test(token)) return { isValid: false };
 
     const db = getDb();
