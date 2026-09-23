@@ -60,12 +60,50 @@ export function telemetryMiddleware(req: Request, res: Response, next: NextFunct
   next();
 }
 
+// P2/Issue #16 FIX: Fields to redact from error logs
+const SENSITIVE_PATTERNS = [
+  /authorization/i, /cookie/i, /x-customer-session/i,
+  /password/i, /token/i, /secret/i, /api[-_]?key/i
+];
+
+function redactSensitive(obj: Record<string, any>): Record<string, any> {
+  const result: Record<string, any> = {};
+  for (const [key, val] of Object.entries(obj)) {
+    if (SENSITIVE_PATTERNS.some(p => p.test(key))) {
+      result[key] = '[REDACTED]';
+    } else if (val && typeof val === 'object' && !Array.isArray(val)) {
+      result[key] = redactSensitive(val);
+    } else {
+      result[key] = val;
+    }
+  }
+  return result;
+}
+
+// P2/Issue #16 FIX: Flood control — max 100 errors per minute
+let errorCountInWindow = 0;
+let errorWindowStart = Date.now();
+const MAX_ERRORS_PER_MINUTE = 100;
+
 /**
  * Ghi nhận lỗi hệ thống vào bộ nhớ đệm và lưu vào MongoDB
  */
 export function recordSystemError(errorData: Omit<SystemErrorLog, 'timestamp'>) {
+  // Flood control: reset window every minute
+  const now = Date.now();
+  if (now - errorWindowStart > 60_000) {
+    errorWindowStart = now;
+    errorCountInWindow = 0;
+  }
+  if (errorCountInWindow >= MAX_ERRORS_PER_MINUTE) {
+    return; // Drop to prevent flooding
+  }
+  errorCountInWindow++;
+
   const log: SystemErrorLog = {
     ...errorData,
+    // P2/Issue #16 FIX: Never store stack trace in production
+    stack: process.env.NODE_ENV !== 'production' ? errorData.stack : undefined,
     timestamp: new Date()
   };
 
@@ -74,11 +112,17 @@ export function recordSystemError(errorData: Omit<SystemErrorLog, 'timestamp'>) 
     recentErrors.shift();
   }
 
-  // Ghi không đồng bộ vào MongoDB system_errors
+  // P2/Issue #16 FIX: Persist to MongoDB asynchronously without blocking
   try {
     const db = getDb();
     if (db) {
-      db.collection('system_errors').insertOne(log).catch(() => {});
+      // Redact sensitive fields before persisting
+      const safeLog = {
+        ...log,
+        // Remove headers entirely from stored errors — too many sensitive fields
+        stack: undefined  // Never store stack in DB
+      };
+      db.collection('system_errors').insertOne(safeLog).catch(() => {});
     }
   } catch {}
 }

@@ -2,12 +2,13 @@ import { Router } from 'express';
 import { createHash, randomBytes, randomUUID } from 'node:crypto';
 import { z } from 'zod';
 import { getCollections, transaction } from '../db.js';
-import { requireAdmin, requirePermission } from '../auth.js';
+import { requireAdmin, requirePermission, requireActionProof, requireActionProofFor } from '../auth.js';
 import { ApiError } from '../errors.js';
 import { invalidateCatalogCache } from '../redis.js';
 import { broadcastEvent } from '../websocket.js';
 import { vietnamDate } from '../time.js';
 import type { SportsItemDoc, SportsMovementDoc, SportsCategory, OrderDoc, OrderItemDoc } from '../types.js';
+import { dateTimeString } from '../validation.js';
 
 export const sportsRouter = Router();
 
@@ -54,7 +55,8 @@ const updateSportsItemSchema = z.object({
 }).strict();
 
 // 0. GET, POST, PUT, DELETE /api/admin/sports/categories
-sportsRouter.get('/categories', async (_req, res) => {
+// P1/Issue #6 FIX: GET /categories requires relevant permission
+sportsRouter.get('/categories', requirePermission(['sports-intake', 'sports-pos', 'sports-order-history', 'intake-history']), async (_req, res) => {
   const c = getCollections();
   const doc = await c.appSettings.findOne({ key: 'sports_categories' });
   let categories: Array<{ id: string; name: string; itemCount?: number }> = Array.isArray(doc?.value) ? [...doc.value] : [...defaultSportsCategories];
@@ -85,7 +87,7 @@ sportsRouter.get('/categories', async (_req, res) => {
   res.json({ categories: categoriesWithCount });
 });
 
-sportsRouter.post('/categories', requirePermission('sports-intake'), async (req, res) => {
+sportsRouter.post('/categories', requirePermission('sports-intake'), requireActionProofFor('sports.category'), async (req, res) => {
   const { name } = z.object({ name: z.string().trim().min(1, 'Tên hạng mục không được rỗng').max(60) }).parse(req.body);
   const c = getCollections();
   const doc = await c.appSettings.findOne({ key: 'sports_categories' });
@@ -114,7 +116,7 @@ sportsRouter.post('/categories', requirePermission('sports-intake'), async (req,
   res.status(201).json({ category: newCat, categories });
 });
 
-sportsRouter.put('/categories/:id', requirePermission('sports-intake'), async (req, res) => {
+sportsRouter.put('/categories/:id', requirePermission('sports-intake'), requireActionProofFor('sports.category'), async (req, res) => {
   const targetId = String(req.params.id).trim();
   const { name } = z.object({ name: z.string().trim().min(1, 'Tên hạng mục không được rỗng').max(60) }).parse(req.body);
   const c = getCollections();
@@ -137,7 +139,7 @@ sportsRouter.put('/categories/:id', requirePermission('sports-intake'), async (r
   res.json({ ok: true, id: targetId, name, categories });
 });
 
-sportsRouter.delete('/categories/:id', requirePermission('sports-intake'), async (req, res) => {
+sportsRouter.delete('/categories/:id', requirePermission('sports-intake'), requireActionProofFor('sports.category'), async (req, res) => {
   const targetId = String(req.params.id).trim();
   const c = getCollections();
 
@@ -156,35 +158,36 @@ sportsRouter.delete('/categories/:id', requirePermission('sports-intake'), async
   const moveTo = typeof req.query.moveTo === 'string' ? req.query.moveTo.trim() : typeof req.body?.moveTo === 'string' ? req.body.moveTo.trim() : undefined;
   const cascadeDelete = req.query.cascadeDelete === 'true' || req.body?.cascadeDelete === true;
 
-  if (inUseCount > 0) {
-    if (cascadeDelete) {
-      // Soft-delete tất cả mặt hàng thuộc hạng mục này
-      await c.sportsItems.updateMany(itemFilter, {
-        $set: { deletedAt: new Date(), isAvailable: false, updatedAt: new Date() }
-      });
-    } else if (moveTo) {
-      // Chuyển toàn bộ mặt hàng sang hạng mục mới
-      await c.sportsItems.updateMany(itemFilter, {
-        $set: { category: moveTo, updatedAt: new Date() }
-      });
-    } else {
-      throw new ApiError(400, 'CATEGORY_IN_USE', `Hạng mục "${targetName}" đang có ${inUseCount} sản phẩm/dịch vụ thể thao sử dụng. Vui lòng chọn hạng mục chuyển đổi hoặc xóa kèm sản phẩm.`);
-    }
+  if (inUseCount > 0 && !cascadeDelete && !moveTo) {
+    throw new ApiError(400, 'CATEGORY_IN_USE', `Hạng mục "${targetName}" đang có ${inUseCount} sản phẩm/dịch vụ thể thao sử dụng. Vui lòng chọn hạng mục chuyển đổi hoặc xóa kèm sản phẩm.`);
   }
 
   categories = categories.filter(c => c.id !== targetId && c.name.toLowerCase() !== targetId.toLowerCase());
+  const now = new Date();
+  await transaction(async session => {
+    if (inUseCount > 0 && cascadeDelete) {
+      await c.sportsItems.updateMany(itemFilter, {
+        $set: { deletedAt: now, isAvailable: false, updatedAt: now }
+      }, { session });
+    } else if (inUseCount > 0 && moveTo) {
+      await c.sportsItems.updateMany(itemFilter, {
+        $set: { category: moveTo, updatedAt: now }
+      }, { session });
+    }
 
-  await c.appSettings.updateOne(
-    { key: 'sports_categories' },
-    { $set: { value: categories, updatedAt: new Date() } },
-    { upsert: true }
-  );
+    await c.appSettings.updateOne(
+      { key: 'sports_categories' },
+      { $set: { value: categories, updatedAt: now } },
+      { upsert: true, session }
+    );
+  });
 
   res.json({ ok: true, id: targetId, categories, affectedCount: inUseCount });
 });
 
 // 1. GET /api/admin/sports/items - Danh sách sản phẩm thể thao & dịch vụ
-sportsRouter.get('/items', async (req, res) => {
+// P1/Issue #6 FIX: GET /items requires relevant permission
+sportsRouter.get('/items', requirePermission(['sports-intake', 'sports-pos', 'sports-order-history']), async (req, res) => {
   const c = getCollections();
   const search = typeof req.query.search === 'string' ? req.query.search.trim() : '';
   const category = typeof req.query.category === 'string' ? req.query.category.trim() : '';
@@ -227,7 +230,7 @@ sportsRouter.get('/items', async (req, res) => {
 });
 
 // 2. POST /api/admin/sports/items - Thêm mới sản phẩm/dịch vụ
-sportsRouter.post('/items', requirePermission('sports-intake'), async (req, res) => {
+sportsRouter.post('/items', requirePermission('sports-intake'), requireActionProof, async (req, res) => {
   const input = createSportsItemSchema.parse(req.body);
   const c = getCollections();
 
@@ -252,25 +255,27 @@ sportsRouter.post('/items', requirePermission('sports-intake'), async (req, res)
     updatedAt: now
   };
 
-  await c.sportsItems.insertOne(doc);
+  await transaction(async session => {
+    await c.sportsItems.insertOne(doc, { session });
 
-  if (!input.isService && input.stock > 0) {
-    const movement: SportsMovementDoc = {
-      operationId: `mov-init-${randomUUID()}`,
-      itemId,
-      itemNameSnapshot: input.name,
-      unitSnapshot: input.unit,
-      delta: input.stock,
-      costPriceVnd: input.costPriceVnd,
-      sellingPriceVnd: input.priceVnd,
-      totalCostVnd: input.stock * input.costPriceVnd,
-      stockAfter: input.stock,
-      reason: 'stock_intake',
-      note: 'Khởi tạo tồn kho ban đầu',
-      createdAt: now
-    };
-    await c.sportsMovements.insertOne(movement);
-  }
+    if (!input.isService && input.stock > 0) {
+      const movement: SportsMovementDoc = {
+        operationId: `mov-init-${randomUUID()}`,
+        itemId,
+        itemNameSnapshot: input.name,
+        unitSnapshot: input.unit,
+        delta: input.stock,
+        costPriceVnd: input.costPriceVnd,
+        sellingPriceVnd: input.priceVnd,
+        totalCostVnd: input.stock * input.costPriceVnd,
+        stockAfter: input.stock,
+        reason: 'stock_intake',
+        note: 'Khởi tạo tồn kho ban đầu',
+        createdAt: now
+      };
+      await c.sportsMovements.insertOne(movement, { session });
+    }
+  });
 
   await invalidateCatalogCache();
   broadcastEvent({ type: 'stock_updated', timestamp: now.toISOString() });
@@ -278,7 +283,7 @@ sportsRouter.post('/items', requirePermission('sports-intake'), async (req, res)
 });
 
 // 3. PUT /api/admin/sports/items/:id - Cập nhật thông tin (KHÔNG sửa tồn kho tại đây)
-sportsRouter.put('/items/:id', requirePermission('sports-intake'), async (req, res) => {
+sportsRouter.put('/items/:id', requirePermission('sports-intake'), requireActionProof, async (req, res) => {
   const itemId = String(req.params.id);
   const input = updateSportsItemSchema.parse(req.body);
   const c = getCollections();
@@ -286,6 +291,10 @@ sportsRouter.put('/items/:id', requirePermission('sports-intake'), async (req, r
   const existing = await c.sportsItems.findOne({ itemId, deletedAt: null });
   if (!existing) {
     throw new ApiError(404, 'NOT_FOUND', 'Không tìm thấy sản phẩm hoặc dịch vụ thể thao');
+  }
+
+  if (input.isService === true && existing.isService === false && (existing.stock || 0) > 0) {
+    throw new ApiError(409, 'STOCK_MUST_BE_ZERO', 'Không thể chuyển mặt hàng còn tồn kho thành dịch vụ. Hãy xử lý hết tồn kho trước.');
   }
 
   const updateFields: any = { updatedAt: new Date() };
@@ -308,7 +317,7 @@ sportsRouter.put('/items/:id', requirePermission('sports-intake'), async (req, r
 });
 
 // 3b. POST /api/admin/sports/items/:id/adjust-stock - Điều chỉnh kiểm kê tồn kho riêng biệt có version bảo vệ
-sportsRouter.post('/items/:id/adjust-stock', requirePermission('sports-intake'), async (req, res) => {
+sportsRouter.post('/items/:id/adjust-stock', requirePermission('sports-intake'), requireActionProof, async (req, res) => {
   const itemId = String(req.params.id);
   const schema = z.object({
     stock: z.number().int().min(0).max(1_000_000),
@@ -382,7 +391,7 @@ sportsRouter.post('/items/:id/adjust-stock', requirePermission('sports-intake'),
 });
 
 // 4. DELETE /api/admin/sports/items/:id - Xóa mềm
-sportsRouter.delete('/items/:id', requirePermission('sports-intake'), async (req, res) => {
+sportsRouter.delete('/items/:id', requirePermission('sports-intake'), requireActionProof, async (req, res) => {
   const itemId = String(req.params.id);
   const c = getCollections();
 
@@ -402,17 +411,18 @@ sportsRouter.delete('/items/:id', requirePermission('sports-intake'), async (req
 
 // 5. POST /api/admin/sports/intake - Nhập thêm kho hàng thể thao nguyên tử có Idempotency
 const sportsIntakeSchema = z.object({
-  clientRequestId: z.string().trim().min(1).optional(),
+  // Required to make a timeout/retry safe and prevent duplicate stock intake.
+  clientRequestId: z.string().trim().min(1),
   itemId: z.string().trim().min(1, 'Mã sản phẩm không được trống'),
   quantity: z.number().int().min(1, 'Số lượng nhập phải từ 1 trở lên').max(100_000),
   costPriceVnd: z.number().int().min(0, 'Giá nhập không được âm').max(100_000_000),
   sellingPriceVnd: z.number().int().min(0, 'Giá bán không được âm').max(100_000_000).optional(),
   responsiblePerson: z.string().trim().min(1, 'Vui lòng nhập tên người phụ trách khi nhập hàng').max(100),
-  transferDate: z.string().optional(),
+  transferDate: dateTimeString.optional(),
   note: z.string().trim().max(200).optional().default('Nhập kho thể thao')
 }).strict();
 
-sportsRouter.post('/intake', requirePermission('sports-intake'), async (req, res) => {
+sportsRouter.post('/intake', requirePermission('sports-intake'), requireActionProof, async (req, res) => {
   const input = sportsIntakeSchema.parse(req.body);
   const now = new Date();
   const operationId = input.clientRequestId ? `sports-intake:${res.locals.admin}:${input.clientRequestId}` : `mov-intake-${randomUUID()}`;
@@ -505,23 +515,25 @@ sportsRouter.post('/intake', requirePermission('sports-intake'), async (req, res
 
 // 5b. POST /api/admin/sports/batch-intake - Nhập nhiều mặt hàng thể thao cùng lúc có Idempotency & All-or-nothing
 const sportsBatchIntakeSchema = z.object({
-  clientRequestId: z.string().trim().min(1).optional(),
+  // Required to make an all-or-nothing batch retry safe.
+  clientRequestId: z.string().trim().min(1),
   items: z.array(z.object({
     itemId: z.string().trim().min(1, 'Mã sản phẩm không được rỗng'),
     quantity: z.number().int().min(1, 'Số lượng nhập phải từ 1 trở lên').max(100_000),
     costPriceVnd: z.number().int().min(0).max(100_000_000).optional(),
     sellingPriceVnd: z.number().int().min(0).max(100_000_000).optional()
   })).min(1, 'Cần ít nhất một món có số lượng nhập lớn hơn 0'),
-  transferDate: z.string().optional(),
+  transferDate: dateTimeString.optional(),
   responsiblePerson: z.string().trim().min(1, 'Vui lòng nhập tên người phụ trách khi nhập hàng').max(100),
   note: z.string().trim().max(200).optional()
 }).strict();
 
-sportsRouter.post('/batch-intake', requirePermission('sports-intake'), async (req, res) => {
+sportsRouter.post('/batch-intake', requirePermission('sports-intake'), requireActionProof, async (req, res) => {
   const input = sportsBatchIntakeSchema.parse(req.body);
   const now = new Date();
   const parsedTransferDate = input.transferDate ? new Date(input.transferDate) : now;
   const c = getCollections();
+  const idempotencyKey = `idempotency:sports_batch:${res.locals.userId || res.locals.admin}:${input.clientRequestId}`;
 
   const fingerprint = input.clientRequestId ? createHash('sha256').update(JSON.stringify({
     items: [...input.items].sort((a, b) => a.itemId.localeCompare(b.itemId)).map(i => ({
@@ -536,7 +548,7 @@ sportsRouter.post('/batch-intake', requirePermission('sports-intake'), async (re
   })).digest('hex') : undefined;
 
   if (input.clientRequestId) {
-    const existing = await c.appSettings.findOne({ key: `idempotency:sports_batch:${input.clientRequestId}` });
+    const existing = await c.appSettings.findOne({ key: idempotencyKey });
     if (existing) {
       if (existing.fingerprint && existing.fingerprint !== fingerprint) {
         throw new ApiError(409, 'REQUEST_CONFLICT', 'Mã yêu cầu đã được sử dụng cho một nội dung khác');
@@ -560,7 +572,7 @@ sportsRouter.post('/batch-intake', requirePermission('sports-intake'), async (re
   const result = await transaction(async session => {
     // Kiểm tra Idempotency chặt chẽ bên trong transaction
     if (input.clientRequestId) {
-      const existing = await c.appSettings.findOne({ key: `idempotency:sports_batch:${input.clientRequestId}` }, { session });
+      const existing = await c.appSettings.findOne({ key: idempotencyKey }, { session });
       if (existing) {
         if (existing.fingerprint && existing.fingerprint !== fingerprint) {
           throw new ApiError(409, 'REQUEST_CONFLICT', 'Mã yêu cầu đã được sử dụng cho một nội dung khác');
@@ -627,7 +639,7 @@ sportsRouter.post('/batch-intake', requirePermission('sports-intake'), async (re
 
     if (input.clientRequestId) {
       await c.appSettings.updateOne(
-        { key: `idempotency:sports_batch:${input.clientRequestId}` },
+        { key: idempotencyKey },
         { $set: { value: payload, fingerprint, updatedAt: now } },
         { session, upsert: true }
       );
@@ -859,7 +871,8 @@ sportsRouter.get('/intake-history', requirePermission('sports-intake'), async (r
 
 // 7. POST /api/admin/sports/pos/order - Tạo đơn bán hàng tại quầy (POS) với ACID Transaction & Idempotency
 const posOrderSchema = z.object({
-  clientRequestId: z.string().trim().min(1).optional(),
+  // Required for financial idempotency. Never generate a new key on retry.
+  clientRequestId: z.string().trim().min(1),
   courtId: z.string().trim().optional().default('counter'),
   courtNameSnapshot: z.string().trim().optional().default('Quầy Lễ Tân (Khách vãng lai)'),
   customerName: z.string().trim().max(100).optional().default('Khách tại quầy'),
@@ -869,24 +882,25 @@ const posOrderSchema = z.object({
   items: z.array(z.object({
     itemId: z.string().trim().min(1, 'Mã sản phẩm/dịch vụ không hợp lệ'),
     quantity: z.number().int().min(1, 'Số lượng tối thiểu là 1').max(1000),
-    priceVnd: z.number().int().min(0).optional()
+    // Kept for backward compatibility with older clients, but never trusted;
+    // the server always uses the current database price below.
+    priceVnd: z.number().int().min(0).max(100_000_000).optional()
   })).min(1, 'Giỏ hàng bán tại quầy không được trống')
 }).strict();
 
-sportsRouter.post('/pos/order', requirePermission('sports-pos'), async (req, res) => {
+sportsRouter.post('/pos/order', requirePermission('sports-pos'), requireActionProofFor('sports.pos'), async (req, res) => {
   const input = posOrderSchema.parse(req.body);
   const now = new Date();
   const c = getCollections();
 
   // 1. Hợp nhất các dòng item trùng lặp trước khi kiểm tra tồn kho (chống oversell)
-  const mergedItemsMap = new Map<string, { itemId: string; quantity: number; priceVnd?: number }>();
+  const mergedItemsMap = new Map<string, { itemId: string; quantity: number }>();
   for (const item of input.items) {
     const existing = mergedMapItem(mergedItemsMap, item.itemId);
     if (existing) {
       existing.quantity += item.quantity;
-      if (item.priceVnd !== undefined) existing.priceVnd = item.priceVnd;
     } else {
-      mergedItemsMap.set(item.itemId, { ...item });
+      mergedItemsMap.set(item.itemId, { itemId: item.itemId, quantity: item.quantity });
     }
   }
   const mergedItems = Array.from(mergedItemsMap.values());
@@ -895,15 +909,17 @@ sportsRouter.post('/pos/order', requirePermission('sports-pos'), async (req, res
     return map.get(key);
   }
 
-  // 2. Kiểm tra Idempotency nếu có clientRequestId
-  const clientRequestId = input.clientRequestId || `posreq-${randomUUID()}`;
+  // 2. Idempotency key is required by the schema. Do not generate a new key
+  // here: generating one would make a transport retry create a second order.
+  const clientRequestId = input.clientRequestId;
   const fingerprint = createHash('sha256').update(JSON.stringify({
     courtId: input.courtId,
     items: [...mergedItems].sort((a, b) => a.itemId.localeCompare(b.itemId)),
     paymentMethod: input.paymentMethod
   })).digest('hex');
 
-  const existingQuery = { customerSessionHash: 'admin_pos_session', clientRequestId };
+  const posSessionScope = `admin_pos_session:${res.locals.userId || res.locals.admin}`;
+  const existingQuery = { customerSessionHash: posSessionScope, clientRequestId };
   const existingOrder = await c.orders.findOne(existingQuery);
   if (existingOrder) {
     if (existingOrder.requestFingerprint && existingOrder.requestFingerprint !== fingerprint) {
@@ -952,7 +968,9 @@ sportsRouter.post('/pos/order', requirePermission('sports-pos'), async (req, res
         throw new ApiError(400, 'ITEM_UNAVAILABLE', `Mặt hàng "${found.name}" đang tạm ngưng kinh doanh`);
       }
 
-      const unitPrice = item.priceVnd !== undefined ? item.priceVnd : found.priceVnd;
+      // Never trust a price supplied by the browser. The catalog price in the
+      // database is authoritative for the receipt, revenue and profit figures.
+      const unitPrice = found.priceVnd;
       const lineTotal = unitPrice * item.quantity;
       totalVnd += lineTotal;
 
@@ -1034,7 +1052,7 @@ sportsRouter.post('/pos/order', requirePermission('sports-pos'), async (req, res
       paymentStatus: 'paid',
       paymentMethod: input.paymentMethod,
       paidAt: now,
-      customerSessionHash: 'admin_pos_session',
+      customerSessionHash: posSessionScope,
       status: 'delivered',
       totalVnd,
       items: orderItems,

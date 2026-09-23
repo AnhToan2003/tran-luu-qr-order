@@ -1,18 +1,20 @@
 import { Router } from 'express';
-import { randomUUID, createHash } from 'node:crypto';
+import { randomUUID, createHash, randomBytes } from 'node:crypto';
+import { rateLimit, ipKeyGenerator } from 'express-rate-limit';
 import { z } from 'zod';
-import { requireAdmin, hashPassword, verifyPassword, requirePermission, revokeUserSessions, revokeRoleSessions } from '../auth.js';
-import { getCollections, transaction, snapshotRead } from '../db.js';
+import { requireAdmin, hashPassword, verifyPassword, requirePermission, requireActionProof, requireActionProofFor, revokeUserSessions, revokeRoleSessions } from '../auth.js';
+import { getCollections, transaction, snapshotRead, getDb } from '../db.js';
 import { ApiError } from '../errors.js';
 import { OrderService } from '../services/orderService.js';
 import { orderJson, productJson } from '../serialize.js';
 import { dateRange, vietnamDate } from '../time.js';
-import { courtCode, id, productFields, productPatch, stock, items as itemsSchema } from '../validation.js';
+import { courtCode, dateTimeString, id, productFields, productPatch, stock, items as itemsSchema } from '../validation.js';
 import { signCourtCode } from '../services/qrSign.js';
 import { broadcastEvent } from '../websocket.js';
 import { cacheDel, invalidateCatalogCache } from '../redis.js';
 import type { AuditLogDoc, OrderDoc, OrderItemDoc } from '../types.js';
 import { migrateBackupToV2 } from '../utils/backupMigration.js';
+import { createRateLimitStore } from '../rateLimitStore.js';
 
 export const adminRouter = Router();
 adminRouter.use(requireAdmin);
@@ -24,67 +26,129 @@ async function recordAuditLog(
   details: Record<string, unknown> = {},
   ip?: string
 ) {
-  try {
-    const c = getCollections();
-    await c.auditLogs.insertOne({
-      auditId: randomUUID(),
-      adminUsername: adminUsername || 'admin',
-      action,
-      targetId,
-      details,
-      ip,
-      createdAt: new Date()
-    });
-  } catch (err) {
-    console.error('[AuditLog] Error recording log:', (err as Error).message);
+  const event = {
+    auditId: randomUUID(),
+    adminUsername: adminUsername || 'admin',
+    action,
+    targetId,
+    details,
+    ip,
+    createdAt: new Date()
+  };
+  let lastError: unknown;
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    try {
+      await getCollections().auditLogs.insertOne(event);
+      return;
+    } catch (err) {
+      lastError = err;
+      if (attempt < 2) await new Promise(resolve => setTimeout(resolve, 50 * (attempt + 1)));
+    }
   }
+  console.error('[AuditLog] Error recording log after retries:', (lastError as Error)?.message || 'unknown error');
 }
 
-adminRouter.get('/settings', async (_req, res) => res.json((await getCollections().appSettings.findOne({ key: 'system_config' }))?.value));
-adminRouter.patch('/settings', requirePermission(['orders', 'rbac']), async (req, res) => {
+// P1/Issue #6 FIX: GET /settings now requires at least one of these permissions
+adminRouter.get('/settings', requirePermission(['orders', 'rbac', 'revenue-report', 'courts', 'backup']), async (_req, res) => res.json((await getCollections().appSettings.findOne({ key: 'system_config' }))?.value));
+adminRouter.patch('/settings', requirePermission(['orders', 'rbac']), requireActionProofFor('settings'), async (req, res) => {
   const value = z.object({ isAcceptingOrders: z.boolean() }).strict().parse(req.body);
   await getCollections().appSettings.updateOne({ key: 'system_config' }, { $set: { 'value.isAcceptingOrders': value.isAcceptingOrders, updatedAt: new Date() } });
   await recordAuditLog(res.locals.admin, 'settings_update', 'system_config', { isAcceptingOrders: value.isAcceptingOrders }, req.ip);
   res.json(value);
 });
 
-// Endpoint bảo mật: Xác thực mật khẩu quản trị viên trước khi thực hiện thao tác nhạy cảm (Nhập hàng, CRUD sản phẩm)
-adminRouter.post('/auth/verify-action-password', async (req, res) => {
-  const { password } = z.object({ password: z.string().min(1, 'Vui lòng nhập mật khẩu quản trị viên') }).parse(req.body);
+// P1/Issue #4 FIX: Rate limiter for verify-action-password (5 attempts/10 min per userId+IP)
+const actionPasswordRateLimit = rateLimit({
+  windowMs: 10 * 60 * 1000, // 10 minutes
+  limit: 5,
+  skipSuccessfulRequests: false, // Count all attempts, including successful
+  standardHeaders: 'draft-8',
+  legacyHeaders: false,
+  store: createRateLimitStore('action-password'),
+  keyGenerator: (req) => {
+    const ip = ipKeyGenerator(req.ip || req.socket.remoteAddress || 'unknown');
+    // userId is not available in keyGenerator (no res.locals) — use IP only for action proof rate limit
+    return `action_pwd:${ip}`;
+  },
+  message: { code: 'TOO_MANY_ATTEMPTS', message: 'Quá nhiều lần thử mật khẩu. Vui lòng thử lại sau 10 phút.' }
+});
+
+const catalogImportRateLimit = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  limit: 5,
+  standardHeaders: 'draft-8',
+  legacyHeaders: false,
+  store: createRateLimitStore('catalog-import'),
+  keyGenerator: (req) => `catalog-import:${ipKeyGenerator(req.ip || req.socket.remoteAddress || 'unknown')}`,
+  message: { code: 'TOO_MANY_ATTEMPTS', message: 'Quá nhiều lần import. Vui lòng thử lại sau.' }
+});
+
+// P1/Issue #4 FIX: verify-action-password issues a one-time proof token
+// The proof is stored in MongoDB action_proofs collection (TTL 5 minutes)
+// Sensitive endpoints must validate this proof — not just rely on frontend modal
+adminRouter.post('/auth/verify-action-password', actionPasswordRateLimit, async (req, res) => {
+  const schema = z.object({
+    password: z.string().min(1, 'Vui lòng nhập mật khẩu quản trị viên').max(256),
+    action: z.string().trim().min(1).max(80).optional().default('inventory'), // What action is being authorized
+    resourceId: z.string().trim().max(120).optional()                        // Specific resource ID (optional)
+  });
+  const { password, action, resourceId } = schema.parse(req.body);
   const currentAdmin = res.locals.admin;
   const currentUserId = res.locals.userId;
   const c = getCollections();
 
   let isValid = false;
 
-  // 1. Kiểm tra nếu là DB Admin User
+  // P1 FIX: Only verify the password of the currently logged-in user
   if (currentUserId) {
+    // DB user: check ONLY their own password — no ENV fallback
     const user = await c.adminUsers.findOne({ userId: currentUserId, isActive: true });
     if (user && user.passwordHash) {
-      isValid = verifyPassword(password, user.passwordHash);
+      // P2/Issue #11 FIX: async verifyPassword
+      isValid = await verifyPassword(password, user.passwordHash);
+    }
+    // NOTE: DB users cannot verify against ENV admin password
+  } else {
+    // ENV admin: verify against ENV ADMIN_PASSWORD_HASH only
+    if (process.env.ADMIN_PASSWORD_HASH) {
+      isValid = await verifyPassword(password, process.env.ADMIN_PASSWORD_HASH);
     }
   }
 
-  // 2. Kiểm tra nếu là ENV Admin
-  if (!isValid && process.env.ADMIN_PASSWORD_HASH) {
-    isValid = verifyPassword(password, process.env.ADMIN_PASSWORD_HASH);
-  }
-
-  // 3. Chế độ phát triển dev fallback
+  // Dev-only fallback (never in production)
   if (!isValid && process.env.NODE_ENV !== 'production' && (password === 'admin123' || password === 'admin')) {
     isValid = true;
   }
 
   if (!isValid) {
-    await recordAuditLog(currentAdmin, 'failed_action_password_verify', undefined, { ip: req.ip }, req.ip);
+    // P1 FIX: Log failed attempts without logging the password
+    await recordAuditLog(currentAdmin, 'failed_action_password_verify', undefined, { ip: req.ip, action }, req.ip);
     throw new ApiError(403, 'INVALID_PASSWORD', 'Mật khẩu quản trị viên không chính xác. Thao tác bị từ chối!');
   }
 
-  await recordAuditLog(currentAdmin, 'action_password_verified', undefined, { ip: req.ip }, req.ip);
-  res.json({ ok: true, message: 'Xác thực mật khẩu quản trị thành công', timestamp: Date.now() });
+  // P1/Issue #4 FIX: Issue one-time action proof token (TTL 5 minutes)
+  // This proof must be presented to sensitive endpoints to execute the operation.
+  const proofId = randomBytes(32).toString('hex');
+  const expiresAt = new Date(Date.now() + 5 * 60 * 1000); // 5 minutes
+
+  // Store proof in MongoDB (TTL index on expiresAt auto-deletes after expiry)
+  await getDb().collection('action_proofs').insertOne({
+    proofId,
+    userId: currentUserId || `env:${currentAdmin}`,
+    adminUsername: currentAdmin,
+    action,
+    resourceId: resourceId || null,
+    used: false,
+    expiresAt,
+    createdAt: new Date()
+  });
+
+  await recordAuditLog(currentAdmin, 'action_password_verified', undefined, { ip: req.ip, action, resourceId: resourceId || null }, req.ip);
+  res.json({ ok: true, proofToken: proofId, expiresAt: expiresAt.toISOString(), message: 'Xác thực mật khẩu quản trị thành công' });
 });
 
-adminRouter.get('/categories', async (_req, res) => {
+// P1/Issue #6 FIX: GET /categories now requires drink-intake permission
+adminRouter.get('/categories', requirePermission(['drink-intake', 'orders', 'revenue-report']), async (_req, res) => {
   const c = getCollections();
   const doc = await c.appSettings.findOne({ key: 'drink_categories' });
   const defaultCategories: Array<{ id: string; name: string }> = [
@@ -124,7 +188,7 @@ adminRouter.get('/categories', async (_req, res) => {
   res.json({ categories: categoriesWithCount });
 });
 
-adminRouter.post('/categories', requirePermission('drink-intake'), async (req, res) => {
+adminRouter.post('/categories', requirePermission('drink-intake'), requireActionProofFor('drink.category'), async (req, res) => {
   const { name } = z.object({ name: z.string().trim().min(1, 'Tên hạng mục không được rỗng').max(60) }).parse(req.body);
   const c = getCollections();
   const doc = await c.appSettings.findOne({ key: 'drink_categories' });
@@ -162,7 +226,7 @@ adminRouter.post('/categories', requirePermission('drink-intake'), async (req, r
   res.status(201).json({ category: newCat, categories });
 });
 
-adminRouter.put('/categories/:id', requirePermission('drink-intake'), async (req, res) => {
+adminRouter.put('/categories/:id', requirePermission('drink-intake'), requireActionProofFor('drink.category'), async (req, res) => {
   const targetId = String(req.params.id).trim();
   const { name } = z.object({ name: z.string().trim().min(1, 'Tên hạng mục không được rỗng').max(60) }).parse(req.body);
   const c = getCollections();
@@ -196,7 +260,7 @@ adminRouter.put('/categories/:id', requirePermission('drink-intake'), async (req
   res.json({ ok: true, id: targetId, name, categories });
 });
 
-adminRouter.delete('/categories/:id', requirePermission('drink-intake'), async (req, res) => {
+adminRouter.delete('/categories/:id', requirePermission('drink-intake'), requireActionProofFor('drink.category'), async (req, res) => {
   const targetId = String(req.params.id).trim();
   const c = getCollections();
 
@@ -224,31 +288,31 @@ adminRouter.delete('/categories/:id', requirePermission('drink-intake'), async (
   const moveTo = typeof req.query.moveTo === 'string' ? req.query.moveTo.trim() : typeof req.body?.moveTo === 'string' ? req.body.moveTo.trim() : undefined;
   const cascadeDelete = req.query.cascadeDelete === 'true' || req.body?.cascadeDelete === true;
 
-  if (inUseCount > 0) {
-    if (cascadeDelete) {
-      // Soft-delete toàn bộ sản phẩm thuộc hạng mục này
-      await c.products.updateMany(productFilter, {
-        $set: { deletedAt: new Date(), isAvailable: false, updatedAt: new Date() },
-        $inc: { version: 1 }
-      });
-    } else if (moveTo) {
-      // Chuyển toàn bộ sản phẩm sang hạng mục mới (hoặc uncategorized)
-      await c.products.updateMany(productFilter, {
-        $set: { category: moveTo, updatedAt: new Date() },
-        $inc: { version: 1 }
-      });
-    } else {
-      throw new ApiError(400, 'CATEGORY_IN_USE', `Hạng mục "${targetName}" đang có ${inUseCount} sản phẩm sử dụng. Vui lòng chọn hạng mục chuyển đổi hoặc xóa kèm sản phẩm.`);
-    }
+  if (inUseCount > 0 && !cascadeDelete && !moveTo) {
+    throw new ApiError(400, 'CATEGORY_IN_USE', `Hạng mục "${targetName}" đang có ${inUseCount} sản phẩm sử dụng. Vui lòng chọn hạng mục chuyển đổi hoặc xóa kèm sản phẩm.`);
   }
 
   categories = categories.filter(c => c.id !== targetId && c.name.toLowerCase() !== targetId.toLowerCase());
+  const now = new Date();
+  await transaction(async session => {
+    if (inUseCount > 0 && cascadeDelete) {
+      await c.products.updateMany(productFilter, {
+        $set: { deletedAt: now, isAvailable: false, updatedAt: now },
+        $inc: { version: 1 }
+      }, { session });
+    } else if (inUseCount > 0 && moveTo) {
+      await c.products.updateMany(productFilter, {
+        $set: { category: moveTo, updatedAt: now },
+        $inc: { version: 1 }
+      }, { session });
+    }
 
-  await c.appSettings.updateOne(
-    { key: 'drink_categories' },
-    { $set: { value: categories, updatedAt: new Date() } },
-    { upsert: true }
-  );
+    await c.appSettings.updateOne(
+      { key: 'drink_categories' },
+      { $set: { value: categories, updatedAt: now } },
+      { upsert: true, session }
+    );
+  });
 
   await invalidateCatalogCache();
   await recordAuditLog(res.locals.admin, 'category_delete', targetId, {
@@ -277,7 +341,7 @@ adminRouter.get('/orders/active', requirePermission('orders'), async (_req, res)
   res.json([...open, ...delivered].map(orderJson));
 });
 
-adminRouter.post('/orders/:id/payment', requirePermission(['orders', 'sports-pos']), async (req, res) => {
+adminRouter.post('/orders/:id/payment', requirePermission(['orders', 'sports-pos']), requireActionProofFor('order.financial'), async (req, res) => {
   const { paymentStatus, paymentMethod, reason } = z.object({
     paymentStatus: z.enum(['paid', 'unpaid']),
     paymentMethod: z.enum(['cash', 'transfer']).optional(),
@@ -309,7 +373,7 @@ adminRouter.post('/orders/:id/payment', requirePermission(['orders', 'sports-pos
   res.json(orderJson(updated));
 });
 
-adminRouter.post('/orders/:id/transition', requirePermission(['orders', 'sports-pos']), async (req, res) => {
+adminRouter.post('/orders/:id/transition', requirePermission(['orders', 'sports-pos']), requireActionProofFor('order.transition'), async (req, res) => {
   const { targetStatus } = z.object({ targetStatus: z.enum(['preparing', 'delivered']) }).strict().parse(req.body);
   const orderId = id.parse(req.params.id);
   const c = getCollections();
@@ -331,7 +395,7 @@ adminRouter.post('/orders/:id/transition', requirePermission(['orders', 'sports-
   res.json(orderJson(await OrderService.transition(orderId, targetStatus)));
 });
 
-adminRouter.post('/orders/:id/deliver-and-pay', requirePermission(['orders', 'sports-pos']), async (req, res) => {
+adminRouter.post('/orders/:id/deliver-and-pay', requirePermission(['orders', 'sports-pos']), requireActionProofFor('order.financial'), async (req, res) => {
   const { paymentStatus, paymentMethod, reason } = z.object({
     paymentStatus: z.enum(['paid', 'unpaid']),
     paymentMethod: z.enum(['cash', 'transfer']).optional(),
@@ -359,7 +423,7 @@ adminRouter.post('/orders/:id/deliver-and-pay', requirePermission(['orders', 'sp
   res.json(orderJson(order));
 });
 
-adminRouter.post('/orders/:id/cancel', requirePermission(['orders', 'sports-pos']), async (req, res) => {
+adminRouter.post('/orders/:id/cancel', requirePermission(['orders', 'sports-pos']), requireActionProofFor('order.financial'), async (req, res) => {
   const { reason } = z.object({ reason: z.string().trim().min(1).max(300) }).strict().parse(req.body);
   const orderId = id.parse(req.params.id);
   const c = getCollections();
@@ -383,7 +447,7 @@ adminRouter.post('/orders/:id/cancel', requirePermission(['orders', 'sports-pos'
   res.json(orderJson(cancelled));
 });
 
-adminRouter.post('/orders/create-pos', requirePermission('orders'), async (req, res) => {
+adminRouter.post('/orders/create-pos', requirePermission('orders'), requireActionProofFor('order.pos'), async (req, res) => {
   const schema = z.object({
     clientRequestId: id,
     items: itemsSchema,
@@ -547,17 +611,18 @@ adminRouter.post('/orders/create-pos', requirePermission('orders'), async (req, 
     throw error;
   }
 });
-adminRouter.post('/orders/create-for-court', requirePermission('orders'), async (req, res) => {
+adminRouter.post('/orders/create-for-court', requirePermission('orders'), requireActionProofFor('order.pos'), async (req, res) => {
   const order = await OrderService.placeOrder(`admin:${res.locals.admin}`, req.body);
   await recordAuditLog(res.locals.admin, 'order_create', order.orderId, { courtName: order.courtNameSnapshot, totalVnd: order.totalVnd }, req.ip);
   res.status(201).json(orderJson(order));
 });
 
-adminRouter.get('/products', async (_req, res) => {
+// P1/Issue #6 FIX: GET /products now requires a relevant permission
+adminRouter.get('/products', requirePermission(['drink-intake', 'orders', 'order-history', 'revenue-report']), async (_req, res) => {
   res.json((await getCollections().products.find({ deletedAt: null }).sort({ category: 1, name: 1 }).toArray()).map(productJson));
 });
 
-adminRouter.post('/products', requirePermission('drink-intake'), async (req, res) => {
+adminRouter.post('/products', requirePermission('drink-intake'), requireActionProof, async (req, res) => {
   const input = productFields.strict().parse(req.body);
   const now = new Date();
   const product = { ...input, productId: randomUUID(), createdAt: now, updatedAt: now, deletedAt: null, version: 1 };
@@ -584,7 +649,7 @@ adminRouter.post('/products', requirePermission('drink-intake'), async (req, res
   res.status(201).json(productJson(product));
 });
 
-adminRouter.patch('/products/:id', requirePermission('drink-intake'), async (req, res) => {
+adminRouter.patch('/products/:id', requirePermission('drink-intake'), requireActionProof, async (req, res) => {
   const input = productPatch.parse(req.body);
   const productId = id.parse(req.params.id);
   const updated = await transaction(async session => {
@@ -605,7 +670,7 @@ adminRouter.patch('/products/:id', requirePermission('drink-intake'), async (req
   res.json(productJson(updated));
 });
 
-adminRouter.delete('/products/:id', requirePermission('drink-intake'), async (req, res) => {
+adminRouter.delete('/products/:id', requirePermission('drink-intake'), requireActionProof, async (req, res) => {
   const productId = id.parse(req.params.id);
   const updated = await getCollections().products.findOneAndUpdate({ productId, deletedAt: null }, { $set: { deletedAt: new Date(), isAvailable: false, updatedAt: new Date() }, $inc: { version: 1 } }, { returnDocument: 'after' });
   if (!updated) throw new ApiError(404, 'NOT_FOUND', 'Không tìm thấy sản phẩm');
@@ -618,7 +683,7 @@ adminRouter.get('/products/:id/movements', requirePermission('intake-history'), 
   res.json(await getCollections().inventoryMovements.find({ productId: id.parse(req.params.id) }).sort({ createdAt: -1 }).limit(100).toArray());
 });
 
-adminRouter.post('/products/:id/stock', requirePermission('drink-intake'), async (req, res) => {
+adminRouter.post('/products/:id/stock', requirePermission('drink-intake'), requireActionProof, async (req, res) => {
   const input = z.object({
     clientRequestId: id,
     delta: z.number().int().min(-1_000_000).max(1_000_000).optional(),
@@ -627,7 +692,7 @@ adminRouter.post('/products/:id/stock', requirePermission('drink-intake'), async
     costPriceVnd: z.number().int().min(0).max(100_000_000).optional(),
     sellingPriceVnd: z.number().int().min(0).max(100_000_000).optional(),
     responsiblePerson: z.string().trim().max(100).optional(),
-    transferDate: z.string().optional(),
+    transferDate: dateTimeString.optional(),
     note: z.string().trim().max(200).optional(),
     reason: z.enum(['stock_intake', 'stock_adjustment', 'quick_restock']).default('stock_intake')
   }).strict()
@@ -709,21 +774,24 @@ adminRouter.post('/products/:id/stock', requirePermission('drink-intake'), async
   res.json(result);
 });
 
-adminRouter.post('/inventory/batch-intake', requirePermission('drink-intake'), async (req, res) => {
+adminRouter.post('/inventory/batch-intake', requirePermission('drink-intake'), requireActionProof, async (req, res) => {
   const schema = z.object({
-    clientRequestId: id.optional(),
+    // Required for safe retry: without this key a network retry could add
+    // the same stock intake twice.
+    clientRequestId: id,
     items: z.array(z.object({
       productId: id,
       delta: z.number().int().positive().max(1_000_000),
       costPriceVnd: z.number().int().min(0).max(100_000_000).optional(),
       sellingPriceVnd: z.number().int().min(0).max(100_000_000).optional()
     })).min(1, 'Cần ít nhất một món có số lượng nhập lớn hơn 0'),
-    transferDate: z.string().optional(),
+    transferDate: dateTimeString.optional(),
     responsiblePerson: z.string().trim().min(1, 'Vui lòng nhập tên người phụ trách khi nhập hàng').max(100),
     note: z.string().trim().max(200).optional()
   });
   const input = schema.parse(req.body);
   const c = getCollections();
+  const idempotencyKey = `idempotency:drink_batch:${res.locals.userId || res.locals.admin}:${input.clientRequestId}`;
 
   // F06: Idempotency check with payload fingerprint verification
   const fingerprint = createHash('sha256').update(JSON.stringify({
@@ -739,7 +807,7 @@ adminRouter.post('/inventory/batch-intake', requirePermission('drink-intake'), a
   })).digest('hex');
 
   if (input.clientRequestId) {
-    const existingBatch = await c.appSettings.findOne({ key: `idempotency:drink_batch:${input.clientRequestId}` });
+    const existingBatch = await c.appSettings.findOne({ key: idempotencyKey });
     if (existingBatch) {
       if (existingBatch.fingerprint && existingBatch.fingerprint !== fingerprint) {
         throw new ApiError(409, 'REQUEST_CONFLICT', 'Mã yêu cầu đã được sử dụng cho một nội dung khác');
@@ -765,7 +833,7 @@ adminRouter.post('/inventory/batch-intake', requirePermission('drink-intake'), a
 
   const result = await transaction(async session => {
     if (input.clientRequestId) {
-      const duplicate = await c.appSettings.findOne({ key: `idempotency:drink_batch:${input.clientRequestId}` }, { session });
+      const duplicate = await c.appSettings.findOne({ key: idempotencyKey }, { session });
       if (duplicate) {
         if (duplicate.fingerprint && duplicate.fingerprint !== fingerprint) {
           throw new ApiError(409, 'REQUEST_CONFLICT', 'Mã yêu cầu đã được sử dụng cho một nội dung khác');
@@ -832,7 +900,7 @@ adminRouter.post('/inventory/batch-intake', requirePermission('drink-intake'), a
     const batchResult = { intakeBatchId, count: updatedProducts.length, items: updatedProducts };
     if (input.clientRequestId) {
       await c.appSettings.updateOne(
-        { key: `idempotency:drink_batch:${input.clientRequestId}` },
+        { key: idempotencyKey },
         { $set: { value: batchResult, fingerprint, updatedAt: now } },
         { session, upsert: true }
       );
@@ -1067,7 +1135,8 @@ adminRouter.get('/inventory/intake-history', requirePermission('intake-history')
   });
 });
 
-adminRouter.get('/courts', async (_req, res) => {
+// P1/Issue #6 FIX: GET /courts now requires courts permission
+adminRouter.get('/courts', requirePermission('courts'), async (_req, res) => {
   const courts = await getCollections().courts.find({ deletedAt: null }).sort({ sortOrder: 1 }).toArray();
   res.json(courts.map(c => ({
     id: c.courtId,
@@ -1078,7 +1147,7 @@ adminRouter.get('/courts', async (_req, res) => {
     sig: signCourtCode(c.code)
   })));
 });
-adminRouter.post('/courts', requirePermission('courts'), async (req, res) => {
+adminRouter.post('/courts', requirePermission('courts'), requireActionProofFor('courts.manage'), async (req, res) => {
   const input = z.object({ code: courtCode, name: z.string().trim().min(1).max(100) }).strict().parse(req.body);
   const c = getCollections();
   const existing = await c.courts.findOne({ code: input.code });
@@ -1088,13 +1157,13 @@ adminRouter.post('/courts', requirePermission('courts'), async (req, res) => {
   await c.courts.insertOne(court);
   res.status(201).json({ id: court.courtId, ...input, isActive: true });
 });
-adminRouter.patch('/courts/:id', requirePermission('courts'), async (req, res) => {
+adminRouter.patch('/courts/:id', requirePermission('courts'), requireActionProofFor('courts.manage'), async (req, res) => {
   const input = z.object({ name: z.string().trim().min(1).max(100).optional(), isActive: z.boolean().optional() }).strict().parse(req.body);
   const result = await getCollections().courts.findOneAndUpdate({ courtId: id.parse(req.params.id), deletedAt: null }, { $set: { ...input, updatedAt: new Date() } }, { returnDocument: 'after' });
   if (!result) throw new ApiError(404, 'NOT_FOUND', 'Không tìm thấy sân');
   res.json({ id: result.courtId, code: result.code, name: result.name, isActive: result.isActive });
 });
-adminRouter.delete('/courts/:id', requirePermission('courts'), async (req, res) => {
+adminRouter.delete('/courts/:id', requirePermission('courts'), requireActionProofFor('courts.manage'), async (req, res) => {
   const courtId = id.parse(req.params.id);
   await transaction(async session => {
     const c = getCollections();
@@ -1108,10 +1177,10 @@ adminRouter.delete('/courts/:id', requirePermission('courts'), async (req, res) 
 adminRouter.get('/reports/history', requirePermission(['order-history', 'sports-order-history']), async (req, res) => {
   const query = z.object({
     courtId: id.optional(),
-    status: z.enum(['all','new','accepted','preparing','delivered','cancelled','paid_cash','paid_transfer']).optional(),
-    paymentStatus: z.enum(['all','unpaid','paid']).optional(),
-    paymentMethod: z.enum(['all','cash','transfer']).optional(),
-    orderType: z.enum(['all','drinks','sports_pos']).optional().default('all'),
+    status: z.enum(['all', 'new', 'accepted', 'preparing', 'delivered', 'cancelled', 'paid_cash', 'paid_transfer']).optional(),
+    paymentStatus: z.enum(['all', 'unpaid', 'paid']).optional(),
+    paymentMethod: z.enum(['all', 'cash', 'transfer']).optional(),
+    orderType: z.enum(['all', 'drinks', 'sports_pos']).optional().default('all'),
     timePreset: z.string().optional(),
     startDate: z.string().optional(),
     endDate: z.string().optional(),
@@ -1144,8 +1213,8 @@ adminRouter.get('/reports/history', requirePermission(['order-history', 'sports-
     query.orderType = 'drinks';
   }
 
-  const baseFilter: Record<string,unknown> = {};
-  if(query.courtId && query.courtId !== 'all') baseFilter.courtId = query.courtId;
+  const baseFilter: Record<string, unknown> = {};
+  if (query.courtId && query.courtId !== 'all') baseFilter.courtId = query.courtId;
 
   if (query.orderType === 'drinks') {
     baseFilter.orderType = { $ne: 'sports_pos' };
@@ -1247,10 +1316,10 @@ adminRouter.get('/reports/history', requirePermission(['order-history', 'sports-
   const totalProfitVnd = Math.max(0, totalRevenueVnd - totalCostVnd);
 
   const queryFilter: Record<string, unknown> = { ...baseFilter };
-  if(query.cursor) {
-    const cursorOrder = await c.orders.findOne({orderId:query.cursor});
-    if(!cursorOrder) throw new ApiError(400,'INVALID_CURSOR','Mốc lịch sử không hợp lệ');
-    const cursorCond = [{createdAt:{$lt:cursorOrder.createdAt}},{createdAt:cursorOrder.createdAt,orderId:{$lt:cursorOrder.orderId}}];
+  if (query.cursor) {
+    const cursorOrder = await c.orders.findOne({ orderId: query.cursor });
+    if (!cursorOrder) throw new ApiError(400, 'INVALID_CURSOR', 'Mốc lịch sử không hợp lệ');
+    const cursorCond = [{ createdAt: { $lt: cursorOrder.createdAt } }, { createdAt: cursorOrder.createdAt, orderId: { $lt: cursorOrder.orderId } }];
     if (queryFilter.$or) {
       queryFilter.$and = [{ $or: queryFilter.$or }, { $or: cursorCond }];
       delete queryFilter.$or;
@@ -1262,7 +1331,7 @@ adminRouter.get('/reports/history', requirePermission(['order-history', 'sports-
   const pageNumber = query.page || 1;
   const pageSize = query.limit;
   const skip = query.cursor ? 0 : (pageNumber - 1) * pageSize;
-  const list = await c.orders.find(queryFilter).sort({createdAt:-1,orderId:-1}).skip(skip).limit(pageSize + 1).toArray();
+  const list = await c.orders.find(queryFilter).sort({ createdAt: -1, orderId: -1 }).skip(skip).limit(pageSize + 1).toArray();
   const page = list.slice(0, pageSize);
 
   res.json({
@@ -1590,8 +1659,8 @@ function parseCleanDateFilter(input: {
     const label = startDateStr && endDateStr
       ? `Từ ${new Date(startDateStr + 'T00:00:00+07:00').toLocaleDateString('vi-VN')} đến ${new Date(endDateStr + 'T00:00:00+07:00').toLocaleDateString('vi-VN')}`
       : startDateStr
-      ? `Từ ngày ${new Date(startDateStr + 'T00:00:00+07:00').toLocaleDateString('vi-VN')}`
-      : `Trước ngày ${new Date(endDateStr + 'T00:00:00+07:00').toLocaleDateString('vi-VN')}`;
+        ? `Từ ngày ${new Date(startDateStr + 'T00:00:00+07:00').toLocaleDateString('vi-VN')}`
+        : `Trước ngày ${new Date(endDateStr + 'T00:00:00+07:00').toLocaleDateString('vi-VN')}`;
     const iso = endDateStr
       ? new Date(endDateStr + 'T23:59:59.999+07:00').toISOString()
       : new Date().toISOString();
@@ -1818,7 +1887,7 @@ adminRouter.get('/backup/full', requirePermission('backup'), async (_req, res) =
   res.json(fullBackup);
 });
 
-adminRouter.post('/catalog/import', requirePermission('backup'), async (req, res) => {
+adminRouter.post('/catalog/import', catalogImportRateLimit, requirePermission('backup'), requireActionProofFor('catalog.import'), async (req, res) => {
   const { data: body, migrated, fromVersion } = migrateBackupToV2(req.body);
 
   const backupImportSchema = z.object({
@@ -2288,7 +2357,10 @@ adminRouter.post('/catalog/import', requirePermission('backup'), async (req, res
         const existingUser = await c.adminUsers.findOne({ userId: u.userId }, { session });
         if (!existingUser) {
           const tempPassword = 'Temp@' + randomUUID().replace(/-/g, '').slice(0, 8);
-          updateSet.passwordHash = hashPassword(tempPassword);
+          // hashPassword is asynchronous; persist the actual scrypt hash rather
+          // than the unresolved Promise (which would make the restored account
+          // impossible to authenticate and could corrupt the backup import).
+          updateSet.passwordHash = await hashPassword(tempPassword);
           updateSet.mustChangePassword = true;
           updateSet.createdAt = now;
           await c.adminUsers.insertOne({

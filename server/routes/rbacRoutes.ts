@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { z } from 'zod';
 import { getCollections, getDb } from '../db.js';
-import { requirePermission, hashPassword, revokeUserSessions, revokeRoleSessions } from '../auth.js';
+import { requirePermission, requireActionProofFor, hashPassword, revokeUserSessions, revokeRoleSessions, validatePasswordStrength } from '../auth.js';
 import { SYSTEM_PERMISSIONS, type SystemPermission, type RoleDoc, type AdminUserDoc } from '../types.js';
 import { ApiError } from '../errors.js';
 
@@ -9,6 +9,50 @@ export const rbacRouter = Router();
 
 // Tất cả các route bên dưới đều bắt buộc quyền 'rbac'
 rbacRouter.use(requirePermission('rbac'));
+
+function assertCanDelegatePermissions(res: any, permissions: readonly string[]): void {
+  const callerPermissions = (res.locals.permissions as string[] | undefined) || [];
+  const isFullAdmin = callerPermissions.includes('*') || res.locals.roleId === 'admin' || !res.locals.userId;
+  if (isFullAdmin) return;
+
+  // An RBAC manager may only delegate permissions they already possess. This
+  // prevents a staff account with the rbac flag from creating a new full-admin
+  // account and then using it to bypass the rest of the permission matrix.
+  if (!permissions.every(permission => callerPermissions.includes(permission))) {
+    throw new ApiError(403, 'PERMISSION_ESCALATION', 'Không thể cấp quyền mà tài khoản hiện tại không sở hữu.');
+  }
+}
+
+function assertCanAssignRole(res: any, roleId: string, permissions: readonly string[]): void {
+  const callerPermissions = (res.locals.permissions as string[] | undefined) || [];
+  const isFullAdmin = callerPermissions.includes('*') || res.locals.roleId === 'admin' || !res.locals.userId;
+  if (roleId === 'admin' && !isFullAdmin) {
+    throw new ApiError(403, 'PERMISSION_ESCALATION', 'Chỉ quản trị viên toàn quyền mới được gán vai trò admin.');
+  }
+  assertCanDelegatePermissions(res, permissions);
+}
+
+/**
+ * Prevent an RBAC manager from operating on an account with equal or higher
+ * privilege.  Permission checks on the route alone are insufficient because
+ * resetting a target's password or deleting that target can otherwise turn
+ * into a privilege-escalation or administrative lockout.
+ */
+async function assertCanManageTarget(res: any, target: AdminUserDoc, c: ReturnType<typeof getCollections>): Promise<void> {
+  const callerPermissions = (res.locals.permissions as string[] | undefined) || [];
+  const isFullAdmin = callerPermissions.includes('*') || res.locals.roleId === 'admin' || !res.locals.userId;
+  if (isFullAdmin) return;
+
+  if (target.roleId === 'admin' || target.userId === res.locals.userId) {
+    throw new ApiError(403, 'PROTECTED_USER', 'Chỉ quản trị viên toàn quyền mới được quản lý tài khoản này.');
+  }
+
+  const targetRole = await c.roles.findOne({ roleId: target.roleId });
+  const targetPermissions = targetRole?.permissions || [];
+  if (!targetRole || !targetPermissions.every(permission => callerPermissions.includes(permission))) {
+    throw new ApiError(403, 'PERMISSION_ESCALATION', 'Không thể quản lý tài khoản có quyền cao hơn tài khoản hiện tại.');
+  }
+}
 
 /**
  * 1. Lấy danh sách định nghĩa quyền của hệ thống (phân theo danh mục)
@@ -28,17 +72,27 @@ rbacRouter.get('/roles', async (_req, res) => {
   res.json({ roles });
 });
 
+// P1/Issue #7 FIX: Validate permissions against known SYSTEM_PERMISSIONS — reject any unknown string
+const VALID_PERMISSION_IDS = SYSTEM_PERMISSIONS.map(p => p.id) as [string, ...string[]];
+const permissionsSchema = z.array(
+  z.enum(VALID_PERMISSION_IDS as [SystemPermission, ...SystemPermission[]])
+)
+  .transform(arr => [...new Set(arr)])   // Deduplicate FIRST
+  .refine(arr => arr.length >= 1, 'Vai trò phải có ít nhất 1 quyền')
+  .refine(arr => arr.every(p => p.trim() !== ''), 'Permissions không được rỗng');
+
 /**
  * 3. Tạo Role mới
  */
-rbacRouter.post('/roles', async (req, res) => {
+rbacRouter.post('/roles', requireActionProofFor('rbac.manage'), async (req, res) => {
   const schema = z.object({
     name: z.string().trim().min(2, 'Tên vai trò tối thiểu 2 ký tự').max(50),
     description: z.string().trim().max(200).optional().default(''),
-    permissions: z.array(z.string()).min(1, 'Vai trò phải có ít nhất 1 quyền')
+    permissions: permissionsSchema  // P1/Issue #7 FIX: strict enum validation
   });
 
   const body = schema.parse(req.body);
+  assertCanDelegatePermissions(res, body.permissions);
   const c = getCollections();
 
   // Tạo roleId duy nhất
@@ -73,14 +127,14 @@ rbacRouter.post('/roles', async (req, res) => {
 /**
  * 4. Cập nhật Role
  */
-rbacRouter.put('/roles/:roleId', async (req, res) => {
+rbacRouter.put('/roles/:roleId', requireActionProofFor('rbac.manage'), async (req, res) => {
   const schema = z.object({
     name: z.string().trim().min(2).max(50),
     description: z.string().trim().max(200).optional(),
-    permissions: z.array(z.string()).min(1, 'Vai trò phải có ít nhất 1 quyền')
+    permissions: permissionsSchema  // P1/Issue #7 FIX: strict enum validation
   });
 
-  const { roleId } = req.params;
+  const roleId = String(req.params.roleId);
   const body = schema.parse(req.body);
   const c = getCollections();
 
@@ -88,6 +142,11 @@ rbacRouter.put('/roles/:roleId', async (req, res) => {
   if (!role) {
     throw new ApiError(404, 'ROLE_NOT_FOUND', 'Không tìm thấy vai trò cần sửa');
   }
+
+  if (role.roleId === 'admin' && res.locals.userId) {
+    throw new ApiError(403, 'PROTECTED_ROLE', 'Chỉ tài khoản quản trị hệ thống mới được sửa vai trò toàn quyền.');
+  }
+  assertCanDelegatePermissions(res, body.permissions);
 
   // Nếu là role admin hệ thống, luôn đảm bảo quyền 'rbac' tồn tại
   let finalPermissions = body.permissions as SystemPermission[];
@@ -117,8 +176,8 @@ rbacRouter.put('/roles/:roleId', async (req, res) => {
 /**
  * 5. Xóa Role
  */
-rbacRouter.delete('/roles/:roleId', async (req, res) => {
-  const { roleId } = req.params;
+rbacRouter.delete('/roles/:roleId', requireActionProofFor('rbac.manage'), async (req, res) => {
+  const roleId = String(req.params.roleId);
   const c = getCollections();
 
   const role = await c.roles.findOne({ roleId });
@@ -129,6 +188,8 @@ rbacRouter.delete('/roles/:roleId', async (req, res) => {
   if (role.isSystem) {
     throw new ApiError(400, 'CANNOT_DELETE_SYSTEM_ROLE', 'Không thể xóa vai trò mặc định của hệ thống');
   }
+
+  assertCanDelegatePermissions(res, role.permissions);
 
   // Kiểm tra xem có user nào đang dùng role này không
   const usersCount = await c.adminUsers.countDocuments({ roleId });
@@ -183,11 +244,12 @@ rbacRouter.get('/users', async (_req, res) => {
 /**
  * 7. Thêm User mới
  */
-rbacRouter.post('/users', async (req, res) => {
+rbacRouter.post('/users', requireActionProofFor('rbac.manage'), async (req, res) => {
   const schema = z.object({
     username: z.string().trim().min(3, 'Tên đăng nhập từ 3 đến 30 ký tự').max(30).regex(/^[a-zA-Z0-9_-]+$/, 'Tên đăng nhập chỉ chứa chữ cái, số, gạch dưới hoặc gạch ngang'),
     fullName: z.string().trim().min(2, 'Họ tên tối thiểu 2 ký tự').max(80),
-    password: z.string().min(6, 'Mật khẩu tối thiểu 6 ký tự').max(100),
+    // P2/Issue #9 FIX: Minimum 10 characters
+    password: z.string().min(10, 'Mật khẩu tối thiểu 10 ký tự').max(128),
     roleId: z.string().min(1, 'Vui lòng chọn vai trò cho tài khoản')
   });
 
@@ -212,13 +274,17 @@ rbacRouter.post('/users', async (req, res) => {
   if (!role) {
     throw new ApiError(400, 'INVALID_ROLE', 'Vai trò đã chọn không tồn tại');
   }
+  assertCanAssignRole(res, body.roleId, role.permissions);
+
+  // P2/Issue #9 FIX: Validate password strength
+  validatePasswordStrength(body.password, cleanUsername);
 
   const now = new Date();
   const userId = `user_${Date.now().toString(36)}_${Math.random().toString(36).substring(2, 6)}`;
   const newUser: AdminUserDoc = {
     userId,
     username: cleanUsername,
-    passwordHash: hashPassword(body.password),
+    passwordHash: await hashPassword(body.password),  // P2/Issue #11: async
     fullName: body.fullName,
     roleId: body.roleId,
     isActive: true,
@@ -244,20 +310,28 @@ rbacRouter.post('/users', async (req, res) => {
 /**
  * 8. Cập nhật User (Set Role, Tên, Trạng thái hoạt động)
  */
-rbacRouter.put('/users/:userId', async (req, res) => {
+rbacRouter.put('/users/:userId', requireActionProofFor('rbac.manage'), async (req, res) => {
   const schema = z.object({
     fullName: z.string().trim().min(2).max(80),
     roleId: z.string().min(1),
     isActive: z.boolean()
   });
 
-  const { userId } = req.params;
+  const userId = String(req.params.userId);
   const body = schema.parse(req.body);
   const c = getCollections();
 
   const user = await c.adminUsers.findOne({ userId });
   if (!user) {
     throw new ApiError(404, 'USER_NOT_FOUND', 'Không tìm thấy tài khoản cần sửa');
+  }
+
+  // A non-full-admin must not demote, reassign, or otherwise alter a full
+  // administrator, even when the requested new role itself is low privilege.
+  const callerPermissions = (res.locals.permissions as string[] | undefined) || [];
+  const callerIsFullAdmin = callerPermissions.includes('*') || res.locals.roleId === 'admin' || !res.locals.userId;
+  if (!callerIsFullAdmin && (user.roleId === 'admin' || user.username === (process.env.ADMIN_USERNAME || 'admin'))) {
+    throw new ApiError(403, 'PROTECTED_USER', 'Chỉ quản trị viên toàn quyền mới được sửa tài khoản admin.');
   }
 
   // Bảo vệ không cho vô hiệu hóa admin chính
@@ -279,6 +353,7 @@ rbacRouter.put('/users/:userId', async (req, res) => {
   if (!role) {
     throw new ApiError(400, 'INVALID_ROLE', 'Vai trò được gán không tồn tại');
   }
+  assertCanAssignRole(res, body.roleId, role.permissions);
 
   const now = new Date();
   await c.adminUsers.updateOne(
@@ -314,12 +389,13 @@ rbacRouter.put('/users/:userId', async (req, res) => {
 /**
  * 9. Đổi mật khẩu User
  */
-rbacRouter.put('/users/:userId/password', async (req, res) => {
+rbacRouter.put('/users/:userId/password', requireActionProofFor('rbac.manage'), async (req, res) => {
   const schema = z.object({
-    newPassword: z.string().min(6, 'Mật khẩu mới tối thiểu 6 ký tự').max(100)
+    // P2/Issue #9 FIX: Minimum 10 characters
+    newPassword: z.string().min(10, 'Mật khẩu mới tối thiểu 10 ký tự').max(128)
   });
 
-  const { userId } = req.params;
+  const userId = String(req.params.userId);
   const body = schema.parse(req.body);
   const c = getCollections();
 
@@ -328,12 +404,17 @@ rbacRouter.put('/users/:userId/password', async (req, res) => {
     throw new ApiError(404, 'USER_NOT_FOUND', 'Không tìm thấy tài khoản');
   }
 
+  await assertCanManageTarget(res, user, c);
+
+  // P2/Issue #9 FIX: Check password strength when resetting
+  validatePasswordStrength(body.newPassword, user.username);
+
   const now = new Date();
   await c.adminUsers.updateOne(
     { userId },
     {
       $set: {
-        passwordHash: hashPassword(body.newPassword),
+        passwordHash: await hashPassword(body.newPassword),  // P2/Issue #11: async
         mustChangePassword: false,
         updatedAt: now
       }
@@ -349,8 +430,8 @@ rbacRouter.put('/users/:userId/password', async (req, res) => {
 /**
  * 10. Xóa User
  */
-rbacRouter.delete('/users/:userId', async (req, res) => {
-  const { userId } = req.params;
+rbacRouter.delete('/users/:userId', requireActionProofFor('rbac.manage'), async (req, res) => {
+  const userId = String(req.params.userId);
   const c = getCollections();
 
   const user = await c.adminUsers.findOne({ userId });
@@ -358,9 +439,10 @@ rbacRouter.delete('/users/:userId', async (req, res) => {
     throw new ApiError(404, 'USER_NOT_FOUND', 'Không tìm thấy tài khoản');
   }
 
-  if (user.username === 'admin' || user.userId === res.locals.userId) {
-    throw new ApiError(400, 'PROTECTED_USER', 'Không thể xóa tài khoản admin chính hoặc tài khoản bạn đang đăng nhập');
+  if (user.username === (process.env.ADMIN_USERNAME || 'admin')) {
+    throw new ApiError(400, 'PROTECTED_USER', 'Không thể xóa tài khoản quản trị hệ thống.');
   }
+  await assertCanManageTarget(res, user, c);
 
   await c.adminUsers.deleteOne({ userId });
   await revokeUserSessions(userId);

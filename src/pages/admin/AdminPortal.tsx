@@ -293,6 +293,8 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({ onLogout }) => {
   const quickSettingsRef = useRef<HTMLDivElement>(null);
   const [activeNavDropdown, setActiveNavDropdown] = useState<'products' | 'intake-history' | 'export-history' | 'system' | null>(null);
   const navDropdownRef = useRef<HTMLDivElement>(null);
+  // P3/Issue #22 FIX: Mobile hamburger nav state
+  const [isMobileNavOpen, setIsMobileNavOpen] = useState(false);
 
   // Click outside or Escape to close dropdowns
   useEffect(() => {
@@ -2195,6 +2197,18 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({ onLogout }) => {
         </div>
       </nav>
 
+      {/* P3/Issue #22 FIX: Mobile drawer overlay — shows all nav tabs in a slide-in panel */}
+      {isMobileNavOpen && (
+        <div
+          className="mobile-nav-overlay"
+          onClick={() => setIsMobileNavOpen(false)}
+          style={{
+            position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.5)',
+            zIndex: 999, display: 'none'
+          }}
+          aria-label="Đóng menu"
+        />
+      )}
 
       {/* BODY CONTENT NỘI DUNG TỪNG TAB */}
       <div style={{ flex: 1 }}>
@@ -3085,7 +3099,6 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({ onLogout }) => {
                       })
                       .map(p => {
                         const itemData = posCart[p.id] || { quantity: 0, iceQuantity: 0 };
-                        const isFood = p.category === 'food';
                         return (
                           <div key={p.id} style={{
                             display: 'flex',
@@ -3109,11 +3122,6 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({ onLogout }) => {
                                 <span style={{ fontWeight: 800, fontSize: '14px', color: '#0F172A', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                                   {p.name}
                                 </span>
-                                {isFood && (
-                                  <span style={{ fontSize: '10px', fontWeight: 800, color: '#B45309', backgroundColor: '#FEF3C7', padding: '1px 5px', borderRadius: '4px' }}>
-                                    Thức ăn • Không đá
-                                  </span>
-                                )}
                               </div>
                               <div style={{ fontSize: '12px', color: '#334155', fontWeight: 600, marginTop: '2px' }}>
                                 {formatVnd(p.priceVnd)} • Tồn: {p.stock}

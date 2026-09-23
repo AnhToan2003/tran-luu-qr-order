@@ -26,11 +26,30 @@ interface ExtendedWebSocket extends WebSocket {
   adminPermissions?: string[];
   adminExpiresAt?: Date;
   customerExpiresAt?: Date;
+  authTimeout?: NodeJS.Timeout;
   /** Promise resolves info nếu admin cookie hợp lệ */
   adminVerifyPromise?: Promise<{ isValid: boolean; tokenHash?: string; expiresAt?: Date; userId?: string; permissions?: string[] }>;
 }
 
 let wss: WebSocketServer | null = null;
+const connectionCounts = new Map<string, number>();
+const MAX_CONNECTIONS_PER_IP = 20;
+
+function isAllowedWebSocketOrigin(origin: string | undefined): boolean {
+  const publicOrigin = (process.env.PUBLIC_ORIGIN || '').replace(/\/$/, '');
+  if (process.env.NODE_ENV === 'production') {
+    return Boolean(origin && publicOrigin && origin === publicOrigin);
+  }
+  if (!origin) return true;
+  return new Set([
+    'http://localhost:3000',
+    'http://localhost:3001',
+    'http://localhost:5173',
+    'http://127.0.0.1:3000',
+    'http://127.0.0.1:3001',
+    'http://127.0.0.1:5173'
+  ]).has(origin);
+}
 
 function parseCookies(header: string | undefined): Record<string, string> {
   const result: Record<string, string> = {};
@@ -91,7 +110,27 @@ async function resolveAdminFromUpgrade(req: IncomingMessage): Promise<{ isValid:
 }
 
 export function initWebSocketServer(server: HttpServer): WebSocketServer {
-  wss = new WebSocketServer({ server, path: '/ws' });
+  // Bound the payload so an unauthenticated socket cannot consume unbounded
+  // memory/CPU before the subscribe message is validated.
+  wss = new WebSocketServer({
+    server,
+    path: '/ws',
+    maxPayload: 64 * 1024,
+    verifyClient: (info, done) => {
+      const origin = info.req.headers.origin;
+      if (!isAllowedWebSocketOrigin(origin)) {
+        done(false, 403, 'WebSocket origin is not allowed');
+        return;
+      }
+      const ip = info.req.socket.remoteAddress || 'unknown';
+      const current = connectionCounts.get(ip) || 0;
+      if (current >= MAX_CONNECTIONS_PER_IP) {
+        done(false, 429, 'Too many WebSocket connections');
+        return;
+      }
+      done(true);
+    }
+  });
 
   registerRealtimeSubscriber((event: any) => {
     if (event?._originInstanceId === instanceId) return;
@@ -106,6 +145,13 @@ export function initWebSocketServer(server: HttpServer): WebSocketServer {
 
   wss.on('connection', (ws: ExtendedWebSocket, req: IncomingMessage) => {
     ws.isAlive = true;
+    const ip = req.socket.remoteAddress || 'unknown';
+    connectionCounts.set(ip, (connectionCounts.get(ip) || 0) + 1);
+    ws.authTimeout = setTimeout(() => {
+      if (!ws.role && ws.readyState === WebSocket.OPEN) {
+        try { ws.close(4001, 'AUTH_REQUIRED'); } catch {}
+      }
+    }, 10_000);
 
     // Bắt đầu xác thực admin ngay khi kết nối — lưu Promise để await trong message handler
     ws.adminVerifyPromise = resolveAdminFromUpgrade(req);
@@ -132,6 +178,7 @@ export function initWebSocketServer(server: HttpServer): WebSocketServer {
 
                 if (session) {
                   ws.role = 'admin';
+                  if (ws.authTimeout) clearTimeout(ws.authTimeout);
                   ws.adminTokenHash = auth.tokenHash;
                   ws.adminUserId = auth.userId;
                   ws.adminPermissions = auth.permissions;
@@ -168,6 +215,7 @@ export function initWebSocketServer(server: HttpServer): WebSocketServer {
 
               if (sessionDoc) {
                 ws.role = 'customer';
+                if (ws.authTimeout) clearTimeout(ws.authTimeout);
                 ws.sessionHash = tokenHash;
                 ws.customerExpiresAt = sessionDoc.expiresAt;
               } else {
@@ -186,6 +234,12 @@ export function initWebSocketServer(server: HttpServer): WebSocketServer {
     });
 
     ws.on('error', () => {});
+    ws.on('close', () => {
+      if (ws.authTimeout) clearTimeout(ws.authTimeout);
+      const count = connectionCounts.get(ip) || 1;
+      if (count <= 1) connectionCounts.delete(ip);
+      else connectionCounts.set(ip, count - 1);
+    });
   });
 
   const heartbeatInterval = setInterval(() => {

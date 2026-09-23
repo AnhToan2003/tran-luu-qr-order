@@ -545,7 +545,7 @@ export async function seedSampleData(db: Db, force = false): Promise<{ courtsCou
     const defaultDevUser: AdminUserDoc = {
       userId: 'user-admin-dev',
       username: 'admin_dev',
-      passwordHash: hashPassword('admin123'),
+      passwordHash: await hashPassword('admin123'),
       fullName: 'Quản Trị Viên Dev',
       roleId: 'admin',
       isActive: true,
@@ -594,7 +594,7 @@ export async function bootstrapAdminUser(
   const userDoc: AdminUserDoc = {
     userId,
     username: targetUsername,
-    passwordHash: hashPassword(options.password),
+    passwordHash: await hashPassword(options.password),
     fullName: options.fullName || 'Quản Trị Viên Hệ Thống',
     roleId: 'admin',
     isActive: true,

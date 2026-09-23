@@ -42,8 +42,8 @@ async function runAudit() {
   const uri = process.env.MONGO_URI || process.env.MONGO_URL || process.env.MONGODB_URI || 'mongodb://localhost:27017';
   const targetDbName = process.env.DB_NAME || DB_NAME;
 
-  console.log('🔍 Starting Database Integrity Audit (100% Read-Only, No DDL Side-effects)...');
-  console.log(`🔌 Target MongoDB: ${maskMongoUri(uri)} [DB: ${targetDbName}]\n`);
+  console.log('Starting Database Integrity Audit (100% Read-Only, No DDL Side-effects)...');
+  console.log(`Target MongoDB: ${maskMongoUri(uri)} [DB: ${targetDbName}]\n`);
 
   const issues: AuditIssue[] = [];
   const client = new MongoClient(uri, { serverSelectionTimeoutMS: 10000 });
@@ -65,7 +65,7 @@ async function runAudit() {
     const usersColl = db.collection('admin_users');
 
     // 1. Audit Courts
-    console.log('🏸 Checking Courts...');
+    console.log('Checking Courts...');
     const courts = await courtsColl.find({}).toArray();
     const courtIds = new Set(courts.map(c => c.courtId));
     const courtCodes = new Set<string>();
@@ -93,7 +93,7 @@ async function runAudit() {
     console.log(`   Checked ${courts.length} courts.`);
 
     // 2. Audit Drink Products
-    console.log('📦 Checking Drink Products...');
+    console.log('Checking Drink Products...');
     const products = await productsColl.find({}).toArray();
     const productIds = new Set(products.map(p => p.productId));
 
@@ -129,7 +129,7 @@ async function runAudit() {
     console.log(`   Checked ${products.length} drink products.`);
 
     // 3. Audit Sports Items
-    console.log('🏸 Checking Sports Items...');
+    console.log('Checking Sports Items...');
     const sportsItems = await sportsItemsColl.find({}).toArray();
     const sportsItemIds = new Set(sportsItems.map(s => s.itemId));
 
@@ -269,21 +269,23 @@ async function runAudit() {
       }
       if (m.reason === 'order_created' && !m.orderId) {
         issues.push({
-          severity: 'WARNING',
+          // P2/Issue #17 FIX: Missing orderId on order_created movement = data integrity violation
+          severity: 'CRITICAL',
           category: 'Movement Missing OrderId',
           id: m.operationId || String(m._id),
-          description: `Drink movement with reason "order_created" has no orderId`,
+          description: `Drink movement with reason "order_created" has no orderId — stock was reduced without creating an order`,
           details: { productId: m.productId, delta: m.delta }
         });
       } else if (m.orderId && !orderIds.has(m.orderId)) {
         const existsInDb = isFullScan ? false : ((await ordersColl.countDocuments({ orderId: m.orderId }, { limit: 1 })) > 0);
         if (!existsInDb) {
           issues.push({
-            severity: 'INFO',
+            // P2/Issue #17 FIX: Orphan movement = stock reduced but order doesn't exist = CRITICAL data corruption
+            severity: 'CRITICAL',
             category: 'Movement Orphan OrderId',
             id: m.operationId || String(m._id),
-            description: `Movement references non-existent orderId: ${m.orderId}`,
-            details: { orderId: m.orderId }
+            description: `[DATA CORRUPTION] Movement references non-existent orderId: ${m.orderId}. Stock was reduced but order does not exist.`,
+            details: { orderId: m.orderId, productId: m.productId, delta: m.delta, reason: m.reason }
           });
         }
       }

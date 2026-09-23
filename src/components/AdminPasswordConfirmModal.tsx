@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { apiFetch } from '../lib/api';
+import { apiFetch, setActionProof } from '../lib/api';
 
 interface AdminPasswordConfirmModalProps {
   isOpen: boolean;
@@ -49,7 +49,7 @@ export const AdminPasswordConfirmModal: React.FC<AdminPasswordConfirmModalProps>
       const res = await apiFetch('/api/admin/auth/verify-action-password', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ password: cleanPassword })
+        body: JSON.stringify({ password: cleanPassword, action: 'inventory' })
       });
 
       if (!res.ok) {
@@ -57,6 +57,9 @@ export const AdminPasswordConfirmModal: React.FC<AdminPasswordConfirmModalProps>
         throw new Error(data.message || 'Mật khẩu quản trị viên không chính xác');
       }
 
+      const data = await res.json().catch(() => ({}));
+      if (!data.proofToken) throw new Error('Máy chủ không cấp được mã xác nhận thao tác');
+      setActionProof(data.proofToken);
       onClose();
       onSuccess();
     } catch (err: any) {

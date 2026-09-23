@@ -125,6 +125,14 @@ async function verify() {
         passed = false;
       }
     }
+
+    // P1/Issue #8 FIX: ALLOW_STANDALONE must NOT be set in strict production
+    if (isStrict && process.env.ALLOW_STANDALONE === 'true') {
+      console.error('  ❌ [Bảo Mật] ALLOW_STANDALONE=true không được phép trong Strict Production Mode.');
+      console.error('     Điều này cho phép giao dịch không atomic — có thể gây mất dữ liệu.');
+      passed = false;
+    }
+
     await client.close();
   } catch (err: any) {
     console.error('  ❌ [MongoDB] Không thể kết nối tới cơ sở dữ liệu:', err.message);

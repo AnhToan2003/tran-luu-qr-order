@@ -1,12 +1,18 @@
 import { Router, type RequestHandler } from 'express';
-import { randomBytes, createHash, scryptSync, timingSafeEqual } from 'node:crypto';
-import { rateLimit } from 'express-rate-limit';
+import { randomBytes, createHash, scrypt, timingSafeEqual } from 'node:crypto';
+import { promisify } from 'node:util';
+import { rateLimit, ipKeyGenerator } from 'express-rate-limit';
 import { z } from 'zod';
 import { getDb, getCollections } from './db.js';
 import { ApiError } from './errors.js';
 import type { CustomerSessionDoc, SystemPermission } from './types.js';
 import { revokeAdminSession, revokeAdminUser, revokeRoleSockets } from './websocket.js';
-import { cacheGet, cacheSet, cacheDel } from './redis.js';
+import { cacheGet, cacheSet, cacheDel, getRedisClient } from './redis.js';
+import { createRateLimitStore } from './rateLimitStore.js';
+
+// P2/Issue #11 FIX: Use async crypto.scrypt instead of scryptSync to avoid blocking event loop
+const scryptAsync = promisify(scrypt);
+
 const cookieName = 'tl_admin';
 const hash = (value: string) => createHash('sha256').update(value).digest('hex');
 const hasCookieSecret = () => Boolean(process.env.COOKIE_SECRET);
@@ -25,17 +31,43 @@ const cookieClearOptions = () => ({
   path: '/',
   signed: hasCookieSecret()
 });
-const getAdminCookieToken = (req: Parameters<RequestHandler>[0]) => {
+
+// P1/Issue #5 FIX: Unified token extraction — used by both requireAdmin and logout
+export function extractBearerToken(req: Parameters<RequestHandler>[0]): string | undefined {
+  // 1. Prefer signed HttpOnly cookie (most secure)
   const signedToken = req.signedCookies?.[cookieName];
   if (typeof signedToken === 'string') return signedToken;
-  if (!hasCookieSecret() && typeof req.cookies?.[cookieName] === 'string') return req.cookies[cookieName];
+  // 2. Fallback to unsigned cookie (dev without COOKIE_SECRET)
+  if (!hasCookieSecret() && typeof req.cookies?.[cookieName] === 'string') {
+    return req.cookies[cookieName];
+  }
+  // 3. Accept Bearer header (API/Swagger clients only — not web browser flow)
+  if (typeof req.headers.authorization === 'string') {
+    const parts = req.headers.authorization.split(' ');
+    if (parts.length === 2 && /^Bearer$/i.test(parts[0])) {
+      return parts[1];
+    }
+  }
   return undefined;
-};
+}
+
+// Alias for backward compatibility
+const getAdminCookieToken = extractBearerToken;
+
 export function validateAuthConfig() {
   if (!process.env.ADMIN_PASSWORD_HASH || !/^[a-f0-9]{32}:[a-f0-9]{128}$/.test(process.env.ADMIN_PASSWORD_HASH)) {
     throw new Error('ADMIN_PASSWORD_HASH must be configured with 32-hex salt and 128-hex scrypt hash.');
   }
   if (process.env.NODE_ENV === 'production') {
+    const publicOrigin = process.env.PUBLIC_ORIGIN?.trim() || '';
+    let parsedOrigin: URL | undefined;
+    try { parsedOrigin = new URL(publicOrigin); } catch { parsedOrigin = undefined; }
+    if (!parsedOrigin || parsedOrigin.protocol !== 'https:' || parsedOrigin.hostname === 'localhost' || parsedOrigin.hostname === '127.0.0.1' || parsedOrigin.hostname === '::1' || publicOrigin.endsWith('/')) {
+      throw new Error('[Security Fail-Fast] PUBLIC_ORIGIN must be a real HTTPS origin without a trailing slash in production.');
+    }
+    if (process.env.REDIS_ENABLED !== 'true') {
+      throw new Error('[Security Fail-Fast] REDIS_ENABLED=true is required in production for shared session revocation and rate limits.');
+    }
     if (!process.env.COOKIE_SECRET || process.env.COOKIE_SECRET.length < 32) {
       throw new Error('[Security Fail-Fast] COOKIE_SECRET must be configured with at least 32 characters in production mode.');
     }
@@ -47,32 +79,56 @@ export function validateAuthConfig() {
     }
   }
 }
-export function hashPassword(password: string): string {
+
+// P2/Issue #9 FIX: Enforce minimum password strength
+const COMMON_PASSWORDS = new Set([
+  'password', 'password1', 'password12', 'password123', 'password1234', 'password12345', 'password123456',
+  '123456789', '12345678', '123456789', '1234567890', 'qwerty123',
+  'iloveyou', 'admin', 'admin1', 'admin12', 'admin123', 'admin1234', 'admin12345', 'admin123456',
+  'admin1234567', 'letmein1', 'welcome1', 'monkey123',
+  'dragon123', 'master123', 'abc123456', 'pass1234', 'admin1234',
+  'abcdefgh1', 'abcdefghi1', 'test123456'
+]);
+
+export function validatePasswordStrength(password: string, username?: string): void {
+  if (password.length < 10) {
+    throw new ApiError(400, 'WEAK_PASSWORD', 'Mật khẩu phải có tối thiểu 10 ký tự');
+  }
+  if (password.length > 128) {
+    throw new ApiError(400, 'WEAK_PASSWORD', 'Mật khẩu không được vượt quá 128 ký tự');
+  }
+  if (username && password.toLowerCase().includes(username.toLowerCase())) {
+    throw new ApiError(400, 'WEAK_PASSWORD', 'Mật khẩu không được chứa tên đăng nhập');
+  }
+  if (COMMON_PASSWORDS.has(password.toLowerCase())) {
+    throw new ApiError(400, 'WEAK_PASSWORD', 'Mật khẩu quá phổ biến và dễ đoán. Vui lòng chọn mật khẩu mạnh hơn.');
+  }
+}
+
+// P2/Issue #11 FIX: Async hashPassword — no longer blocks the event loop
+export async function hashPassword(password: string): Promise<string> {
   const salt = randomBytes(16).toString('hex');
-  const hashed = scryptSync(password, salt, 64).toString('hex');
+  const hashed = (await scryptAsync(password, salt, 64) as Buffer).toString('hex');
   return `${salt}:${hashed}`;
 }
 
-export function verifyPassword(password: string, storedHash: string): boolean {
+// P2/Issue #11 FIX: Async verifyPassword — no longer blocks the event loop
+export async function verifyPassword(password: string, storedHash: string): Promise<boolean> {
   try {
     const [salt, hashStr] = storedHash.split(':');
     if (!salt || !hashStr) return false;
-    const computed = scryptSync(password, salt, 64);
+    const computed = await scryptAsync(password, salt, 64) as Buffer;
     return timingSafeEqual(computed, Buffer.from(hashStr, 'hex'));
   } catch {
     return false;
   }
 }
 
+
 export const requireAdmin: RequestHandler = async (req, res, next) => {
   try {
-    let token = getAdminCookieToken(req);
-    if (!token && typeof req.headers.authorization === 'string') {
-      const parts = req.headers.authorization.split(' ');
-      if (parts.length === 2 && /^Bearer$/i.test(parts[0])) {
-        token = parts[1];
-      }
-    }
+    // P1/Issue #5 FIX: Use unified extractBearerToken (handles both cookie and Bearer)
+    const token = extractBearerToken(req);
     if (typeof token !== 'string' || !/^[a-f0-9]{64}$/.test(token)) {
       throw new ApiError(401, 'UNAUTHORIZED', 'Vui lòng đăng nhập quản trị');
     }
@@ -85,7 +141,6 @@ export const requireAdmin: RequestHandler = async (req, res, next) => {
       if (cachedSession.expiresAt && new Date(cachedSession.expiresAt).getTime() <= Date.now()) {
         await cacheDel(`admin_session:${tokenH}`);
       } else {
-        // If session is bound to a DB user, ensure user is still active
         if (cachedSession.userId) {
           const c = getCollections();
           const user = await c.adminUsers.findOne({ userId: cachedSession.userId, isActive: true });
@@ -110,7 +165,6 @@ export const requireAdmin: RequestHandler = async (req, res, next) => {
     const session = await getDb().collection('admin_sessions').findOne({ tokenHash: tokenH, expiresAt: { $gt: new Date() } });
     if (!session) throw new ApiError(401, 'UNAUTHORIZED', 'Vui lòng đăng nhập quản trị');
 
-    // If session belongs to a DB user, ensure user is still active
     if (session.userId) {
       const c = getCollections();
       const user = await c.adminUsers.findOne({ userId: session.userId, isActive: true });
@@ -144,7 +198,7 @@ export const requireAdmin: RequestHandler = async (req, res, next) => {
 
 function enforcePasswordChangeWhitelist(req: Parameters<RequestHandler>[0]) {
   const originalPath = req.originalUrl.split('?')[0];
-  const isAllowed = 
+  const isAllowed =
     originalPath === '/api/admin/auth/session' ||
     originalPath === '/api/admin/auth/change-password' ||
     originalPath === '/api/admin/auth/logout' ||
@@ -183,7 +237,6 @@ export const requirePermission = (permission: SystemPermission | SystemPermissio
   };
 
   async function evaluatePermission(_req: any, res: any, next: any) {
-    // 1. Superadmin ENV (không có userId) có toàn quyền
     const envAdminUser = process.env.ADMIN_USERNAME || 'admin';
     if (res.locals.admin === envAdminUser && !res.locals.userId) {
       return next();
@@ -192,7 +245,6 @@ export const requirePermission = (permission: SystemPermission | SystemPermissio
     const c = getCollections();
     let permissions: string[] = [];
 
-    // 2. Nếu là user trong DB: đối soát trạng thái và vai trò hiện hành trong DB (chống stale snapshot)
     if (res.locals.userId) {
       const user = await c.adminUsers.findOne({ userId: res.locals.userId, isActive: true });
       if (!user) throw new ApiError(403, 'FORBIDDEN', 'Tài khoản đã bị khóa hoặc không tồn tại');
@@ -233,6 +285,58 @@ export const requirePermission = (permission: SystemPermission | SystemPermissio
 };
 
 /**
+ * One-time step-up authentication for destructive inventory operations.
+ * The proof is bound to the currently authenticated account and atomically
+ * marked used, so it cannot be replayed or transferred to another account.
+ */
+/**
+ * Validate a one-time step-up proof for a fixed server-side action.
+ *
+ * The action is deliberately supplied by the route, never by a client header
+ * or body.  This prevents a proof issued for one operation from being reused
+ * on another sensitive endpoint.
+ */
+export function requireActionProofFor(action: string, resourceResolver?: (req: Parameters<RequestHandler>[0]) => string | undefined): RequestHandler {
+  return async (req, res, next) => {
+    try {
+      const rawProof = req.headers['x-action-proof'];
+      if (typeof rawProof !== 'string' || !/^[a-f0-9]{64}$/i.test(rawProof.trim())) {
+        throw new ApiError(403, 'ACTION_PROOF_REQUIRED', 'Vui lòng xác nhận lại mật khẩu quản trị trước khi thực hiện thao tác này.');
+      }
+
+      const proofToken = rawProof.trim().toLowerCase();
+      const userId = res.locals.userId || `env:${res.locals.admin}`;
+      const resourceId = resourceResolver?.(req);
+      const query: Record<string, unknown> = {
+        proofId: proofToken,
+        userId,
+        action,
+        used: false,
+        expiresAt: { $gt: new Date() }
+      };
+      if (resourceId) query.resourceId = resourceId;
+
+      const proof = await getDb().collection('action_proofs').findOneAndUpdate(
+        query,
+        { $set: { used: true, usedAt: new Date() } },
+        { returnDocument: 'after' }
+      );
+
+      if (!proof) {
+        throw new ApiError(403, 'ACTION_PROOF_INVALID', 'Xác nhận mật khẩu đã hết hạn, không đúng thao tác hoặc đã được sử dụng.');
+      }
+      next();
+    } catch (error) {
+      next(error);
+    }
+  };
+}
+
+// Inventory/product flows use one common proof action.  Keep this export for
+// existing routes while making the proof action explicit and non-transferable.
+export const requireActionProof: RequestHandler = requireActionProofFor('inventory');
+
+/**
  * Thu hồi tất cả các phiên đăng nhập của người dùng qua DB, Redis và WebSocket
  */
 export async function revokeUserSessions(userId: string): Promise<void> {
@@ -263,7 +367,35 @@ export async function revokeRoleSessions(roleId: string): Promise<void> {
 }
 
 export const authRouter = Router();
-authRouter.post('/login', rateLimit({ windowMs: 15 * 60 * 1000, limit: 25, skipSuccessfulRequests: true, standardHeaders: 'draft-8', legacyHeaders: false, message: { code: 'TOO_MANY_ATTEMPTS', message: 'Thử đăng nhập quá nhiều lần. Vui lòng thử lại sau 15 phút.' } }), async (req, res, next) => {
+
+// P1/Issue #3 FIX: Rate limit by IP + username combination.
+// Use Redis store when available so limits are shared across multiple instances.
+
+function createLoginRateLimit() {
+  const windowMs = 15 * 60 * 1000; // 15 minutes
+  const limit = 20; // max 20 attempts per window per IP+username
+
+  const limiterOptions: Parameters<typeof rateLimit>[0] = {
+    windowMs,
+    limit,
+    skipSuccessfulRequests: true,
+    standardHeaders: 'draft-8',
+    legacyHeaders: false,
+    store: createRateLimitStore('login'),
+    // P1 FIX: Key by IP + username to prevent username-based bypass
+    // Use ipKeyGenerator helper to properly handle IPv6 addresses
+    keyGenerator: (req) => {
+      const ip = ipKeyGenerator(req.ip || req.socket.remoteAddress || 'unknown');
+      const username = (req.body?.username || '').toLowerCase().substring(0, 40);
+      return `login:${ip}:${username}`;
+    },
+    message: { code: 'TOO_MANY_ATTEMPTS', message: 'Thử đăng nhập quá nhiều lần. Vui lòng thử lại sau 15 phút.' }
+  };
+
+  return rateLimit(limiterOptions);
+}
+
+authRouter.post('/login', createLoginRateLimit(), async (req, res, next) => {
   try {
     const input = z.object({ username: z.string().max(80), password: z.string().min(1).max(256) }).parse(req.body);
     const c = getCollections();
@@ -277,18 +409,10 @@ authRouter.post('/login', rateLimit({ windowMs: 15 * 60 * 1000, limit: 25, skipS
     const envAdminUser = process.env.ADMIN_USERNAME || 'admin';
     const isEnvAdminAttempt = input.username === envAdminUser;
 
-    // 1. Kiểm tra tài khoản admin mặc định cấu hình qua biến môi trường
     if (isEnvAdminAttempt) {
       if (process.env.ADMIN_PASSWORD_HASH) {
-        const [salt, stored] = process.env.ADMIN_PASSWORD_HASH.split(':');
-        if (salt && stored) {
-          const valid = timingSafeEqual(scryptSync(input.password, salt, 64), Buffer.from(stored, 'hex'));
-          if (valid) {
-            authenticated = true;
-            roleId = 'admin';
-            username = input.username;
-          }
-        }
+        // P2/Issue #11 FIX: Use async scrypt for env admin too
+        authenticated = await verifyPassword(input.password, process.env.ADMIN_PASSWORD_HASH);
       }
       // BẢO MẬT: Tài khoản quản trị viên ENV chỉ được phép đăng nhập bằng mật khẩu cấu hình ENV.
       // Tuyệt đối không fallback sang DB nếu sai mật khẩu ENV.
@@ -296,9 +420,9 @@ authRouter.post('/login', rateLimit({ windowMs: 15 * 60 * 1000, limit: 25, skipS
         throw new ApiError(401, 'INVALID_LOGIN', 'Tên đăng nhập hoặc mật khẩu không đúng');
       }
     } else {
-      // 2. Các tài khoản người dùng thông thường trong database
       const user = await c.adminUsers.findOne({ username: input.username, isActive: true });
-      if (user && verifyPassword(input.password, user.passwordHash)) {
+      // P2/Issue #11 FIX: async verifyPassword
+      if (user && await verifyPassword(input.password, user.passwordHash)) {
         authenticated = true;
         userId = user.userId;
         roleId = user.roleId;
@@ -320,11 +444,15 @@ authRouter.post('/login', rateLimit({ windowMs: 15 * 60 * 1000, limit: 25, skipS
       roleId,
       expiresAt
     });
+
+    // P1/Issue #10 FIX: Web browser flow — set HttpOnly cookie ONLY.
+    // Do NOT return the token in the JSON response body.
+    // This prevents token leakage via JS/XSS/browser extensions/logs.
+    // If you need Bearer tokens for API clients, use a separate /api/admin/auth/token endpoint.
     res.cookie(cookieName, token, cookieOptions()).json({
       success: true,
-      token,
-      accessToken: token,
-      tokenType: 'Bearer',
+      // token and accessToken intentionally omitted — use HttpOnly cookie
+      tokenType: 'cookie',
       expiresIn: 12 * 60 * 60,
       username,
       roleId,
@@ -379,7 +507,8 @@ authRouter.post('/change-password', requireAdmin, async (req, res, next) => {
   try {
     const schema = z.object({
       currentPassword: z.string().min(1, 'Vui lòng nhập mật khẩu hiện tại'),
-      newPassword: z.string().min(6, 'Mật khẩu mới tối thiểu 6 ký tự').max(100)
+      // P2/Issue #9 FIX: Min 10 characters
+      newPassword: z.string().min(10, 'Mật khẩu mới tối thiểu 10 ký tự').max(128)
     });
     const body = schema.parse(req.body);
     const c = getCollections();
@@ -389,26 +518,28 @@ authRouter.post('/change-password', requireAdmin, async (req, res, next) => {
       if (!user) {
         throw new ApiError(404, 'USER_NOT_FOUND', 'Không tìm thấy tài khoản');
       }
-      if (!verifyPassword(body.currentPassword, user.passwordHash)) {
+      if (!await verifyPassword(body.currentPassword, user.passwordHash)) {
         throw new ApiError(400, 'INVALID_PASSWORD', 'Mật khẩu hiện tại không chính xác');
       }
+      // P2/Issue #9 FIX: Check password strength
+      validatePasswordStrength(body.newPassword, user.username);
+
       const now = new Date();
       await c.adminUsers.updateOne(
         { userId: user.userId },
         {
           $set: {
-            passwordHash: hashPassword(body.newPassword),
+            passwordHash: await hashPassword(body.newPassword),
             mustChangePassword: false,
             updatedAt: now
           }
         }
       );
-      const currentToken = getAdminCookieToken(req);
-      if (currentToken) {
-        const tokenHash = hash(currentToken);
-        await cacheDel(`admin_session:${tokenHash}`);
-      }
-      res.json({ ok: true, message: 'Đổi mật khẩu thành công!' });
+
+      // P2/Issue #9 FIX: Revoke ALL sessions when password changes (not just cache)
+      await revokeUserSessions(user.userId);
+
+      res.json({ ok: true, message: 'Đổi mật khẩu thành công! Vui lòng đăng nhập lại.' });
     } else {
       throw new ApiError(400, 'ENV_ADMIN_CANNOT_CHANGE', 'Tài khoản quản trị viên ENV được quản lý qua cấu hình hệ thống');
     }
@@ -417,14 +548,17 @@ authRouter.post('/change-password', requireAdmin, async (req, res, next) => {
   }
 });
 
+// P1/Issue #5 FIX: Logout handles BOTH cookie and Bearer token
 authRouter.post('/logout', async (req, res) => {
-  const currentToken = getAdminCookieToken(req);
+  // P1 FIX: Use unified extractBearerToken to handle cookie AND Bearer header
+  const currentToken = extractBearerToken(req);
   if (currentToken) {
     const tokenHash = hash(currentToken);
     await getDb().collection('admin_sessions').deleteOne({ tokenHash });
     await cacheDel(`admin_session:${tokenHash}`);
     revokeAdminSession(tokenHash);
   }
+  // Idempotent: always clear cookie and return 200, even if token was not found
   res.clearCookie(cookieName, cookieClearOptions()).json({ ok: true });
 });
 

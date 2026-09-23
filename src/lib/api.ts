@@ -6,6 +6,46 @@ const memoryStore = new Map<string, { fingerprint: string; id: string }>();
 
 const inMemorySessionMap = new Map<string, string>();
 const inMemoryLocalMap = new Map<string, string>();
+let pendingActionProof: string | null = null;
+
+function inferSensitiveAction(url: string): string | undefined {
+  const path = url.split('?')[0];
+  if (/\/api\/admin\/(products|inventory\/)/.test(path)) return 'inventory';
+  if (/\/api\/admin\/categories(?:\/|$)/.test(path)) return 'drink.category';
+  if (/\/api\/admin\/sports\/categories(?:\/|$)/.test(path)) return 'sports.category';
+  if (/\/api\/admin\/sports\/pos\/order$/.test(path)) return 'sports.pos';
+  if (/\/api\/admin\/orders\/(create-pos|create-for-court)$/.test(path)) return 'order.pos';
+  if (/\/api\/admin\/orders\/[^/]+\/(payment|deliver-and-pay|cancel)$/.test(path)) return 'order.financial';
+  if (/\/api\/admin\/orders\/[^/]+\/transition$/.test(path)) return 'order.transition';
+  if (/\/api\/admin\/courts(?:\/|$)/.test(path)) return 'courts.manage';
+  if (/\/api\/admin\/settings$/.test(path)) return 'settings';
+  if (/\/api\/admin\/catalog\/import$/.test(path)) return 'catalog.import';
+  if (/\/api\/admin\/rbac\//.test(path)) return 'rbac.manage';
+  return undefined;
+}
+
+async function requestActionProof(action: string): Promise<string> {
+  const password = typeof window !== 'undefined'
+    ? window.prompt('Thao tác này cần xác nhận mật khẩu quản trị. Vui lòng nhập mật khẩu:')
+    : null;
+  if (!password) throw new ApiError(403, 'ACTION_PROOF_REQUIRED', 'Đã hủy xác nhận mật khẩu quản trị.');
+
+  const verifyResponse = await fetch('/api/admin/auth/verify-action-password', {
+    method: 'POST',
+    credentials: 'same-origin',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ password, action })
+  });
+  const verifyBody = await verifyResponse.json().catch(() => ({}));
+  if (!verifyResponse.ok || typeof verifyBody.proofToken !== 'string') {
+    throw new ApiError(verifyResponse.status || 403, verifyBody.code || 'INVALID_PASSWORD', verifyBody.message || 'Mật khẩu quản trị không chính xác.');
+  }
+  return verifyBody.proofToken;
+}
+
+export function setActionProof(proofToken: string): void {
+  pendingActionProof = /^[a-f0-9]{64}$/i.test(proofToken) ? proofToken : null;
+}
 
 export const safeSessionStorage = {
   getItem(key: string): string | null {
@@ -65,15 +105,24 @@ function safeSessionStorageRemove(key: string): void {
 
 export async function apiFetch(url: string, options: RequestInit = {}) {
   let response: Response;
+  const method = (options.method || 'GET').toUpperCase();
+  const requestHeaders = new Headers(options.headers);
+  // Keep headers in a single `Headers` instance. Building a plain object with
+  // both `Content-Type` and the lower-cased entry from Headers can make the
+  // browser serialize the value as `application/json, application/json`,
+  // which Express does not recognise as a JSON media type.
+  if (options.body != null && !requestHeaders.has('Content-Type')) {
+    requestHeaders.set('Content-Type', 'application/json');
+  }
+  if (pendingActionProof && !['GET', 'HEAD', 'OPTIONS'].includes(method)) {
+    requestHeaders.set('x-action-proof', pendingActionProof);
+  }
   try {
     response = await fetch(url, {
       ...options,
       credentials: 'same-origin',
       signal: options.signal ?? AbortSignal.timeout(20000),
-      headers: {
-        'Content-Type': 'application/json',
-        ...options.headers
-      }
+      headers: requestHeaders
     });
   } catch (err: any) {
     if (err?.name === 'AbortError') {
@@ -88,8 +137,22 @@ export async function apiFetch(url: string, options: RequestInit = {}) {
     window.dispatchEvent(new CustomEvent('api-error', { detail: error.message }));
     throw error;
   }
+  // A proof is single-use. Clear it after the first mutating request reaches
+  // the server, regardless of success, so it cannot be replayed from the UI.
+  if (pendingActionProof && !['GET', 'HEAD', 'OPTIONS'].includes(method)) {
+    pendingActionProof = null;
+  }
   if (!response.ok) {
     const body = await response.json().catch(() => ({ message: 'Máy chủ không thể xử lý yêu cầu' }));
+    const proofRetried = Boolean((options as RequestInit & { __proofRetried?: boolean }).__proofRetried);
+    const sensitiveAction = inferSensitiveAction(url);
+    if (response.status === 403 && (body.code === 'ACTION_PROOF_REQUIRED' || body.code === 'ACTION_PROOF_INVALID') && sensitiveAction && !proofRetried && !['GET', 'HEAD', 'OPTIONS'].includes(method)) {
+      const proof = await requestActionProof(sensitiveAction);
+      const retryHeaders = new Headers(options.headers);
+      retryHeaders.set('x-action-proof', proof);
+      const retryOptions = { ...options, headers: retryHeaders, __proofRetried: true } as RequestInit;
+      return apiFetch(url, retryOptions);
+    }
     const error = new ApiError(response.status, body.code || 'API_ERROR', body.message);
     if (response.status === 401 && url.startsWith('/api/admin') && !url.endsWith('/login')) {
       window.dispatchEvent(new Event('admin-session-expired'));

@@ -7,7 +7,11 @@ let db: Db;
 let isReplicaSet = false;
 export async function connectToDatabase() {
   if (db) return { client, db };
-  client = new MongoClient(process.env.MONGO_URI || process.env.MONGO_URL || process.env.MONGODB_URI || 'mongodb://localhost:27017', {
+  const mongoUri = process.env.MONGO_URI || process.env.MONGO_URL || process.env.MONGODB_URI;
+  if (process.env.NODE_ENV === 'production' && !mongoUri) {
+    throw new Error('[Security] MONGO_URI must be explicitly configured in production.');
+  }
+  client = new MongoClient(mongoUri || 'mongodb://localhost:27017', {
     serverSelectionTimeoutMS: 10000,
     maxPoolSize: 200,
     minPoolSize: 10,
@@ -18,13 +22,13 @@ export async function connectToDatabase() {
   const hello = await client.db('admin').command({ hello: 1 });
   isReplicaSet = !!hello.setName || hello.msg === 'isdbgrid';
   if (!isReplicaSet) {
-    if (process.env.NODE_ENV === 'production' && process.env.ALLOW_STANDALONE !== 'true') {
+    if (process.env.NODE_ENV === 'production') {
       await client.close();
       throw new Error(
         '\n===================================================================\n' +
         '[MongoDB Configuration Error]\n' +
-        'MongoDB replica set is STRICTLY recommended for multi-document ACID transactions in production mode.\n' +
-        'Nếu bạn đang kiểm thử production hoặc triển khai máy chủ đơn lẻ (Single Instance), hãy đặt ALLOW_STANDALONE=true trong file .env.\n' +
+        'MongoDB replica set is REQUIRED for multi-document ACID transactions in production mode.\n' +
+        'ALLOW_STANDALONE=true không được phép dùng để vượt qua kiểm tra production.\n' +
         'Để khởi tạo Replica Set chuẩn:\n' +
         '  Khởi tạo Replica Set bằng lệnh: `npm run mongo:replica`\n' +
         '  hoặc mở mongosh chạy: `rs.initiate()`\n' +
@@ -62,7 +66,15 @@ export async function connectToDatabase() {
     c.auditLogs.createIndex({ adminUsername: 1, createdAt: -1 }),
     c.roles.createIndex({ roleId: 1 }, { unique: true }),
     c.adminUsers.createIndex({ userId: 1 }, { unique: true }),
-    c.adminUsers.createIndex({ username: 1 }, { unique: true })
+    c.adminUsers.createIndex({ username: 1 }, { unique: true }),
+    // system_errors: TTL 30 days, redacted sensitive data
+    db.collection('system_errors').createIndex({ timestamp: 1 }, { expireAfterSeconds: 30 * 86400 }),
+    db.collection('system_errors').createIndex({ statusCode: 1, timestamp: -1 }),
+    // action_proofs: short-lived one-time tokens for sensitive ops, TTL 10 minutes
+    db.collection('action_proofs').createIndex({ expiresAt: 1 }, { expireAfterSeconds: 0 }),
+    db.collection('action_proofs').createIndex({ proofId: 1 }, { unique: true }),
+    db.collection('action_proofs').createIndex({ userId: 1, action: 1 })
+
   ]);
   await c.appSettings.updateOne({ key: 'system_config' }, { $setOnInsert: { key: 'system_config', value: { isAcceptingOrders: true }, updatedAt: new Date() } }, { upsert: true });
   await migrateLegacyBatches(db);
@@ -157,11 +169,31 @@ export const getCollections = () => ({
 });
 export async function transaction<T>(work: (session?: ClientSession) => Promise<T>): Promise<T> {
   if (!isReplicaSet) {
+    // P0 FIX: Production MUST have Replica Set for ACID transactions.
+    // Standalone MongoDB cannot rollback multi-document writes — data corruption risk.
+    if (process.env.NODE_ENV === 'production') {
+      throw new Error(
+        '[FATAL] MongoDB Replica Set is required for production transactions. ' +
+        'A multi-document write was attempted on a standalone MongoDB instance. ' +
+        'This would cause partial writes with no rollback. Server startup should have prevented this.'
+      );
+    }
+    // Development/test: warn loudly but allow (single-document ops are effectively atomic)
+    console.warn(
+      '[WARNING] transaction() called without Replica Set (standalone mode). ' +
+      'Multi-document operations are NOT atomic. Use only for development/testing.'
+    );
     return await work(undefined);
   }
   const session = client.startSession();
-  try { return await session.withTransaction(() => work(session), { readConcern: { level: 'snapshot' }, writeConcern: { w: 'majority' }, maxCommitTimeMS: 10000 }); }
-  finally { await session.endSession(); }
+  try {
+    return await session.withTransaction(
+      () => work(session),
+      { readConcern: { level: 'snapshot' }, writeConcern: { w: 'majority' }, maxCommitTimeMS: 10000 }
+    );
+  } finally {
+    await session.endSession();
+  }
 }
 
 export async function snapshotRead<T>(work: (session?: ClientSession) => Promise<T>): Promise<T> {

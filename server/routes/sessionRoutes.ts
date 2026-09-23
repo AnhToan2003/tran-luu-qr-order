@@ -7,6 +7,7 @@ import { ApiError } from '../errors.js';
 import { verifyCourtSignature } from '../services/qrSign.js';
 import { courtCode } from '../validation.js';
 import { revokeCustomerSession } from '../websocket.js';
+import { createRateLimitStore } from '../rateLimitStore.js';
 
 export const sessionRouter = Router();
 
@@ -15,6 +16,7 @@ const sessionInitRateLimiter = rateLimit({
   limit: 300,
   standardHeaders: 'draft-8',
   legacyHeaders: false,
+  store: createRateLimitStore('session-init'),
   message: {
     code: 'RATE_LIMITED',
     message: 'Thao tác quá nhanh. Vui lòng chờ vài giây trước khi quét lại.'
@@ -27,10 +29,20 @@ const sessionCurrentRateLimiter = rateLimit({
   limit: 120,
   standardHeaders: 'draft-8',
   legacyHeaders: false,
+  store: createRateLimitStore('session-current'),
   message: {
     code: 'RATE_LIMITED',
     message: 'Quá nhiều yêu cầu. Vui lòng thử lại sau.'
   }
+});
+
+const sessionTerminateRateLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  limit: 30,
+  standardHeaders: 'draft-8',
+  legacyHeaders: false,
+  store: createRateLimitStore('session-terminate'),
+  message: { code: 'RATE_LIMITED', message: 'Quá nhiều yêu cầu kết thúc phiên. Vui lòng thử lại sau.' }
 });
 
 const initSessionSchema = z.object({
@@ -82,6 +94,17 @@ sessionRouter.post('/init', sessionInitRateLimiter, async (req, res) => {
     ip: req.ip
   });
 
+  // Defense in depth: keep the existing response token for the current
+  // client flow, but also issue an HttpOnly cookie so future clients do not
+  // need to expose the raw session token to JavaScript.
+  res.cookie('tl_session', token, {
+    httpOnly: true,
+    secure: process.env.NODE_ENV === 'production',
+    sameSite: 'strict',
+    path: '/',
+    maxAge: ttlHours * 60 * 60 * 1000
+  });
+
   res.status(201).json({
     sessionToken: token,
     court: {
@@ -125,7 +148,7 @@ sessionRouter.get('/current', sessionCurrentRateLimiter, async (req, res) => {
 });
 
 // 3. Kết thúc phiên sử dụng (Customer End Session)
-sessionRouter.post('/terminate', async (req, res) => {
+sessionRouter.post('/terminate', sessionTerminateRateLimiter, async (req, res) => {
   const tokenHeader = req.headers['x-customer-session'];
   let token = typeof tokenHeader === 'string' && /^[a-f0-9]{32,64}$/i.test(tokenHeader.trim()) ? tokenHeader.trim() : undefined;
   if (!token && typeof req.cookies?.tl_session === 'string' && /^[a-f0-9]{32,64}$/i.test(req.cookies.tl_session.trim())) {
@@ -141,5 +164,11 @@ sessionRouter.post('/terminate', async (req, res) => {
   }
 
   // Kết thúc phiên phía khách không xóa bất kỳ đơn hàng hoặc công nợ nào của quản trị
+  res.clearCookie('tl_session', {
+    httpOnly: true,
+    secure: process.env.NODE_ENV === 'production',
+    sameSite: 'strict',
+    path: '/'
+  });
   res.json({ ok: true, message: 'Phiên gọi nước đã kết thúc thành công.' });
 });

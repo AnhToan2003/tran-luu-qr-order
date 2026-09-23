@@ -65,8 +65,9 @@ export const openapiSpec = {
       },
       DrinkBatchIntakeRequest: {
         type: 'object',
-        required: ['responsiblePerson', 'items'],
+        required: ['clientRequestId', 'responsiblePerson', 'items'],
         properties: {
+          clientRequestId: { type: 'string', minLength: 1, description: 'Khóa idempotency ổn định cho retry' },
           responsiblePerson: { type: 'string', example: 'Nguyễn Văn Quản Lý' },
           note: { type: 'string', example: 'Nhập nước khoáng đầu tuần' },
           items: {
@@ -87,8 +88,9 @@ export const openapiSpec = {
       },
       SportsBatchIntakeRequest: {
         type: 'object',
-        required: ['responsiblePerson', 'items'],
+        required: ['clientRequestId', 'responsiblePerson', 'items'],
         properties: {
+          clientRequestId: { type: 'string', minLength: 1, description: 'Khóa idempotency ổn định cho retry' },
           responsiblePerson: { type: 'string', example: 'Trần Thủ Kho' },
           note: { type: 'string', example: 'Nhập cước vợt và phụ kiện' },
           items: {
@@ -108,8 +110,9 @@ export const openapiSpec = {
       },
       SportsPosOrderRequest: {
         type: 'object',
-        required: ['items', 'paymentMethod'],
+        required: ['clientRequestId', 'items', 'paymentMethod'],
         properties: {
+          clientRequestId: { type: 'string', minLength: 1, description: 'Khóa idempotency ổn định cho retry' },
           courtId: { type: 'string', example: 'court_1' },
           customerName: { type: 'string', example: 'Anh Toàn' },
           customerPhone: { type: 'string', example: '0901234567' },

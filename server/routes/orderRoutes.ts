@@ -5,6 +5,7 @@ import { getCollections } from '../db.js';
 import { OrderService } from '../services/orderService.js';
 import { customerOrderJson } from '../serialize.js';
 import { ApiError } from '../errors.js';
+import { createRateLimitStore } from '../rateLimitStore.js';
 
 export const orderRouter = Router();
 
@@ -34,6 +35,7 @@ const orderRateLimiter = rateLimit({
   },
   standardHeaders: 'draft-8',
   legacyHeaders: false,
+  store: createRateLimitStore('orders'),
   validate: { keyGeneratorIpFallback: false },
   message: {
     code: 'RATE_LIMITED',
