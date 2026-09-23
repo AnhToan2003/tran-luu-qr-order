@@ -1,5 +1,5 @@
 export class ApiError extends Error {
-  constructor(public status: number, public code: string, message: string) { super(message); }
+  constructor(public status: number, public code: string, message: string, public requestId?: string) { super(message); }
 }
 
 const memoryStore = new Map<string, { fingerprint: string; id: string }>();
@@ -143,7 +143,9 @@ export async function apiFetch(url: string, options: RequestInit = {}) {
     pendingActionProof = null;
   }
   if (!response.ok) {
-    const body = await response.json().catch(() => ({ message: 'Máy chủ không thể xử lý yêu cầu' }));
+    const responseRequestId = response.headers.get('x-request-id') || undefined;
+    const fallbackMessage = `Máy chủ không thể xử lý yêu cầu (HTTP ${response.status}${responseRequestId ? `, mã ${responseRequestId}` : ''})`;
+    const body = await response.json().catch(() => ({ message: fallbackMessage, code: `HTTP_${response.status}` }));
     const proofRetried = Boolean((options as RequestInit & { __proofRetried?: boolean }).__proofRetried);
     const sensitiveAction = inferSensitiveAction(url);
     if (response.status === 403 && (body.code === 'ACTION_PROOF_REQUIRED' || body.code === 'ACTION_PROOF_INVALID') && sensitiveAction && !proofRetried && !['GET', 'HEAD', 'OPTIONS'].includes(method)) {
@@ -153,7 +155,7 @@ export async function apiFetch(url: string, options: RequestInit = {}) {
       const retryOptions = { ...options, headers: retryHeaders, __proofRetried: true } as RequestInit;
       return apiFetch(url, retryOptions);
     }
-    const error = new ApiError(response.status, body.code || 'API_ERROR', body.message);
+    const error = new ApiError(response.status, body.code || 'API_ERROR', body.message || fallbackMessage, responseRequestId);
     if (response.status === 401 && url.startsWith('/api/admin') && !url.endsWith('/login')) {
       window.dispatchEvent(new Event('admin-session-expired'));
     }
