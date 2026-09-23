@@ -9,6 +9,14 @@
 **Chủ sân (GitHub Owner):** AnhToan2003  
 **Đơn vị thiết kế & triển khai:** Antigravity  
 
+> **Ghi chú kiểm toán triển khai (2026-09-23):** Tài liệu này bắt đầu từ một blueprint
+> Cloudflare Workers/Supabase/PostgreSQL. Runtime hiện tại trong repository **không dùng
+> stack đó**: frontend React/Vite được build cùng backend Express 5/Node.js, MongoDB 7
+> Replica Set và Redis, triển khai bằng Docker trên Railway. Các phần mô tả Cloudflare,
+> Supabase, PostgreSQL, Supabase Auth hoặc SQL bên dưới là **thiết kế lịch sử/không phải
+> hợp đồng runtime**; khi sửa hệ thống phải ưu tiên source code, `.env.production.example`,
+> `.railway/railway.ts` và `docs/operations.md`.
+
 ---
 
 ## MỤC LỤC TỔNG QUAN
@@ -96,7 +104,7 @@ Mọi dòng mã backend, frontend, database triggers và giao dịch kho phải 
 
 ---
 
-## 3. KIẾN TRÚC HẠ TẦNG ĐIỆN TOÁN & MÔ HÌNH NO-CARD MIỄN PHÍ
+## 3. KIẾN TRÚC HẠ TẦNG (BLUEPRINT LỊCH SỬ — KHÔNG PHẢI RUNTIME HIỆN TẠI)
 
 ### 3.1 Sơ đồ phân tầng hệ thống (Architecture Diagram)
 
@@ -156,7 +164,7 @@ Mọi dòng mã backend, frontend, database triggers và giao dịch kho phải 
 
 ---
 
-## 4. THIẾT KẾ CƠ SỞ DỮ LIỆU QUAN HỆ & RÀNG BUỘC TOÀN VẸN (SCHEMA & CONSTRAINTS)
+## 4. THIẾT KẾ CƠ SỞ DỮ LIỆU QUAN HỆ (BLUEPRINT LỊCH SỬ — KHÔNG PHẢI SCHEMA MONGODB HIỆN TẠI)
 
 ### 4.1 Bảng `courts` (Quản lý 16 sân thi đấu)
 ```sql
