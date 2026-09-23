@@ -2,7 +2,7 @@ import express, { type ErrorRequestHandler } from 'express';
 import cookieParser from 'cookie-parser';
 import helmet from 'helmet';
 import path from 'node:path';
-import { randomUUID, randomBytes } from 'node:crypto';
+import { randomBytes } from 'node:crypto';
 import { ZodError } from 'zod';
 import { authRouter, requireAdmin, requirePermission } from './auth.js';
 import { catalogRouter } from './routes/catalogRoutes.js';
@@ -11,13 +11,12 @@ import { adminRouter } from './routes/adminRoutes.js';
 import { sessionRouter } from './routes/sessionRoutes.js';
 import { sportsRouter } from './routes/sportsRoutes.js';
 import { rbacRouter } from './routes/rbacRoutes.js';
-import { monitorRouter } from './routes/monitorRoutes.js';
 import { getDb } from './db.js';
 import { ApiError } from './errors.js';
 import { isRedisAvailable } from './redis.js';
 import { openapiSpec } from './swagger/openapiSpec.js';
 import { getSwaggerUiHtml } from './swagger/swaggerUiHtml.js';
-import { telemetryMiddleware, recordSystemError } from './telemetry.js';
+import { logError, requestLoggingMiddleware } from './logger.js';
 
 // P3/P14 FIX: Parse allowed dev origins precisely — no includes('localhost') substring match
 const DEV_ALLOWED_ORIGINS = new Set([
@@ -124,6 +123,7 @@ export function createApp() {
   });
 
   app.use(cookieParser(process.env.COOKIE_SECRET));
+  app.use(requestLoggingMiddleware);
 
   // Large catalog imports are parsed only after authentication and the backup
   // permission check.  Parsing a 50 MB body before auth would let an
@@ -137,13 +137,8 @@ export function createApp() {
     next();
   }, requireAdmin, requirePermission('backup'), express.json({ limit: '50mb' }));
   app.use(express.json({ limit: '3mb' }));
-  app.use(telemetryMiddleware);
 
   app.use('/api', (req, res, next) => {
-    const rawId = req.headers['x-request-id'];
-    const requestId = typeof rawId === 'string' && rawId.trim() ? rawId.trim() : randomUUID();
-    (req as any).id = requestId;
-    res.setHeader('x-request-id', requestId);
     res.setHeader('Cache-Control', 'no-store');
 
     const isProd = process.env.NODE_ENV === 'production';
@@ -182,7 +177,6 @@ export function createApp() {
   app.use('/api/admin/rbac', rbacRouter);
   app.use('/api/admin/sports', sportsRouter);
   app.use('/api/admin', adminRouter);
-  app.use('/api/monitor', monitorRouter);
   app.use('/api/catalog', catalogRouter);
   app.use('/api/orders', orderRouter);
   app.use('/api/sessions', sessionRouter);
@@ -193,7 +187,7 @@ export function createApp() {
     res.json({ ok: true });
   });
 
-  // Detailed readiness check — requires admin permission (internal/monitor use only)
+  // Detailed readiness check — requires admin permission and is intended for deployment checks.
   app.get('/api/health/ready', requirePermission('backup'), async (_req, res) => {
     try {
       await getDb().command({ ping: 1 });
@@ -234,9 +228,11 @@ export function createApp() {
     res.send(getSwaggerUiHtml('/api-docs/openapi.json'));
   });
 
-  app.get(['/monitor', '/monitor/'], requirePermission('backup'), (_req, res) => {
-    res.setHeader('Cache-Control', 'no-store');
-    res.sendFile(path.resolve('monitor/dashboard.html'));
+  // The former in-app monitor was intentionally removed. Keep an explicit
+  // 404 before the SPA fallback so stale bookmarks cannot silently render
+  // the customer application at the old path.
+  app.get(['/monitor', '/monitor/'], (_req, res) => {
+    res.status(404).json({ code: 'NOT_FOUND', message: 'Trang không tồn tại' });
   });
 
   app.use('/api', (_req, res) => res.status(404).json({ code: 'NOT_FOUND', message: 'Không tìm thấy API' }));
@@ -265,17 +261,15 @@ export function createApp() {
       : (error.code === 11000 ? 'DUPLICATE'
       : (error instanceof ZodError ? 'INVALID_INPUT' : error.name || 'SERVER_ERROR'));
 
-    recordSystemError({
-      id: reqId,
+    logError('api.error', {
+      requestId: reqId,
       method: req.method,
-      path: req.originalUrl || req.url,
+      path: req.path,
       statusCode,
       code: errorCode,
       message: error.message || 'Lỗi không xác định',
-      // P2/Issue #16 FIX: stack trace only in non-production
-      stack: process.env.NODE_ENV !== 'production' ? error.stack : undefined,
-      ip: req.ip,
-      userAgent: req.headers['user-agent']
+      errorName: error.name,
+      stack: error.stack,
     });
 
     if (error instanceof ZodError) return void res.status(400).json({ code: 'INVALID_INPUT', message: error.issues.map(i => i.message).join('; ') });
@@ -283,7 +277,6 @@ export function createApp() {
     if (error.code === 11000) return void res.status(409).json({ code: 'DUPLICATE', message: 'Dữ liệu đã tồn tại. Vui lòng tải lại.' });
     if (error.type === 'entity.parse.failed') return void res.status(400).json({ code: 'INVALID_JSON', message: 'JSON không hợp lệ' });
     if (error.type === 'entity.too.large') return void res.status(413).json({ code: 'PAYLOAD_TOO_LARGE', message: 'Ảnh hoặc yêu cầu quá lớn' });
-    console.error(`[API ${reqId}] ${req.method} ${req.originalUrl} - ${error.name}: ${error.message}`);
     // P2/Issue #16 FIX: Do not expose stack trace to client in production
     res.status(500).json({ code: 'SERVER_ERROR', message: 'Không thể hoàn tất yêu cầu. Vui lòng thử lại.' });
   };

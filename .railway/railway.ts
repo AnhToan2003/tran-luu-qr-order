@@ -25,15 +25,6 @@ export default defineRailway(() => {
       DB_NAME: "tran_luu_qr_order",
       ALLOW_STANDALONE: "false",
 
-      // These Mongo variables are used by the Docker production deployment.
-      // Railway normally uses an external/managed Mongo URI, but keeping the
-      // names here makes the required variable contract explicit without
-      // placing credentials in Git.
-      MONGO_ROOT_USER: preserve(),
-      MONGO_ROOT_PASSWORD: preserve(),
-      MONGO_APP_USER: preserve(),
-      MONGO_APP_PASSWORD: preserve(),
-
       ADMIN_USERNAME: preserve(),
       ADMIN_PASSWORD_HASH: preserve(),
       QR_SIGN_SECRET: preserve(),
@@ -42,9 +33,11 @@ export default defineRailway(() => {
 
       REDIS_ENABLED: "true",
       REDIS_URL: cache.env.REDIS_URL,
-      REDIS_PASSWORD: preserve(),
       TRUSTED_PROXY_CIDRS: preserve(),
       CUSTOMER_SESSION_TTL_HOURS: preserve(),
+      LOG_LEVEL: "info",
+      LOG_REQUESTS: "false",
+      LOG_INCLUDE_STACK: "false",
     },
   });
   return project("radiant-possibility", {

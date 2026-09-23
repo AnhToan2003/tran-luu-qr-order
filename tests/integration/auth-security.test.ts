@@ -69,6 +69,15 @@ describe('P1 Issue #3: Rate Limiting - X-Forwarded-For Spoof', () => {
   });
 });
 
+describe('Operational surface', () => {
+  it('does not expose the removed monitor dashboard or API', async () => {
+    const dashboard = await request(app).get('/monitor');
+    const monitorApi = await request(app).get('/api/monitor/overview');
+    expect(dashboard.status).toBe(404);
+    expect(monitorApi.status).toBe(404);
+  });
+});
+
 // =============================================================================
 // Issue #5: Logout Must Revoke Both Cookie and Bearer Token
 // =============================================================================

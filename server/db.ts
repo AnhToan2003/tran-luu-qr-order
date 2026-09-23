@@ -67,9 +67,6 @@ export async function connectToDatabase() {
     c.roles.createIndex({ roleId: 1 }, { unique: true }),
     c.adminUsers.createIndex({ userId: 1 }, { unique: true }),
     c.adminUsers.createIndex({ username: 1 }, { unique: true }),
-    // system_errors: TTL 30 days, redacted sensitive data
-    db.collection('system_errors').createIndex({ timestamp: 1 }, { expireAfterSeconds: 30 * 86400 }),
-    db.collection('system_errors').createIndex({ statusCode: 1, timestamp: -1 }),
     // action_proofs: short-lived one-time tokens for sensitive ops, TTL 10 minutes
     db.collection('action_proofs').createIndex({ expiresAt: 1 }, { expireAfterSeconds: 0 }),
     db.collection('action_proofs').createIndex({ proofId: 1 }, { unique: true }),

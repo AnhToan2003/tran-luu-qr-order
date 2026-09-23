@@ -3,6 +3,7 @@ import { createApp } from './app.js';
 import { connectToDatabase, closeDatabase } from './db.js';
 import { validateAuthConfig } from './auth.js';
 import { initRedis, isRedisAvailable, closeRedis } from './redis.js';
+import { logError, logInfo } from './logger.js';
 try {
   validateAuthConfig();
   const { db } = await connectToDatabase();
@@ -13,7 +14,10 @@ try {
   const { seedSampleData } = await import('./seedData.js');
   await seedSampleData(db, false);
   const { initWebSocketServer } = await import('./websocket.js');
-  const server = createApp().listen(Number(process.env.PORT || 3001), '0.0.0.0', () => console.log('Tran Luu Order API v2 ready (HTTP + WebSocket)'));
+  const port = Number(process.env.PORT || 3001);
+  const server = createApp().listen(port, '0.0.0.0', () => {
+    logInfo('app.ready', { port, websocket: true });
+  });
   const wss = initWebSocketServer(server);
   const { initRedisSubscriber } = await import('./redis.js');
   await initRedisSubscriber();
@@ -25,4 +29,12 @@ try {
     setTimeout(() => process.exit(1), 10000).unref();
   };
   process.on('SIGTERM', shutdown); process.on('SIGINT', shutdown);
-} catch(error) { console.error('Startup failed:', (error as Error).message); process.exit(1); }
+} catch (error) {
+  const startupError = error as Error;
+  logError('app.startup_failed', {
+    errorName: startupError.name,
+    message: startupError.message,
+    stack: startupError.stack,
+  });
+  process.exit(1);
+}
