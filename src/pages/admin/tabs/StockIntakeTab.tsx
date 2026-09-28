@@ -132,7 +132,6 @@ export const StockIntakeTab: React.FC<StockIntakeTabProps> = ({
   products
 }) => {
   const [items, setItems] = useState<StockIntakeItem[]>([]);
-  const viewMode = 'batch';
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [isExporting, setIsExporting] = useState<boolean>(false);
   const [error, setError] = useState<string>('');
@@ -151,7 +150,7 @@ export const StockIntakeTab: React.FC<StockIntakeTabProps> = ({
   const [page, setPage] = useState<number>(1);
   const [limit] = useState<number>(50);
   const [totalPages, setTotalPages] = useState<number>(1);
-  const [totalItems, setTotalItems] = useState<number>(0);
+  const [_totalItems, setTotalItems] = useState<number>(0);
   const [activeSummary, setActiveSummary] = useState<StockIntakeSummary>({
     totalBatches: 0,
     totalQuantity: 0,
@@ -289,7 +288,7 @@ export const StockIntakeTab: React.FC<StockIntakeTabProps> = ({
     }
   };
 
-  const filteredItems = items;
+
 
   const formatDate = (isoString: string) => {
     try {
@@ -698,9 +697,7 @@ export const StockIntakeTab: React.FC<StockIntakeTabProps> = ({
         flexWrap: 'wrap',
         gap: '12px'
       }}>
-        <div>
-          Hiển thị <strong style={{ fontWeight: 900, color: '#0F172A' }}>{viewMode === 'batch' ? batchGroups.length : filteredItems.length}</strong> / <strong style={{ fontWeight: 900, color: '#0F172A' }}>{viewMode === 'batch' ? `${batchGroups.length} đợt` : `${totalItems} lượt`}</strong> • Tổng lượng: <strong style={{ fontWeight: 900, color: '#1D4ED8' }}>{activeSummary.totalQuantity.toLocaleString()}</strong> sản phẩm
-        </div>
+
 
         {/* Nút phân trang */}
         <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
@@ -741,9 +738,7 @@ export const StockIntakeTab: React.FC<StockIntakeTabProps> = ({
           </button>
         </div>
 
-        <div>
-          Tổng vốn đầu tư: <strong>{formatVnd(activeSummary.totalCostValueVnd)}</strong> • Lợi nhuận dự tính: <strong>{formatVnd(activeSummary.totalExpectedProfitVnd)}</strong>
-        </div>
+
       </div>
 
       {/* MODAL XEM CHI TIẾT PHIẾU NHẬP HÀNG THEO ĐỢT (GOM NHÓM) */}

@@ -97,9 +97,6 @@ export const CourtsTab: React.FC<CourtsTabProps> = ({
               </span>
             </div>
 
-            <p style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-muted)', margin: 0 }}>
-              Mã QR liên kết: <code>/order?court={court.code}</code>
-            </p>
 
             {/* Toggle On/Off nhận đơn cho Sân */}
             <div style={{

@@ -13,8 +13,8 @@ export interface AdminPasswordConfirmModalProps {
 
 export const AdminPasswordConfirmModal: React.FC<AdminPasswordConfirmModalProps> = ({
   isOpen,
-  title = 'Xác Nhận Mật Khẩu Quản Trị',
-  actionDescription = 'Thao tác này cần xác nhận mật khẩu quản trị. Vui lòng nhập mật khẩu:',
+  title = 'Xác Nhận Quyền Thao Tác',
+  actionDescription = 'Thao tác này cần xác nhận mật khẩu tài khoản của bạn để thực hiện. Vui lòng nhập mật khẩu:',
   confirmButtonText = 'Xác Nhận Mật Khẩu',
   action = 'inventory',
   onClose,
@@ -72,7 +72,6 @@ export const AdminPasswordConfirmModal: React.FC<AdminPasswordConfirmModalProps>
       const data = await res.json().catch(() => ({}));
       if (!data.proofToken) throw new Error('Máy chủ không cấp được mã xác nhận thao tác');
       setActionProof(data.proofToken);
-      onClose();
       onSuccess(data.proofToken);
     } catch (err: any) {
       setErrorMessage(err.message || 'Mật khẩu không chính xác. Vui lòng thử lại!');
@@ -125,7 +124,7 @@ export const AdminPasswordConfirmModal: React.FC<AdminPasswordConfirmModalProps>
               {title}
             </h3>
             <p style={{ fontSize: '12px', color: '#64748B', margin: '4px 0 0 0' }}>
-              Xác thực quyền quản trị viên
+              Xác thực quyền hạn tài khoản
             </p>
           </div>
           <button
@@ -155,7 +154,7 @@ export const AdminPasswordConfirmModal: React.FC<AdminPasswordConfirmModalProps>
 
           <div style={{ marginBottom: '16px' }}>
             <label style={{ display: 'block', fontSize: '13px', fontWeight: 700, color: '#0F172A', marginBottom: '6px' }}>
-              Mật khẩu Admin <span style={{ color: '#DC2626' }}>*</span>
+              Mật khẩu xác nhận tài khoản <span style={{ color: '#DC2626' }}>*</span>
             </label>
             <div style={{ position: 'relative' }}>
               <input
@@ -166,7 +165,7 @@ export const AdminPasswordConfirmModal: React.FC<AdminPasswordConfirmModalProps>
                   setPassword(e.target.value);
                   if (errorMessage) setErrorMessage('');
                 }}
-                placeholder="Nhập mật khẩu quản trị viên"
+                placeholder="Nhập mật khẩu tài khoản của bạn"
                 style={{
                   width: '100%',
                   boxSizing: 'border-box',

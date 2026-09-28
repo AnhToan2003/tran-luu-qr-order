@@ -23,6 +23,7 @@ interface UserItem {
   roleId: string;
   roleName: string;
   isActive: boolean;
+  hasActionPassword?: boolean;
   isSystemAdmin?: boolean;
   createdAt: string | null;
 }
@@ -212,6 +213,7 @@ export const RbacUsersTab: React.FC = () => {
       setIsSubmitting(false);
     }
   };
+
 
   // Handle Delete User
   const handleDeleteUser = async (user: UserItem) => {
@@ -953,6 +955,8 @@ export const RbacUsersTab: React.FC = () => {
           </div>
         </div>
       )}
+
+
 
       {/* ================= MODAL: THÊM / SỬA VAI TRÒ & MA TRẬN PHÂN QUYỀN ================= */}
       {isRoleModalOpen && (

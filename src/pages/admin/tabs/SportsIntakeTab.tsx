@@ -2306,7 +2306,10 @@ export const SportsIntakeTab: React.FC = () => {
         title={passwordModalState.title}
         actionDescription={passwordModalState.actionDescription}
         onClose={() => setPasswordModalState(prev => ({ ...prev, isOpen: false }))}
-        onSuccess={passwordModalState.onSuccess}
+        onSuccess={() => {
+          setPasswordModalState(prev => ({ ...prev, isOpen: false }));
+          passwordModalState.onSuccess();
+        }}
       />
     </div>
   );

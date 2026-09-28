@@ -1,3 +1,13 @@
+export class ActionProofCancelledError extends Error {
+  public readonly isCancelled = true;
+  public readonly code = 'ACTION_PROOF_CANCELLED';
+
+  constructor(message = 'Thao tác đã được hủy bởi quản trị viên.') {
+    super(message);
+    this.name = 'ActionProofCancelledError';
+  }
+}
+
 export interface ActionProofRequest {
   action: string;
   title?: string;

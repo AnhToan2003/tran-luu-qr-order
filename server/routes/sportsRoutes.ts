@@ -886,7 +886,7 @@ const posOrderSchema = z.object({
   })).min(1, 'Giỏ hàng bán tại quầy không được trống')
 }).strict();
 
-sportsRouter.post('/pos/order', requirePermission('sports-pos'), requireActionProofFor('sports.pos'), async (req, res) => {
+sportsRouter.post('/pos/order', requirePermission('sports-pos'), async (req, res) => {
   const input = posOrderSchema.parse(req.body);
   const now = new Date();
   const c = getCollections();

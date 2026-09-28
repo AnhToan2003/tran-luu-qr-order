@@ -380,12 +380,23 @@ export const HistoryTab: React.FC<HistoryTabProps> = ({
                       </td>
                       <td style={{ padding: '14px 16px', fontWeight: 800, fontSize: '14px', color: '#0F172A' }}>{o.courtName}</td>
                       <td style={{ padding: '14px 16px' }}>
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: '3px', fontSize: '13px', color: '#0F172A' }}>
-                          {o.items.map((i, idx) => (
-                            <span key={idx} style={{ fontWeight: 600 }}>
-                              <strong style={{ fontWeight: 900, color: 'var(--color-deep)' }}>{i.quantity}x</strong> {i.name}
-                            </span>
-                          ))}
+                        <div style={{ fontSize: '13px', color: '#0F172A' }}>
+                          {(() => {
+                            const totalQty = o.items.reduce((s, i) => s + i.quantity, 0);
+                            const itemCount = o.items.length;
+                            const preview = o.items.slice(0, 2).map(i => `${i.quantity}x ${i.name}`).join(', ');
+                            return (
+                              <>
+                                <span style={{ fontWeight: 800 }}>{preview}</span>
+                                {itemCount > 2 && (
+                                  <span style={{ color: '#64748B', fontWeight: 600 }}>{` +${itemCount - 2} món khác`}</span>
+                                )}
+                                <div style={{ fontSize: '11px', color: '#64748B', fontWeight: 700, marginTop: '3px' }}>
+                                  Tổng: {totalQty} sản phẩm
+                                </div>
+                              </>
+                            );
+                          })()}
                         </div>
                       </td>
                       <td style={{ padding: '14px 16px', fontWeight: 900, fontSize: '15px', color: 'var(--color-primary)' }}>{formatVnd(o.totalVnd)}</td>
@@ -551,7 +562,7 @@ export const HistoryTab: React.FC<HistoryTabProps> = ({
           <div style={{
             backgroundColor: '#FFFFFF',
             borderRadius: '16px',
-            maxWidth: '650px',
+            maxWidth: '680px',
             width: '100%',
             boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.25)',
             overflow: 'hidden',
@@ -569,23 +580,48 @@ export const HistoryTab: React.FC<HistoryTabProps> = ({
               backgroundColor: '#F8FAFC'
             }}>
               <div>
-                <h3 style={{ margin: 0, fontSize: '16px', fontWeight: 900, color: '#0F172A' }}>
+                <h3 style={{ margin: 0, fontSize: '17px', fontWeight: 900, color: '#0F172A', letterSpacing: '-0.01em' }}>
                   Chi Tiết Đơn Hàng Bán Nước & Thực Phẩm
                 </h3>
-                <div style={{ fontSize: '12px', color: '#64748B', marginTop: '2px', fontWeight: 600 }}>
-                  Mã đơn: <span style={{ fontFamily: 'monospace', fontWeight: 900, color: '#0F172A' }}>{selectedOrderForDetail.displayCode}</span>
+                <div style={{ fontSize: '13px', color: '#64748B', marginTop: '3px', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '6px' }}>
+                  <span>Mã đơn:</span>
+                  <span style={{
+                    fontFamily: 'monospace',
+                    fontWeight: 900,
+                    color: '#0F172A',
+                    backgroundColor: '#E2E8F0',
+                    padding: '2px 8px',
+                    borderRadius: '4px',
+                    fontSize: '12px'
+                  }}>
+                    {selectedOrderForDetail.displayCode}
+                  </span>
                 </div>
               </div>
               <button
                 onClick={() => setSelectedOrderForDetail(null)}
                 style={{
                   border: 'none',
-                  background: 'none',
-                  fontSize: '20px',
+                  background: '#F1F5F9',
+                  width: '32px',
+                  height: '32px',
+                  borderRadius: '8px',
+                  fontSize: '16px',
                   fontWeight: 800,
                   cursor: 'pointer',
                   color: '#64748B',
-                  padding: '4px 8px'
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  transition: 'all 0.15s ease'
+                }}
+                onMouseEnter={e => {
+                  e.currentTarget.style.backgroundColor = '#E2E8F0';
+                  e.currentTarget.style.color = '#0F172A';
+                }}
+                onMouseLeave={e => {
+                  e.currentTarget.style.backgroundColor = '#F1F5F9';
+                  e.currentTarget.style.color = '#64748B';
                 }}
               >
                 ✕
@@ -593,57 +629,109 @@ export const HistoryTab: React.FC<HistoryTabProps> = ({
             </div>
 
             {/* Body */}
-            <div style={{ padding: '20px 24px', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '16px' }}>
-              {/* Info grid */}
+            <div style={{ padding: '20px 24px', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '18px' }}>
+              {/* Info grid: Perfectly balanced 2x2 grid */}
               <div style={{
                 display: 'grid',
-                gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))',
-                gap: '12px',
-                backgroundColor: '#F8FAFC',
-                padding: '14px',
-                borderRadius: '10px',
-                border: '1px solid #E2E8F0'
+                gridTemplateColumns: 'repeat(2, 1fr)',
+                gap: '12px'
               }}>
-                <div>
-                  <div style={{ fontSize: '11px', fontWeight: 800, color: '#64748B', textTransform: 'uppercase' }}>VỊ TRÍ SÂN</div>
-                  <div style={{ fontSize: '14px', fontWeight: 900, color: '#0F172A', marginTop: '2px' }}>
+                <div style={{
+                  backgroundColor: '#F8FAFC',
+                  border: '1px solid #E2E8F0',
+                  borderRadius: '10px',
+                  padding: '12px 16px',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: '4px'
+                }}>
+                  <div style={{ fontSize: '11px', fontWeight: 800, color: '#64748B', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                    Vị trí sân
+                  </div>
+                  <div style={{ fontSize: '15px', fontWeight: 900, color: '#0F172A' }}>
                     {selectedOrderForDetail.courtName}
                   </div>
                 </div>
-                <div>
-                  <div style={{ fontSize: '11px', fontWeight: 800, color: '#64748B', textTransform: 'uppercase' }}>NGƯỜI PHỤ TRÁCH / THU NGÂN</div>
-                  <div style={{ fontSize: '13px', fontWeight: 800, color: '#0F172A', marginTop: '2px' }}>
+
+                <div style={{
+                  backgroundColor: '#F8FAFC',
+                  border: '1px solid #E2E8F0',
+                  borderRadius: '10px',
+                  padding: '12px 16px',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: '4px'
+                }}>
+                  <div style={{ fontSize: '11px', fontWeight: 800, color: '#64748B', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                    Thời gian đặt
+                  </div>
+                  <div style={{ fontSize: '14px', fontWeight: 800, color: '#0F172A', fontVariantNumeric: 'tabular-nums' }}>
+                    {new Date(selectedOrderForDetail.createdAt).toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' })} - {new Date(selectedOrderForDetail.createdAt).toLocaleDateString('vi-VN', { day: '2-digit', month: '2-digit', year: 'numeric' })}
+                  </div>
+                </div>
+
+                <div style={{
+                  backgroundColor: '#F8FAFC',
+                  border: '1px solid #E2E8F0',
+                  borderRadius: '10px',
+                  padding: '12px 16px',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: '4px'
+                }}>
+                  <div style={{ fontSize: '11px', fontWeight: 800, color: '#64748B', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                    Người phụ trách / Thu ngân
+                  </div>
+                  <div style={{ fontSize: '14px', fontWeight: 800, color: '#0F172A' }}>
                     {(selectedOrderForDetail as any).createdBy || (selectedOrderForDetail as any).staffName || 'Nhân viên quầy'}
                   </div>
                 </div>
-                <div>
-                  <div style={{ fontSize: '11px', fontWeight: 800, color: '#64748B', textTransform: 'uppercase' }}>THANH TOÁN</div>
-                  <div style={{ fontSize: '13px', fontWeight: 800, color: selectedOrderForDetail.paymentMethod === 'transfer' ? '#0369A1' : '#15803D', marginTop: '2px' }}>
-                    {selectedOrderForDetail.paymentMethod === 'transfer' ? 'Chuyển khoản QR' : 'Tiền mặt'}
+
+                <div style={{
+                  backgroundColor: '#F8FAFC',
+                  border: '1px solid #E2E8F0',
+                  borderRadius: '10px',
+                  padding: '12px 16px',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: '4px'
+                }}>
+                  <div style={{ fontSize: '11px', fontWeight: 800, color: '#64748B', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                    Phương thức thanh toán
                   </div>
-                </div>
-                <div>
-                  <div style={{ fontSize: '11px', fontWeight: 800, color: '#64748B', textTransform: 'uppercase' }}>THỜI GIAN ĐẶT</div>
-                  <div style={{ fontSize: '12px', fontWeight: 700, color: '#0F172A', marginTop: '2px' }}>
-                    {new Date(selectedOrderForDetail.createdAt).toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' })} - {new Date(selectedOrderForDetail.createdAt).toLocaleDateString('vi-VN', { day: '2-digit', month: '2-digit', year: 'numeric' })}
+                  <div>
+                    <span style={{
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: '6px',
+                      padding: '3px 10px',
+                      borderRadius: '6px',
+                      fontSize: '12px',
+                      fontWeight: 800,
+                      backgroundColor: selectedOrderForDetail.paymentMethod === 'transfer' ? '#E0F2FE' : '#DCFCE7',
+                      color: selectedOrderForDetail.paymentMethod === 'transfer' ? '#0369A1' : '#15803D',
+                      border: `1px solid ${selectedOrderForDetail.paymentMethod === 'transfer' ? '#BAE6FD' : '#BBF7D0'}`
+                    }}>
+                      {selectedOrderForDetail.paymentMethod === 'transfer' ? 'Chuyển khoản QR' : 'Tiền mặt'}
+                    </span>
                   </div>
                 </div>
               </div>
 
               {/* Items Table */}
               <div>
-                <div style={{ fontSize: '13px', fontWeight: 900, color: '#0F172A', marginBottom: '8px' }}>
-                  DANH SÁCH MÓN ĐÃ BÁN
+                <div style={{ fontSize: '13px', fontWeight: 900, color: '#0F172A', marginBottom: '8px', letterSpacing: '0.02em', textTransform: 'uppercase' }}>
+                  Danh Sách Món Đã Bán
                 </div>
-                <div style={{ border: '1px solid #E2E8F0', borderRadius: '8px', overflow: 'hidden' }}>
+                <div style={{ border: '1px solid #E2E8F0', borderRadius: '10px', overflow: 'hidden' }}>
                   <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13px' }}>
                     <thead>
-                      <tr style={{ backgroundColor: '#0A6B4A', color: '#FFFFFF', height: '40px' }}>
-                        <th style={{ padding: '10px 12px', textAlign: 'left', fontWeight: 800, color: '#FFFFFF' }}>Tên món</th>
-                        <th style={{ padding: '10px 12px', textAlign: 'center', fontWeight: 800, color: '#FFFFFF' }}>Số lượng</th>
-                        <th style={{ padding: '10px 12px', textAlign: 'right', fontWeight: 800, color: '#FFFFFF' }}>Đơn giá</th>
-                        <th style={{ padding: '10px 12px', textAlign: 'right', fontWeight: 800, color: '#FFFFFF' }}>Thành tiền</th>
-                        <th style={{ padding: '10px 12px', textAlign: 'right', fontWeight: 800, color: '#FFFFFF' }}>Tiền lời</th>
+                      <tr style={{ backgroundColor: '#0A6B4A', color: '#FFFFFF', height: '42px' }}>
+                        <th style={{ width: '34%', padding: '10px 14px', textAlign: 'left', fontWeight: 800, color: '#FFFFFF' }}>Tên món</th>
+                        <th style={{ width: '14%', padding: '10px 8px', textAlign: 'center', fontWeight: 800, color: '#FFFFFF' }}>Số lượng</th>
+                        <th style={{ width: '17%', padding: '10px 12px', textAlign: 'right', fontWeight: 800, color: '#FFFFFF' }}>Đơn giá</th>
+                        <th style={{ width: '17%', padding: '10px 12px', textAlign: 'right', fontWeight: 800, color: '#FFFFFF' }}>Thành tiền</th>
+                        <th style={{ width: '18%', padding: '10px 14px', textAlign: 'right', fontWeight: 800, color: '#FFFFFF' }}>Tiền lời</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -651,20 +739,35 @@ export const HistoryTab: React.FC<HistoryTabProps> = ({
                         const lineTotal = it.lineTotal || (it.quantity * it.unitPrice);
                         const itemProfit = (it as any).profitVnd ?? Math.max(0, lineTotal - (((it as any).costPrice || 0) * it.quantity));
                         return (
-                          <tr key={idx} style={{ borderBottom: '1px solid #E2E8F0' }}>
-                            <td style={{ padding: '12px', fontWeight: 800, color: '#0F172A' }}>
+                          <tr
+                            key={idx}
+                            style={{
+                              borderBottom: idx === selectedOrderForDetail.items.length - 1 ? 'none' : '1px solid #E2E8F0',
+                              backgroundColor: idx % 2 === 1 ? '#F8FAFC' : '#FFFFFF'
+                            }}
+                          >
+                            <td style={{ padding: '12px 14px', fontWeight: 800, color: '#0F172A' }}>
                               {it.name}
                             </td>
-                            <td style={{ padding: '12px', textAlign: 'center', fontWeight: 900, color: 'var(--color-primary)' }}>
-                              {it.quantity}
+                            <td style={{ padding: '12px 8px', textAlign: 'center', fontWeight: 900, color: '#0F172A' }}>
+                              <span style={{
+                                display: 'inline-block',
+                                minWidth: '26px',
+                                padding: '2px 8px',
+                                backgroundColor: '#E2E8F0',
+                                borderRadius: '6px',
+                                fontSize: '13px'
+                              }}>
+                                {it.quantity}
+                              </span>
                             </td>
-                            <td style={{ padding: '12px', textAlign: 'right', fontWeight: 600 }}>
+                            <td style={{ padding: '12px', textAlign: 'right', fontWeight: 600, color: '#475569', fontVariantNumeric: 'tabular-nums' }}>
                               {formatVnd(it.unitPrice)}
                             </td>
-                            <td style={{ padding: '12px', textAlign: 'right', fontWeight: 900, color: '#0F172A' }}>
+                            <td style={{ padding: '12px', textAlign: 'right', fontWeight: 900, color: '#0F172A', fontVariantNumeric: 'tabular-nums' }}>
                               {formatVnd(lineTotal)}
                             </td>
-                            <td style={{ padding: '12px', textAlign: 'right', fontWeight: 900, color: '#0A6B4A' }}>
+                            <td style={{ padding: '12px 14px', textAlign: 'right', fontWeight: 900, color: '#0A6B4A', fontVariantNumeric: 'tabular-nums' }}>
                               +{formatVnd(itemProfit)}
                             </td>
                           </tr>
@@ -675,31 +778,40 @@ export const HistoryTab: React.FC<HistoryTabProps> = ({
                 </div>
               </div>
 
-              {/* Total Card */}
+              {/* Total Card: Perfectly balanced 3-column stats */}
               <div style={{
                 display: 'grid',
-                gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))',
-                gap: '12px',
+                gridTemplateColumns: 'repeat(3, 1fr)',
                 backgroundColor: '#F0FDF4',
                 border: '1.5px solid #86EFAC',
                 borderRadius: '12px',
-                padding: '14px 18px'
+                padding: '16px 12px',
+                alignItems: 'center'
               }}>
-                <div>
-                  <div style={{ fontSize: '12px', fontWeight: 800, color: '#166534' }}>TỔNG SỐ LƯỢNG MÓN</div>
-                  <div style={{ fontSize: '14px', color: '#15803D', fontWeight: 800 }}>
-                    {selectedOrderForDetail.items.reduce((s, i) => s + i.quantity, 0)} đồ uống / thực phẩm
+                <div style={{ textAlign: 'center', padding: '0 8px', borderRight: '1px solid #BBF7D0' }}>
+                  <div style={{ fontSize: '11px', fontWeight: 800, color: '#166534', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                    Tổng số lượng món
+                  </div>
+                  <div style={{ fontSize: '20px', fontWeight: 900, color: '#15803D', marginTop: '4px' }}>
+                    {selectedOrderForDetail.items.reduce((s, i) => s + i.quantity, 0)}
+                    <span style={{ fontSize: '12px', fontWeight: 700, marginLeft: '4px', color: '#166534' }}>món</span>
                   </div>
                 </div>
-                <div>
-                  <div style={{ fontSize: '11px', color: '#166534', fontWeight: 700, textTransform: 'uppercase' }}>TỔNG TIỀN ĐƠN HÀNG</div>
-                  <div style={{ fontSize: '20px', fontWeight: 900, color: '#15803D' }}>
+
+                <div style={{ textAlign: 'center', padding: '0 8px', borderRight: '1px solid #BBF7D0' }}>
+                  <div style={{ fontSize: '11px', fontWeight: 800, color: '#166534', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                    Tổng tiền đơn hàng
+                  </div>
+                  <div style={{ fontSize: '20px', fontWeight: 900, color: '#0F172A', marginTop: '4px', fontVariantNumeric: 'tabular-nums' }}>
                     {formatVnd(selectedOrderForDetail.totalVnd)}
                   </div>
                 </div>
-                <div style={{ textAlign: 'right' }}>
-                  <div style={{ fontSize: '11px', color: '#166534', fontWeight: 700, textTransform: 'uppercase' }}>TỔNG LỢI NHUẬN</div>
-                  <div style={{ fontSize: '20px', fontWeight: 900, color: '#0A6B4A' }}>
+
+                <div style={{ textAlign: 'center', padding: '0 8px' }}>
+                  <div style={{ fontSize: '11px', fontWeight: 800, color: '#166534', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                    Tổng lợi nhuận
+                  </div>
+                  <div style={{ fontSize: '20px', fontWeight: 900, color: '#0A6B4A', marginTop: '4px', fontVariantNumeric: 'tabular-nums' }}>
                     +{formatVnd((selectedOrderForDetail as any).totalProfitVnd || 0)}
                   </div>
                 </div>
@@ -708,7 +820,7 @@ export const HistoryTab: React.FC<HistoryTabProps> = ({
 
             {/* Footer */}
             <div style={{
-              padding: '12px 24px',
+              padding: '14px 24px',
               borderTop: '1px solid #E2E8F0',
               display: 'flex',
               justifyContent: 'flex-end',
@@ -717,15 +829,18 @@ export const HistoryTab: React.FC<HistoryTabProps> = ({
               <button
                 onClick={() => setSelectedOrderForDetail(null)}
                 style={{
-                  padding: '8px 18px',
+                  padding: '9px 24px',
                   borderRadius: '8px',
                   backgroundColor: '#0F172A',
                   color: '#FFFFFF',
                   border: 'none',
                   fontWeight: 800,
                   fontSize: '13px',
-                  cursor: 'pointer'
+                  cursor: 'pointer',
+                  transition: 'background-color 0.15s ease'
                 }}
+                onMouseEnter={e => e.currentTarget.style.backgroundColor = '#1E293B'}
+                onMouseLeave={e => e.currentTarget.style.backgroundColor = '#0F172A'}
               >
                 Đóng
               </button>

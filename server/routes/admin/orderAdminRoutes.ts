@@ -1,7 +1,7 @@
 import type { Router } from 'express';
 import { randomUUID, createHash } from 'node:crypto';
 import { z } from 'zod';
-import { requirePermission, requireActionProofFor } from '../../auth.js';
+import { requirePermission } from '../../auth.js';
 import { getCollections, transaction } from '../../db.js';
 import { ApiError } from '../../errors.js';
 import { OrderService } from '../../services/orderService.js';
@@ -33,7 +33,7 @@ export function registerOrderAdminRoutes(router: Router): void {
     res.json([...open, ...delivered].map(orderJson));
   });
 
-  router.post('/orders/:id/payment', requirePermission(['orders', 'sports-pos']), requireActionProofFor('order.financial'), async (req, res) => {
+  router.post('/orders/:id/payment', requirePermission(['orders', 'sports-pos']), async (req, res) => {
     const { paymentStatus, paymentMethod, reason } = z.object({
       paymentStatus: z.enum(['paid', 'unpaid']),
       paymentMethod: z.enum(['cash', 'transfer']).optional(),
@@ -65,7 +65,7 @@ export function registerOrderAdminRoutes(router: Router): void {
     res.json(orderJson(updated));
   });
 
-  router.post('/orders/:id/transition', requirePermission(['orders', 'sports-pos']), requireActionProofFor('order.transition'), async (req, res) => {
+  router.post('/orders/:id/transition', requirePermission(['orders', 'sports-pos']), async (req, res) => {
     const { targetStatus } = z.object({ targetStatus: z.enum(['preparing', 'delivered']) }).strict().parse(req.body);
     const orderId = id.parse(req.params.id);
     const c = getCollections();
@@ -87,7 +87,7 @@ export function registerOrderAdminRoutes(router: Router): void {
     res.json(orderJson(await OrderService.transition(orderId, targetStatus)));
   });
 
-  router.post('/orders/:id/deliver-and-pay', requirePermission(['orders', 'sports-pos']), requireActionProofFor('order.financial'), async (req, res) => {
+  router.post('/orders/:id/deliver-and-pay', requirePermission(['orders', 'sports-pos']), async (req, res) => {
     const { paymentStatus, paymentMethod, reason } = z.object({
       paymentStatus: z.enum(['paid', 'unpaid']),
       paymentMethod: z.enum(['cash', 'transfer']).optional(),
@@ -115,7 +115,7 @@ export function registerOrderAdminRoutes(router: Router): void {
     res.json(orderJson(order));
   });
 
-  router.post('/orders/:id/cancel', requirePermission(['orders', 'sports-pos']), requireActionProofFor('order.financial'), async (req, res) => {
+  router.post('/orders/:id/cancel', requirePermission(['orders', 'sports-pos']), async (req, res) => {
     const { reason } = z.object({ reason: z.string().trim().min(1).max(300) }).strict().parse(req.body);
     const orderId = id.parse(req.params.id);
     const c = getCollections();
@@ -139,7 +139,7 @@ export function registerOrderAdminRoutes(router: Router): void {
     res.json(orderJson(cancelled));
   });
 
-  router.post('/orders/create-pos', requirePermission('orders'), requireActionProofFor('order.pos'), async (req, res) => {
+  router.post('/orders/create-pos', requirePermission('orders'), async (req, res) => {
     const schema = z.object({
       clientRequestId: id,
       items: itemsSchema,
@@ -304,7 +304,7 @@ export function registerOrderAdminRoutes(router: Router): void {
     }
   });
 
-  router.post('/orders/create-for-court', requirePermission('orders'), requireActionProofFor('order.pos'), async (req, res) => {
+  router.post('/orders/create-for-court', requirePermission('orders'), async (req, res) => {
     const order = await OrderService.placeOrder(`admin:${res.locals.admin}`, req.body);
     await recordAuditLog(res.locals.admin, 'order_create', order.orderId, { courtName: order.courtNameSnapshot, totalVnd: order.totalVnd }, req.ip);
     res.status(201).json(orderJson(order));

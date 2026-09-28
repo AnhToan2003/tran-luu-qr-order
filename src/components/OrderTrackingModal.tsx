@@ -34,21 +34,21 @@ export const OrderTrackingModal: React.FC<OrderTrackingModalProps> = ({
   // 3-step clean customer timeline
   const isPaid = order.paymentStatus === 'paid';
   const steps: { key: OrderStatus; label: string; desc: string }[] = [
-    { key: 'accepted', label: '1. Đã tiếp nhận', desc: 'Quầy nước đã nhận đơn và đang chuẩn bị' },
-    { key: 'preparing', label: '2. Đang mang ra sân', desc: 'Nhân viên đang chuẩn bị nước và đem đến sân' },
+    { key: 'accepted', label: '1. Đã tiếp nhận', desc: 'Quầy đã nhận đơn và đang chuẩn bị' },
+    { key: 'preparing', label: '2. Đang mang ra sân', desc: 'Nhân viên đang chuẩn bị đơn ' },
     {
       key: 'delivered',
       label: '3. Đã giao tận sân',
       desc: isPaid
-        ? 'Đã nhận nước & thanh toán hoàn tất'
-        : 'Đã nhận nước tận sân (Thanh toán sau trận)'
+        ? 'Đã nhận đơn & thanh toán hoàn tất'
+        : 'Đã nhận đơn tận sân (Thanh toán sau trận)'
     }
   ];
 
   const getStepStatus = (stepKey: OrderStatus) => {
     if (order.status === 'cancelled') return 'cancelled';
     if (order.status === 'delivered') return 'completed';
-    
+
     // Treat 'new' as accepted since counter receives immediately
     const effectiveStatus = order.status === 'new' ? 'accepted' : order.status;
     const orderIndex = ['accepted', 'preparing', 'delivered'].indexOf(effectiveStatus);

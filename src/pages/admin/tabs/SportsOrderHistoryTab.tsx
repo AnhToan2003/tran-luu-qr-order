@@ -348,7 +348,7 @@ export const SportsOrderHistoryTab: React.FC = () => {
               backgroundColor: '#FFFFFF'
             }}
           >
-            <option value="all">Tất cả hình thức TT</option>
+            <option value="all">Tất cả hình thức Thanh Toán</option>
             <option value="cash">Tiền mặt</option>
             <option value="transfer">Chuyển khoản QR</option>
           </select>

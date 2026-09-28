@@ -5,7 +5,19 @@ import { formatVnd, Product } from '../../types/product';
 const downloadCourtQrPng = async (...args: Parameters<typeof import('../../lib/qrCode').downloadCourtQrPng>) => (await import('../../lib/qrCode')).downloadCourtQrPng(...args);
 const downloadAllCourtsPdf = async (...args: Parameters<typeof import('../../lib/qrCode').downloadAllCourtsPdf>) => (await import('../../lib/qrCode')).downloadAllCourtsPdf(...args);
 const generateCourtQrPng = async (...args: Parameters<typeof import('../../lib/qrCode').generateCourtQrPng>) => (await import('../../lib/qrCode')).generateCourtQrPng(...args);
-import { apiFetch, stableRequestId, completeRequest } from '../../lib/api';
+import { apiFetch, stableRequestId, completeRequest, isActionProofCancelled } from '../../lib/api';
+
+if (typeof window !== 'undefined' && !(window as any).__alertFilterInstalled) {
+  (window as any).__alertFilterInstalled = true;
+  const _origAlert = window.alert;
+  window.alert = function (...args: any[]) {
+    const msg = args[0];
+    if (isActionProofCancelled(msg) || (typeof msg === 'string' && (msg.includes('Đã hủy xác nhận') || msg.includes('ACTION_PROOF_CANCELLED') || msg.includes('hủy bởi quản trị viên')))) {
+      return;
+    }
+    return _origAlert.apply(window, args as any);
+  };
+}
 const exportOrdersToExcel = async (...args: Parameters<typeof import('../../lib/excelExport').exportOrdersToExcel>) => (await import('../../lib/excelExport')).exportOrdersToExcel(...args);
 import { AdminOrdersView } from '../../components/AdminOrdersView';
 import { compressImage } from '../../lib/imageUtils';
@@ -47,7 +59,7 @@ export interface AdminPortalProps {
 export const AdminPortal: React.FC<AdminPortalProps> = ({ onLogout }) => {
   const [currentTab, setCurrentTab] = useState<AdminTab>('orders');
 
-  const [apiError, setApiError] = useState('');
+
   const [historyCursor, setHistoryCursor] = useState<string | null>(null);
   const [historyBusy, setHistoryBusy] = useState(false);
   const [stockMovements, setStockMovements] = useState<Array<{ operationId: string; delta: number; stockAfter: number; createdAt: string; reason: string }>>([]);
@@ -55,13 +67,13 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({ onLogout }) => {
   const runAction = async (key: string, fn: () => Promise<void>) => {
     if (pendingActions.current.has(key)) return;
     pendingActions.current.add(key);
-    setApiError('');
+
     let snapshot: Order[] = [];
     setOrders(current => { snapshot = current; return current; });
     try {
       await fn();
     } catch (e: any) {
-      setApiError(e.message || 'Thao tác không thành công. Hệ thống đã khôi phục trạng thái.');
+      console.error('Thao tác không thành công:', e);
       setOrders(snapshot);
       const remainingPending = snapshot.filter(o => o.status === 'new' || o.status === 'accepted');
       if (remainingPending.length > 0) {
@@ -71,7 +83,7 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({ onLogout }) => {
       pendingActions.current.delete(key);
     }
   };
-  useEffect(() => { const onError = (e: Event) => setApiError((e as CustomEvent<string>).detail); window.addEventListener('api-error', onError); return () => window.removeEventListener('api-error', onError); }, []);
+
   // Orders State (Polling 3.5s)
   const [orders, setOrders] = useState<Order[]>([]);
   const [isAcceptingOrders, setIsAcceptingOrders] = useState<boolean>(false);
@@ -880,7 +892,7 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({ onLogout }) => {
         setHistoryCursor(data.nextCursor || null);
       }
     } catch (e) {
-      setApiError((e as Error).message);
+      console.error('History fetch error:', (e as Error).message);
     } finally {
       setHistoryBusy(false);
     }
@@ -989,6 +1001,7 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({ onLogout }) => {
       setEditingProduct(null);
       fetchProducts();
     } catch (err: any) {
+      if (isActionProofCancelled(err)) return;
       alert('Lỗi: ' + err.message);
     }
   };
@@ -1023,6 +1036,7 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({ onLogout }) => {
       setStockModalProduct(null);
       fetchProducts();
     } catch (e: any) {
+      if (isActionProofCancelled(e)) return;
       alert('Lỗi cập nhật kho: ' + e.message);
     } finally { pendingActions.current.delete('stock'); }
   };
@@ -1037,6 +1051,7 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({ onLogout }) => {
         fetchCourts();
       }
     } catch (e: any) {
+      if (isActionProofCancelled(e)) return;
       alert('Lỗi: ' + e.message);
     }
   };
@@ -1056,6 +1071,7 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({ onLogout }) => {
         fetchCourts();
       }
     } catch (e: any) {
+      if (isActionProofCancelled(e)) return;
       alert('Lỗi: ' + e.message);
     }
   };
@@ -1074,6 +1090,7 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({ onLogout }) => {
       await fetchCourts();
       alert('Đã thu hồi QR cũ. Hãy tải và in mã QR mới.');
     } catch (error) {
+      if (isActionProofCancelled(error)) return;
       alert(error instanceof Error ? error.message : 'Không thể luân phiên mã QR');
     }
   };
@@ -1101,6 +1118,7 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({ onLogout }) => {
       setCourtFormName('');
       fetchCourts();
     } catch (err: any) {
+      if (isActionProofCancelled(err)) return;
       alert('Lỗi: ' + err.message);
     }
   };
@@ -1117,6 +1135,7 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({ onLogout }) => {
       }
       fetchCourts();
     } catch (e: any) {
+      if (isActionProofCancelled(e)) return;
       alert('Lỗi: ' + e.message);
     }
   };
@@ -1184,7 +1203,7 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({ onLogout }) => {
 
   return (
     <div style={{ minHeight: '100vh', display: 'flex', flexDirection: 'column', backgroundColor: 'var(--color-bg)' }}>
-      {apiError && <div role="alert" style={{ padding: 12, background: '#fee2e2', color: '#991b1b' }}>{apiError}<button onClick={() => setApiError('')} style={{ marginLeft: 12 }}>Đóng</button></div>}
+
       {/* HEADER QUẢN TRỊ CHÍNH */}
       <header style={{
         backgroundColor: 'var(--color-deep)',

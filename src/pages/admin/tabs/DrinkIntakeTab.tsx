@@ -2221,7 +2221,10 @@ const COMMON_UNITS = ['Chai', 'Lon', 'Ly', 'Gói', 'Hộp', 'Cây', 'Bịch', 'C
         title={passwordModalState.title}
         actionDescription={passwordModalState.actionDescription}
         onClose={() => setPasswordModalState(prev => ({ ...prev, isOpen: false }))}
-        onSuccess={passwordModalState.onSuccess}
+        onSuccess={() => {
+          setPasswordModalState(prev => ({ ...prev, isOpen: false }));
+          passwordModalState.onSuccess();
+        }}
       />
     </div>
   );

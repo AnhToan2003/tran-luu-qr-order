@@ -225,6 +225,7 @@ rbacRouter.get('/users', async (_req, res) => {
     roleName: roleMap.get('admin') || 'Toàn quyền Admin',
     isActive: true,
     isSystemAdmin: true,
+    hasActionPassword: false,
     createdAt: null,
     updatedAt: null
   };
@@ -233,11 +234,15 @@ rbacRouter.get('/users', async (_req, res) => {
     // Dữ liệu cũ có thể chứa user trùng tên admin ENV. Tài khoản đó bị luồng
     // đăng nhập ENV che khuất, nên không hiển thị thành một tài khoản thứ hai.
     .filter(u => u.username.toLowerCase() !== systemAdminUsername.toLowerCase())
-    .map(u => ({
-      ...u,
-      roleName: roleMap.get(u.roleId) || u.roleId,
-      isSystemAdmin: false
-    }));
+    .map(u => {
+      const { actionPasswordHash, ...rest } = u as any;
+      return {
+        ...rest,
+        roleName: roleMap.get(u.roleId) || u.roleId,
+        hasActionPassword: Boolean(actionPasswordHash),
+        isSystemAdmin: false
+      };
+    });
 
   res.json({ users: [systemAdmin, ...enrichedUsers] });
 });
@@ -251,6 +256,7 @@ rbacRouter.post('/users', requireActionProofFor('rbac.manage'), async (req, res)
     fullName: z.string().trim().min(2, 'Họ tên tối thiểu 2 ký tự').max(80),
     // P2/Issue #9 FIX: Minimum 10 characters
     password: z.string().min(10, 'Mật khẩu tối thiểu 10 ký tự').max(128),
+    actionPassword: z.string().min(4, 'Mật khẩu xác nhận tối thiểu 4 ký tự').max(128).optional().or(z.literal('')),
     roleId: z.string().min(1, 'Vui lòng chọn vai trò cho tài khoản')
   });
 
@@ -282,10 +288,12 @@ rbacRouter.post('/users', requireActionProofFor('rbac.manage'), async (req, res)
 
   const now = new Date();
   const userId = `user_${randomUUID()}`;
+  const actionPasswordClean = body.actionPassword?.trim();
   const newUser: AdminUserDoc = {
     userId,
     username: cleanUsername,
     passwordHash: await hashPassword(body.password),  // P2/Issue #11: async
+    actionPasswordHash: actionPasswordClean ? await hashPassword(actionPasswordClean) : undefined,
     fullName: body.fullName,
     roleId: body.roleId,
     isActive: true,
@@ -303,6 +311,7 @@ rbacRouter.post('/users', requireActionProofFor('rbac.manage'), async (req, res)
       roleId: newUser.roleId,
       roleName: role.name,
       isActive: newUser.isActive,
+      hasActionPassword: Boolean(newUser.actionPasswordHash),
       createdAt: newUser.createdAt
     }
   });
@@ -426,6 +435,64 @@ rbacRouter.put('/users/:userId/password', requireActionProofFor('rbac.manage'), 
   await revokeUserSessions(userId);
 
   res.json({ ok: true, message: `Đã đổi mật khẩu cho tài khoản '${user.username}' thành công!` });
+});
+
+/**
+ * 9.1 Cập nhật Mật khẩu xác nhận thao tác (Mật khẩu cấp 2)
+ */
+rbacRouter.put('/users/:userId/action-password', requireActionProofFor('rbac.manage'), async (req, res) => {
+  const schema = z.object({
+    actionPassword: z.string().min(4, 'Mật khẩu xác nhận tối thiểu 4 ký tự').max(128)
+  });
+
+  const userId = String(req.params.userId);
+  const body = schema.parse(req.body);
+  const c = getCollections();
+
+  const user = await c.adminUsers.findOne({ userId });
+  if (!user) {
+    throw new ApiError(404, 'USER_NOT_FOUND', 'Không tìm thấy tài khoản');
+  }
+
+  await assertCanManageTarget(res, user, c);
+
+  const hashed = await hashPassword(body.actionPassword);
+  await c.adminUsers.updateOne(
+    { userId },
+    {
+      $set: {
+        actionPasswordHash: hashed,
+        updatedAt: new Date()
+      }
+    }
+  );
+
+  res.json({ ok: true, message: `Đã cập nhật mật khẩu xác nhận thao tác cho tài khoản '${user.username}'!` });
+});
+
+/**
+ * 9.2 Xóa Mật khẩu xác nhận riêng (Đặt lại về dùng chung mật khẩu đăng nhập)
+ */
+rbacRouter.delete('/users/:userId/action-password', requireActionProofFor('rbac.manage'), async (req, res) => {
+  const userId = String(req.params.userId);
+  const c = getCollections();
+
+  const user = await c.adminUsers.findOne({ userId });
+  if (!user) {
+    throw new ApiError(404, 'USER_NOT_FOUND', 'Không tìm thấy tài khoản');
+  }
+
+  await assertCanManageTarget(res, user, c);
+
+  await c.adminUsers.updateOne(
+    { userId },
+    {
+      $unset: { actionPasswordHash: "" },
+      $set: { updatedAt: new Date() }
+    }
+  );
+
+  res.json({ ok: true, message: `Đã đặt lại về mật khẩu đăng nhập cho tài khoản '${user.username}'!` });
 });
 
 /**

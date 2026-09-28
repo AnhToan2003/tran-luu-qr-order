@@ -241,6 +241,7 @@ export interface AdminUserDoc {
   userId: string;
   username: string;
   passwordHash: string;
+  actionPasswordHash?: string;
   fullName: string;
   roleId: string;
   customPermissions?: SystemPermission[] | string[];

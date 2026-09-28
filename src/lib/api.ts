@@ -1,4 +1,17 @@
-import { promptActionProofModal } from './actionProofModal.js';
+import { promptActionProofModal, ActionProofCancelledError } from './actionProofModal.js';
+
+export { ActionProofCancelledError };
+
+export function isActionProofCancelled(err: unknown): boolean {
+  if (!err || typeof err !== 'object') return false;
+  const e = err as any;
+  return Boolean(
+    e.isCancelled ||
+    e.name === 'ActionProofCancelledError' ||
+    e.code === 'ACTION_PROOF_CANCELLED' ||
+    (typeof e.message === 'string' && (e.message.includes('Đã hủy') || e.message.includes('hủy xác nhận')))
+  );
+}
 
 export class ApiError extends Error {
   constructor(public status: number, public code: string, message: string, public requestId?: string) { super(message); }
@@ -15,10 +28,6 @@ function inferSensitiveAction(url: string): string | undefined {
   if (/\/api\/admin\/(products|inventory\/)/.test(path)) return 'inventory';
   if (/\/api\/admin\/categories(?:\/|$)/.test(path)) return 'drink.category';
   if (/\/api\/admin\/sports\/categories(?:\/|$)/.test(path)) return 'sports.category';
-  if (/\/api\/admin\/sports\/pos\/order$/.test(path)) return 'sports.pos';
-  if (/\/api\/admin\/orders\/(create-pos|create-for-court)$/.test(path)) return 'order.pos';
-  if (/\/api\/admin\/orders\/[^/]+\/(payment|deliver-and-pay|cancel)$/.test(path)) return 'order.financial';
-  if (/\/api\/admin\/orders\/[^/]+\/transition$/.test(path)) return 'order.transition';
   if (/\/api\/admin\/courts(?:\/|$)/.test(path)) return 'courts.manage';
   if (/\/api\/admin\/settings$/.test(path)) return 'settings';
   if (/\/api\/admin\/catalog\/import$/.test(path)) return 'catalog.import';
@@ -29,20 +38,27 @@ function inferSensitiveAction(url: string): string | undefined {
   return undefined;
 }
 
-async function requestActionProof(action: string): Promise<string> {
-  if (typeof window !== 'undefined') {
-    try {
-      return await promptActionProofModal({
-        action,
-        title: 'Xác Nhận Mật Khẩu Quản Trị',
-        description: 'Thao tác này cần xác nhận mật khẩu quản trị. Vui lòng nhập mật khẩu:'
-      });
-    } catch (e: any) {
-      throw new ApiError(403, 'ACTION_PROOF_REQUIRED', e.message || 'Đã hủy xác nhận mật khẩu quản trị.');
-    }
-  }
+function actionSuccessMessage(action: string): string {
+  const map: Record<string, string> = {
+    'inventory': '✅ Xác nhận thành công — Thao tác kho hàng đã được thực hiện',
+    'drink.category': '✅ Xác nhận thành công — Đã cập nhật hạng mục nước',
+    'sports.category': '✅ Xác nhận thành công — Đã cập nhật hạng mục thể thao',
+    'courts.manage': '✅ Xác nhận thành công — Đã cập nhật quản lý sân',
+    'settings': '✅ Xác nhận thành công — Đã lưu cài đặt hệ thống',
+    'catalog.import': '✅ Xác nhận thành công — Đã nhập danh mục sản phẩm',
+    'backup.export': '✅ Xác nhận thành công — Đã tạo bản sao lưu dữ liệu',
+    'data.purge': '✅ Xác nhận thành công — Đã xóa dữ liệu theo yêu cầu',
+    'rbac.manage': '✅ Xác nhận thành công — Đã cập nhật phân quyền tài khoản'
+  };
+  return map[action] || '✅ Xác nhận mật khẩu thành công — Thao tác đã được thực hiện';
+}
 
-  throw new ApiError(403, 'ACTION_PROOF_REQUIRED', 'Đã hủy xác nhận mật khẩu quản trị.');
+async function requestActionProof(action: string): Promise<string> {
+  return await promptActionProofModal({
+    action,
+    title: 'Xác Nhận Mật Khẩu Quản Trị',
+    description: 'Thao tác này cần xác nhận mật khẩu quản trị. Vui lòng nhập mật khẩu:'
+  });
 }
 
 export function setActionProof(proofToken: string): void {
@@ -154,11 +170,24 @@ export async function apiFetch(url: string, options: RequestInit = {}): Promise<
     const proofRetried = Boolean((options as RequestInit & { __proofRetried?: boolean }).__proofRetried);
     const sensitiveAction = inferSensitiveAction(url);
     if (response.status === 403 && (body.code === 'ACTION_PROOF_REQUIRED' || body.code === 'ACTION_PROOF_INVALID') && sensitiveAction && !proofRetried && !['GET', 'HEAD', 'OPTIONS'].includes(method)) {
-      const proof = await requestActionProof(sensitiveAction);
-      const retryHeaders = new Headers(options.headers);
-      retryHeaders.set('x-action-proof', proof);
-      const retryOptions = { ...options, headers: retryHeaders, __proofRetried: true } as RequestInit;
-      return apiFetch(url, retryOptions);
+      try {
+        const proof = await requestActionProof(sensitiveAction);
+        const retryHeaders = new Headers(options.headers);
+        retryHeaders.set('x-action-proof', proof);
+        const retryOptions = { ...options, headers: retryHeaders, __proofRetried: true } as RequestInit;
+        const retryResponse = await apiFetch(url, retryOptions);
+        if (retryResponse.ok && typeof window !== 'undefined' && typeof window.dispatchEvent === 'function') {
+          window.dispatchEvent(new CustomEvent('api-action-success', {
+            detail: actionSuccessMessage(sensitiveAction)
+          }));
+        }
+        return retryResponse;
+      } catch (err: any) {
+        if (isActionProofCancelled(err)) {
+          throw err;
+        }
+        throw err;
+      }
     }
     const error = new ApiError(response.status, body.code || 'API_ERROR', body.message || fallbackMessage, responseRequestId);
     if (response.status === 401 && url.startsWith('/api/admin') && !url.endsWith('/login')) {
@@ -167,7 +196,9 @@ export async function apiFetch(url: string, options: RequestInit = {}): Promise<
     if (response.status === 403 && body.code === 'PASSWORD_CHANGE_REQUIRED') {
       window.dispatchEvent(new CustomEvent('password-change-required', { detail: body.message }));
     }
-    window.dispatchEvent(new CustomEvent('api-error', { detail: error.message }));
+    if (!url.includes('/auth/verify-action-password') && !url.includes('/auth/login')) {
+      window.dispatchEvent(new CustomEvent('api-error', { detail: error.message }));
+    }
     throw error;
   }
   return response;
