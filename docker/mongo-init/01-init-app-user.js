@@ -27,7 +27,10 @@ appDb.createUser({
   user: appUser,
   pwd: appPassword,
   roles: [
-    { role: 'readWrite', db: dbName }
+    { role: 'readWrite', db: dbName },
+    // Required for versioned collection validators/index migrations at startup.
+    // Scope remains limited to this application database.
+    { role: 'dbAdmin', db: dbName }
   ]
 });
 

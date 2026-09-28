@@ -6,14 +6,17 @@ node_modules/
 # ===== Build Output =====
 dist/
 dist-server/
+dist-tools/
 dist-ssr/
 build/
+coverage/
 
 # ===== Environment Variables (NEVER commit) =====
 .env
 .env.*
 !.env.example
 !.env.production.example
+!.env.staging.example
 
 # ===== TypeScript =====
 *.tsbuildinfo
@@ -40,3 +43,7 @@ desktop.ini
 # ===== Scratch / Temp =====
 scratch/
 .data/
+backups/
+docker/secrets/
+docker/secrets/*
+!docker/secrets/.gitkeep

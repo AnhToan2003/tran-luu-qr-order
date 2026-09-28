@@ -7,31 +7,43 @@
 # Use environment variables / Docker secrets for all credentials.
 # NEVER hardcode credentials — use .env.production or Docker secrets.
 
+name: ${COMPOSE_PROJECT_NAME:-tran-luu-production}
+
 networks:
   internal:
     driver: bridge
     internal: true   # no external connectivity from this network
   proxy:
     driver: bridge   # only the app is exposed via this network
+    ipam:
+      config:
+        - subnet: ${PROXY_SUBNET:-172.29.0.0/24}
 
 secrets:
   mongo_keyfile:
-    file: ./docker/secrets/mongo-keyfile
+    file: ${MONGO_KEYFILE_PATH:-./docker/secrets/mongo-keyfile}
 
 services:
   app:
     build:
       context: .
       dockerfile: Dockerfile
-    container_name: tran_luu_app
     restart: always
+    init: true
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=64m
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
     ports:
       - "127.0.0.1:${PORT:-3001}:3001"   # Public traffic must terminate TLS at a reverse proxy
     networks:
       - internal
       - proxy
     env_file:
-      - .env.production
+      - ${ENV_FILE:-.env.production}
     environment:
       - NODE_ENV=production
       - PORT=3001
@@ -41,14 +53,14 @@ services:
       - REDIS_ENABLED=true
       - REDIS_URL=redis://:${REDIS_PASSWORD:?REDIS_PASSWORD is required}@redis:6379
       # Only trust the internal proxy (Nginx/Traefik) CIDR — adjust to your actual proxy IP
-      - TRUSTED_PROXY_CIDRS=${TRUSTED_PROXY_CIDRS:-172.0.0.0/8}
+      - TRUSTED_PROXY_CIDRS=${TRUSTED_PROXY_CIDRS:-172.29.0.0/24}
     depends_on:
       mongodb:
         condition: service_healthy
       redis:
         condition: service_healthy
     healthcheck:
-      test: ["CMD-SHELL", "node -e \"fetch('http://localhost:3001/api/health').then(r=>r.ok?process.exit(0):process.exit(1)).catch(()=>process.exit(1))\""]
+      test: ["CMD-SHELL", "node -e \"fetch('http://127.0.0.1:3001/api/health/ready').then(r=>r.ok?process.exit(0):process.exit(1)).catch(()=>process.exit(1))\""]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -57,7 +69,6 @@ services:
 
   mongodb:
     image: mongo:7-jammy
-    container_name: tran_luu_mongodb
     restart: always
     # P0 SECURITY FIX: NO port binding — only accessible via internal Docker network
     # ports: INTENTIONALLY REMOVED — do not restore without VPN/SSH tunnel
@@ -97,7 +108,6 @@ services:
 
   redis:
     image: redis:7-alpine
-    container_name: tran_luu_redis
     restart: always
     # P0 SECURITY FIX: NO port binding — only accessible via internal Docker network
     # ports: INTENTIONALLY REMOVED — do not restore without VPN/SSH tunnel
@@ -120,6 +130,44 @@ services:
       retries: 5
       start_period: 5s
 
+  backup:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: backup
+    restart: on-failure
+    init: true
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=64m
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    networks:
+      - internal
+    env_file:
+      - ${ENV_FILE:-.env.production}
+    environment:
+      - NODE_ENV=production
+      - MONGO_URI=mongodb://${MONGO_APP_USER:?MONGO_APP_USER is required}:${MONGO_APP_PASSWORD:?MONGO_APP_PASSWORD is required}@mongodb:27017/${DB_NAME:-tran_luu_qr_order}?authSource=${DB_NAME:-tran_luu_qr_order}&replicaSet=rs0
+      - DB_NAME=${DB_NAME:-tran_luu_qr_order}
+      - BACKUP_OFFSITE_DIR=/offsite-backups
+      - BACKUP_DIR=/app/backups
+      - BACKUP_INTERVAL_HOURS=${BACKUP_INTERVAL_HOURS:-24}
+    depends_on:
+      mongodb:
+        condition: service_healthy
+    volumes:
+      - backups_prod_data:/app/backups
+      - ${BACKUP_OFFSITE_HOST_PATH:-./backups-offsite}:/offsite-backups
+    healthcheck:
+      test: ["CMD-SHELL", "test -f /tmp/backup-heartbeat && find /tmp/backup-heartbeat -mmin -$${BACKUP_HEALTH_MAX_AGE_MINUTES:-1500} | grep -q ."]
+      interval: 5m
+      timeout: 10s
+      retries: 3
+      start_period: 10m
+
   # Optional: Nginx reverse proxy (uncomment if not using an external load balancer)
   # nginx:
   #   image: nginx:alpine
@@ -135,3 +183,4 @@ services:
 volumes:
   mongodb_prod_data:
   redis_prod_data:
+  backups_prod_data:

@@ -5,12 +5,19 @@ RUN npm ci
 COPY . .
 RUN npm run build
 
-FROM node:22-bookworm-slim AS runtime
+FROM node:22-bookworm-slim AS production-deps
 WORKDIR /app
 ENV NODE_ENV=production
 COPY package*.json ./
-# Install production deps only
 RUN npm ci --omit=dev && npm cache clean --force
+
+FROM production-deps AS backup
+COPY --from=build /app/dist-tools ./dist-tools
+RUN mkdir -p /app/backups /offsite-backups && chown -R node:node /app/backups /offsite-backups
+USER node
+CMD ["node", "dist-tools/scripts/backup-scheduler.js"]
+
+FROM production-deps AS runtime
 COPY --from=build /app/dist ./dist
 COPY --from=build /app/dist-server ./dist-server
 COPY data ./data

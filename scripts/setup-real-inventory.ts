@@ -730,7 +730,7 @@ async function main() {
   await productsCol.deleteMany({});
   await movementsCol.deleteMany({});
 
-  const productsToInsert = REAL_PRODUCTS_DATA.map((p, idx) => {
+  const productsToInsert = REAL_PRODUCTS_DATA.map((p) => {
     const imagePath = getProductImagePath(p.imageFileName, p.name, p.category);
     return {
       productId: p.productId,
@@ -780,7 +780,7 @@ async function main() {
   await sportsCol.deleteMany({});
   await sportsMovCol.deleteMany({});
 
-  const sportsToInsert = REAL_SPORTS_DATA.map((s, idx) => {
+  const sportsToInsert = REAL_SPORTS_DATA.map((s) => {
     const imagePath = getSportsImagePath(s.imageFileName, s.name, s.category);
     return {
       itemId: s.itemId,

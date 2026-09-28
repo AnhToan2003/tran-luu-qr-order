@@ -1,0 +1,12 @@
+# Staging intentionally reuses the hardened production topology while keeping
+# its project namespace, public port, data volumes, database and secrets separate.
+name: ${COMPOSE_PROJECT_NAME:-tran-luu-staging}
+
+services:
+  app:
+    environment:
+      - APP_ENV=staging
+
+  backup:
+    environment:
+      - APP_ENV=staging

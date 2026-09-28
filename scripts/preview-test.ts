@@ -1,4 +1,4 @@
-// Local Acceptance & Preview environment with persistent storage.
+import 'dotenv/config';
 import { MongoClient } from 'mongodb';
 import { MongoMemoryReplSet } from 'mongodb-memory-server';
 import { scryptSync } from 'node:crypto';
@@ -40,15 +40,20 @@ const c = getCollections();
 // Newly created or edited products are 100% preserved on disk!
 await seedSampleData(c.courts.db, false);
 
+const { initWebSocketServer } = await import('../server/websocket.js');
 const server = createApp().listen(3101, '127.0.0.1', () => {
   console.log('UI Server ready at: http://127.0.0.1:3101 — admin / admin123');
   console.log('Database connected to: ' + mongoUri + ' / ' + process.env.DB_NAME);
 });
+const wss = initWebSocketServer(server);
 
-const stop = () => server.close(() => {
-  void closeDatabase().then(async () => {
-    if (repl) await repl.stop();
-  }).then(() => process.exit(0));
-});
+const stop = () => {
+  try { wss.close(); } catch {}
+  server.close(() => {
+    void closeDatabase().then(async () => {
+      if (repl) await repl.stop();
+    }).then(() => process.exit(0));
+  });
+};
 process.on('SIGINT', stop);
 process.on('SIGTERM', stop);
