@@ -38,8 +38,7 @@ type AdminTab =
   | 'stock-history'
   | 'sports-stock-history'
   | 'backup'
-  | 'rbac'
-  | 'settings';
+  | 'rbac';
 
 export interface AdminPortalProps {
   onLogout?: () => void;
@@ -142,8 +141,7 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({ onLogout }) => {
               'stock-history': 'intake-history',
               'sports-stock-history': 'sports-intake',
               'backup': 'backup',
-              'rbac': 'rbac',
-              'settings': 'rbac'
+              'rbac': 'rbac'
             };
             if (!perms.includes(tabPermMap[currentTab] || '')) {
               const fallbackTabs: AdminTab[] = ['orders', 'sports-pos', 'drink-intake', 'sports-intake', 'courts', 'reports', 'history', 'sports-order-history', 'stock-history', 'backup', 'rbac'];
@@ -526,7 +524,7 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({ onLogout }) => {
       clearTimeout(reconnectTimer);
       ws?.close();
     };
-  }, [fetchActiveOrders, fetchProducts]);
+  }, [fetchActiveOrders, fetchProducts, startTitleFlash]);
 
   // Tính số lượng mặt hàng sắp hết hoặc hết hàng
   const lowStockCount = useMemo(() => {
@@ -674,7 +672,7 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({ onLogout }) => {
 
   const handleExportFullBackup = async () => {
     try {
-      const res = await apiFetch('/api/admin/backup/full');
+      const res = await apiFetch('/api/admin/backup/full', { method: 'POST' });
       if (!res.ok) throw new Error('Không thể xuất dữ liệu sao lưu toàn hệ thống');
       const blob = await res.blob();
       const url = window.URL.createObjectURL(blob);
@@ -1062,6 +1060,24 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({ onLogout }) => {
     }
   };
 
+  const handleRotateCourtQr = async (court: Court) => {
+    if (!window.confirm(`Thu hồi mã QR hiện tại của ${court.name}? Mọi bản QR cũ sẽ ngừng hoạt động và bạn phải in mã mới.`)) return;
+    try {
+      const res = await apiFetch(`/api/admin/courts/${court.id}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ rotateQr: true })
+      });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error(body.message || 'Không thể luân phiên mã QR');
+      }
+      await fetchCourts();
+      alert('Đã thu hồi QR cũ. Hãy tải và in mã QR mới.');
+    } catch (error) {
+      alert(error instanceof Error ? error.message : 'Không thể luân phiên mã QR');
+    }
+  };
+
   const handleSaveCourt = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!courtFormCode || !courtFormName) {
@@ -1314,6 +1330,7 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({ onLogout }) => {
                 </div>
 
                 {/* 1. Trạng thái nhận đơn */}
+                {(hasPermission('orders') || hasPermission('rbac')) && (
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '8px 10px', backgroundColor: 'var(--color-bg)', borderRadius: 'var(--radius-md)' }}>
                   <div>
                     <div style={{ fontSize: 'var(--font-size-xs)', fontWeight: 700, color: 'var(--color-deep)' }}>
@@ -1339,6 +1356,7 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({ onLogout }) => {
                     {isAcceptingOrders ? 'Tắt nhận' : 'Bật nhận'}
                   </button>
                 </div>
+                )}
 
                 {/* 2. Âm thanh thông báo chuông quầy */}
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '8px 10px', backgroundColor: 'var(--color-bg)', borderRadius: 'var(--radius-md)' }}>
@@ -2046,9 +2064,9 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({ onLogout }) => {
                   fontSize: '13px',
                   fontWeight: 900,
                   letterSpacing: '0.4px',
-                  color: (currentTab === 'rbac' || currentTab === 'courts' || currentTab === 'backup' || currentTab === 'settings') ? 'var(--color-primary)' : '#0F172A',
+                  color: (currentTab === 'rbac' || currentTab === 'courts' || currentTab === 'backup') ? 'var(--color-primary)' : '#0F172A',
                   border: 'none',
-                  borderBottom: (currentTab === 'rbac' || currentTab === 'courts' || currentTab === 'backup' || currentTab === 'settings') ? '3px solid var(--color-primary)' : '3px solid transparent',
+                  borderBottom: (currentTab === 'rbac' || currentTab === 'courts' || currentTab === 'backup') ? '3px solid var(--color-primary)' : '3px solid transparent',
                   marginBottom: '-1px',
                   display: 'flex',
                   alignItems: 'center',
@@ -2098,8 +2116,8 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({ onLogout }) => {
                         gap: '12px',
                         border: 'none',
                         borderRadius: '10px',
-                        backgroundColor: (currentTab === 'rbac' || currentTab === 'settings') ? 'var(--color-primary-light)' : 'transparent',
-                        color: (currentTab === 'rbac' || currentTab === 'settings') ? 'var(--color-primary)' : '#0F172A',
+                        backgroundColor: currentTab === 'rbac' ? 'var(--color-primary-light)' : 'transparent',
+                        color: currentTab === 'rbac' ? 'var(--color-primary)' : '#0F172A',
                         fontWeight: 800,
                         fontSize: '13px',
                         cursor: 'pointer',
@@ -2107,10 +2125,10 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({ onLogout }) => {
                         transition: 'all 0.15s ease'
                       }}
                       onMouseEnter={(e) => {
-                        if (currentTab !== 'rbac' && currentTab !== 'settings') e.currentTarget.style.backgroundColor = '#F8FAFC';
+                        if (currentTab !== 'rbac') e.currentTarget.style.backgroundColor = '#F8FAFC';
                       }}
                       onMouseLeave={(e) => {
-                        if (currentTab !== 'rbac' && currentTab !== 'settings') e.currentTarget.style.backgroundColor = 'transparent';
+                        if (currentTab !== 'rbac') e.currentTarget.style.backgroundColor = 'transparent';
                       }}
                     >
                       <div>
@@ -2268,6 +2286,7 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({ onLogout }) => {
                 setEditingCourt(court);
                 setEditCourtName(court.name);
               }}
+              onRotateCourtQr={handleRotateCourtQr}
               onDeleteCourt={handleDeleteCourt}
             />
           )}
@@ -2367,7 +2386,7 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({ onLogout }) => {
           )}
 
           {/* TAB 7: PHÂN QUYỀN & TÀI KHOẢN (RBAC) */}
-          {(currentTab === 'rbac' || currentTab === 'settings') && (
+          {currentTab === 'rbac' && (
             <RbacUsersTab />
           )}
         </React.Suspense>

@@ -55,7 +55,7 @@ export interface DrinkBatchGroup {
   items: StockIntakeItem[];
 }
 
-export function groupDrinkItemsIntoBatches(rawItems: StockIntakeItem[]): DrinkBatchGroup[] {
+function groupDrinkItemsIntoBatches(rawItems: StockIntakeItem[]): DrinkBatchGroup[] {
   const map = new Map<string, DrinkBatchGroup>();
 
   for (const item of rawItems) {

@@ -19,7 +19,7 @@ function shouldLog(level: LogLevel) {
   return LEVEL_WEIGHT[level] >= LEVEL_WEIGHT[configuredLevel()];
 }
 
-function redactString(value: string) {
+export function redactString(value: string) {
   return value
     .replace(/((?:mongodb(?:\+srv)?|redis):\/\/)[^\s@]+@/gi, '$1[REDACTED]@')
     .replace(/(Bearer\s+)[^\s]+/gi, '$1[REDACTED]');
@@ -78,6 +78,7 @@ export function requestLoggingMiddleware(req: Request, res: Response, next: Next
   res.setHeader('x-request-id', requestId);
 
   const startedAt = Date.now();
+  const requestPath = req.originalUrl.split('?')[0];
   res.on('finish', () => {
     const statusCode = res.statusCode;
     const isHealth = req.path === '/api/health';
@@ -88,7 +89,7 @@ export function requestLoggingMiddleware(req: Request, res: Response, next: Next
     log(level, 'http.request', {
       requestId,
       method: req.method,
-      path: req.path,
+      path: requestPath,
       statusCode,
       durationMs: Date.now() - startedAt,
       userAgent: req.headers['user-agent'] || undefined,

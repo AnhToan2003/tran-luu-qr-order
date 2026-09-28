@@ -22,7 +22,7 @@ export interface SportsBatchGroup {
   items: SportsIntakeItem[];
 }
 
-export function groupSportsItemsIntoBatches(rawItems: SportsIntakeItem[]): SportsBatchGroup[] {
+function groupSportsItemsIntoBatches(rawItems: SportsIntakeItem[]): SportsBatchGroup[] {
   const map = new Map<string, SportsBatchGroup>();
 
   for (const item of rawItems) {

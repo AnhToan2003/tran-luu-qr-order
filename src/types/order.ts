@@ -40,5 +40,6 @@ export interface Court {
   code: string;
   name: string;
   isActive?: boolean;
+  qrVersion?: number;
   sig?: string;
 }

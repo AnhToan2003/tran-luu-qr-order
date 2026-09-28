@@ -59,7 +59,7 @@ const updateSportsItemSchema = z.object({
 sportsRouter.get('/categories', requirePermission(['sports-intake', 'sports-pos', 'sports-order-history', 'intake-history']), async (_req, res) => {
   const c = getCollections();
   const doc = await c.appSettings.findOne({ key: 'sports_categories' });
-  let categories: Array<{ id: string; name: string; itemCount?: number }> = Array.isArray(doc?.value) ? [...doc.value] : [...defaultSportsCategories];
+  const categories: Array<{ id: string; name: string; itemCount?: number }> = Array.isArray(doc?.value) ? [...doc.value] : [...defaultSportsCategories];
 
   const existingCats = await c.sportsItems.distinct('category', { deletedAt: null });
   for (const cat of existingCats) {
@@ -91,7 +91,7 @@ sportsRouter.post('/categories', requirePermission('sports-intake'), requireActi
   const { name } = z.object({ name: z.string().trim().min(1, 'Tên hạng mục không được rỗng').max(60) }).parse(req.body);
   const c = getCollections();
   const doc = await c.appSettings.findOne({ key: 'sports_categories' });
-  let categories: Array<{ id: string; name: string }> = Array.isArray(doc?.value) ? [...doc.value] : [...defaultSportsCategories];
+  const categories: Array<{ id: string; name: string }> = Array.isArray(doc?.value) ? [...doc.value] : [...defaultSportsCategories];
 
   const existing = categories.find(c => c.name.toLowerCase() === name.toLowerCase());
   if (existing) {
@@ -121,7 +121,7 @@ sportsRouter.put('/categories/:id', requirePermission('sports-intake'), requireA
   const { name } = z.object({ name: z.string().trim().min(1, 'Tên hạng mục không được rỗng').max(60) }).parse(req.body);
   const c = getCollections();
   const doc = await c.appSettings.findOne({ key: 'sports_categories' });
-  let categories: Array<{ id: string; name: string }> = Array.isArray(doc?.value) ? [...doc.value] : [...defaultSportsCategories];
+  const categories: Array<{ id: string; name: string }> = Array.isArray(doc?.value) ? [...doc.value] : [...defaultSportsCategories];
 
   const index = categories.findIndex(c => c.id === targetId || c.name.toLowerCase() === targetId.toLowerCase());
   if (index === -1) {
@@ -799,8 +799,6 @@ sportsRouter.get('/intake-history', requirePermission('sports-intake'), async (r
   const totalExpectedProfit = totalExpectedRevenue - totalCostValue;
   const overallMarginPct = totalExpectedRevenue > 0 ? Math.round(((totalExpectedProfit / totalExpectedRevenue) * 100) * 10) / 10 : 0;
   const totalItems = aggregationResult?.totalCount[0]?.count || 0;
-  const totalPages = Math.ceil(totalItems / limit) || 1;
-
   const paginatedBatches = aggregationResult?.batches || [];
   const movements = paginatedBatches.flatMap((b: any) => b.movements || []);
 

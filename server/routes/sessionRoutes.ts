@@ -13,7 +13,9 @@ export const sessionRouter = Router();
 
 const sessionInitRateLimiter = rateLimit({
   windowMs: 60 * 1000,
-  limit: 300,
+  // A genuine scan creates one session. Keep enough headroom for a busy venue
+  // while preventing a valid public QR from being used for storage exhaustion.
+  limit: Number(process.env.SESSION_INIT_RATE_LIMIT || 300),
   standardHeaders: 'draft-8',
   legacyHeaders: false,
   store: createRateLimitStore('session-init'),
@@ -26,7 +28,7 @@ const sessionInitRateLimiter = rateLimit({
 // Rate limit cho validate/reload phiên (bảo vệ tránh brute force token)
 const sessionCurrentRateLimiter = rateLimit({
   windowMs: 60 * 1000,
-  limit: 120,
+  limit: Number(process.env.SESSION_CURRENT_RATE_LIMIT || 300),
   standardHeaders: 'draft-8',
   legacyHeaders: false,
   store: createRateLimitStore('session-current'),
@@ -47,7 +49,7 @@ const sessionTerminateRateLimiter = rateLimit({
 
 const initSessionSchema = z.object({
   courtCode: courtCode,
-  sig: z.string().trim().min(1, 'Chữ ký sân không được để trống')
+  sig: z.string().trim().min(1, 'Chữ ký sân không được để trống').max(64)
 }).strict();
 
 // 1. Khởi tạo phiên khách hàng mới khi quét mã QR
@@ -59,11 +61,6 @@ sessionRouter.post('/init', sessionInitRateLimiter, async (req, res) => {
 
   const { courtCode, sig } = parsed.data;
 
-  // Xác thực chữ ký số HMAC của sân
-  if (!verifyCourtSignature(courtCode, sig)) {
-    throw new ApiError(403, 'INVALID_QR_SIGNATURE', 'Mã QR không hợp lệ hoặc đã bị thay đổi.');
-  }
-
   const colls = getCollections();
   const court = await colls.courts.findOne({ code: courtCode, deletedAt: null });
   if (!court) {
@@ -71,6 +68,11 @@ sessionRouter.post('/init', sessionInitRateLimiter, async (req, res) => {
   }
   if (!court.isActive) {
     throw new ApiError(403, 'COURT_INACTIVE', `Sân ${court.name} hiện đang tạm dừng nhận đơn gọi nước.`);
+  }
+  // Bind the signature to the court's revocation epoch. An administrator can
+  // rotate one compromised QR without changing the global signing secret.
+  if (!verifyCourtSignature(courtCode, sig, court.qrVersion ?? 0)) {
+    throw new ApiError(403, 'INVALID_QR_SIGNATURE', 'Mã QR không hợp lệ, đã bị thay đổi hoặc đã được thu hồi.');
   }
 
   // Sinh token ngẫu nhiên 256-bit (32 bytes hex = 64 ký tự)
@@ -94,9 +96,8 @@ sessionRouter.post('/init', sessionInitRateLimiter, async (req, res) => {
     ip: req.ip
   });
 
-  // Defense in depth: keep the existing response token for the current
-  // client flow, but also issue an HttpOnly cookie so future clients do not
-  // need to expose the raw session token to JavaScript.
+  // The raw token is available only to the browser cookie jar. Application
+  // JavaScript never receives it, which materially reduces the impact of XSS.
   res.cookie('tl_session', token, {
     httpOnly: true,
     secure: process.env.NODE_ENV === 'production',
@@ -106,7 +107,6 @@ sessionRouter.post('/init', sessionInitRateLimiter, async (req, res) => {
   });
 
   res.status(201).json({
-    sessionToken: token,
     court: {
       courtId: court.courtId,
       code: court.code,
@@ -119,11 +119,16 @@ sessionRouter.post('/init', sessionInitRateLimiter, async (req, res) => {
 // 2. Xác thực và lấy thông tin phiên hiện tại (dùng khi reload hoặc reconnect)
 sessionRouter.get('/current', sessionCurrentRateLimiter, async (req, res) => {
   const tokenHeader = req.headers['x-customer-session'];
-  if (typeof tokenHeader !== 'string' || !/^[a-f0-9]{32,64}$/i.test(tokenHeader.trim())) {
+  let token = typeof tokenHeader === 'string' && /^[a-f0-9]{32,64}$/i.test(tokenHeader.trim())
+    ? tokenHeader.trim()
+    : undefined;
+  if (!token && typeof req.cookies?.tl_session === 'string' && /^[a-f0-9]{32,64}$/i.test(req.cookies.tl_session.trim())) {
+    token = req.cookies.tl_session.trim();
+  }
+  if (!token) {
     throw new ApiError(401, 'SESSION_REQUIRED', 'Vui lòng quét mã QR tại sân để bắt đầu.');
   }
 
-  const token = tokenHeader.trim();
   const sessionTokenHash = createHash('sha256').update(token).digest('hex');
   const colls = getCollections();
 

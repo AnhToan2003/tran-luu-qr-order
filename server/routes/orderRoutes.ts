@@ -1,5 +1,6 @@
 import { Router } from 'express';
-import { rateLimit } from 'express-rate-limit';
+import { createHash } from 'node:crypto';
+import { ipKeyGenerator, rateLimit } from 'express-rate-limit';
 import { getCustomerSession } from '../auth.js';
 import { getCollections } from '../db.js';
 import { OrderService } from '../services/orderService.js';
@@ -8,6 +9,16 @@ import { ApiError } from '../errors.js';
 import { createRateLimitStore } from '../rateLimitStore.js';
 
 export const orderRouter = Router();
+
+export function orderRateLimitKey(rawToken: unknown, ip: string): string {
+  if (typeof rawToken === 'string' && rawToken.trim()) {
+    // Never place a reusable customer bearer token in Redis keys, logs or
+    // monitoring output. A deterministic digest preserves per-session limits.
+    const digest = createHash('sha256').update(rawToken.trim()).digest('hex');
+    return `session:${digest}`;
+  }
+  return `ip:${ipKeyGenerator(ip || 'anonymous')}`;
+}
 
 // Lấy danh sách đơn hàng của CHÍNH PHIÊN KHÁCH HÀNG HIỆN TẠI
 orderRouter.get('/my', async (req, res) => {
@@ -28,10 +39,7 @@ const orderRateLimiter = rateLimit({
   },
   keyGenerator: (req) => {
     const token = req.headers['x-customer-session'] || req.cookies?.tl_session;
-    if (typeof token === 'string' && token.trim()) {
-      return `session:${token.trim()}`;
-    }
-    return req.ip || 'anonymous';
+    return orderRateLimitKey(token, req.ip || 'anonymous');
   },
   standardHeaders: 'draft-8',
   legacyHeaders: false,

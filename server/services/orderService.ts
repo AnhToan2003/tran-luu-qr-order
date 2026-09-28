@@ -123,6 +123,8 @@ export class OrderService {
       const order = await c.orders.findOne({ orderId }, { session });
       if (!order) throw new ApiError(404, 'NOT_FOUND', 'Không tìm thấy đơn');
 
+      if (order.status === 'cancelled') throw new ApiError(409, 'ORDER_CLOSED', 'Không thể thay đổi thanh toán của đơn đã hủy');
+
       const prevStatus = order.paymentStatus || 'unpaid';
       if (prevStatus === 'paid' && paymentStatus === 'unpaid') {
         const trimmedReason = (reason || '').trim();
@@ -154,7 +156,7 @@ export class OrderService {
         $inc: { version: 1 }
       };
 
-      if (prevStatus !== paymentStatus || reason) {
+      if (prevStatus !== paymentStatus || order.paymentMethod !== resolvedPaymentMethod || reason) {
         updateDoc.$push = { paymentHistory: historyRecord };
       }
 
@@ -230,7 +232,7 @@ export class OrderService {
         $inc: { version: 1 }
       };
 
-      if (prevStatus !== paymentStatus) {
+      if (prevStatus !== paymentStatus || order.paymentMethod !== resolvedPaymentMethod) {
         const historyRecord: PaymentAuditRecord = {
           from: prevStatus,
           to: paymentStatus,

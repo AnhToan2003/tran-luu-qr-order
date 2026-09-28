@@ -13,7 +13,7 @@ import { sportsRouter } from './routes/sportsRoutes.js';
 import { rbacRouter } from './routes/rbacRoutes.js';
 import { getDb } from './db.js';
 import { ApiError } from './errors.js';
-import { isRedisAvailable } from './redis.js';
+import { getRedisClient, isRedisAvailable } from './redis.js';
 import { openapiSpec } from './swagger/openapiSpec.js';
 import { getSwaggerUiHtml } from './swagger/swaggerUiHtml.js';
 import { logError, requestLoggingMiddleware } from './logger.js';
@@ -22,9 +22,11 @@ import { logError, requestLoggingMiddleware } from './logger.js';
 const DEV_ALLOWED_ORIGINS = new Set([
   'http://localhost:3000',
   'http://localhost:3001',
+  'http://localhost:3101',
   'http://localhost:5173',
   'http://127.0.0.1:3000',
   'http://127.0.0.1:3001',
+  'http://127.0.0.1:3101',
   'http://127.0.0.1:5173',
 ]);
 
@@ -37,8 +39,8 @@ function isAllowedOrigin(origin: string, isProd: boolean, publicOrigin?: string)
     } else {
       // Development: only exact matches from the allowlist
       return DEV_ALLOWED_ORIGINS.has(origin) ||
-        (parsed.hostname === 'localhost' && ['3000', '3001', '5173'].includes(parsed.port)) ||
-        (parsed.hostname === '127.0.0.1' && ['3000', '3001', '5173'].includes(parsed.port));
+        (parsed.hostname === 'localhost' && ['3000', '3001', '3101', '5173'].includes(parsed.port)) ||
+        (parsed.hostname === '127.0.0.1' && ['3000', '3001', '3101', '5173'].includes(parsed.port));
     }
   } catch {
     return false;
@@ -92,33 +94,26 @@ export function createApp() {
   });
 
   // P2/Issue #12+13 FIX: Swagger helmet — remove unsafe-eval + no CDN in production
-  const isProdEnv = process.env.NODE_ENV === 'production';
-  const swaggerHelmet = helmet({
+  const swaggerHelmet = (nonce: string) => helmet({
     contentSecurityPolicy: {
       directives: {
         defaultSrc: ["'self'"],
-        // In production we bundle swagger UI locally, no CDN needed
-        scriptSrc:  isProdEnv
-          ? ["'self'", "'unsafe-inline'"]  // Swagger UI still needs inline scripts
-          : ["'self'", "'unsafe-inline'", "'unsafe-eval'", "https://cdn.jsdelivr.net"],
-        styleSrc:   ["'self'", "'unsafe-inline'",
-          ...(isProdEnv ? [] : ["https://cdn.jsdelivr.net", "https://fonts.googleapis.com"])],
-        imgSrc:     ["'self'", 'data:', 'blob:',
-          ...(isProdEnv ? [] : ["https://cdn.jsdelivr.net", "https://validator.swagger.io"])],
-        fontSrc:    ["'self'", 'data:',
-          ...(isProdEnv ? [] : ["https://fonts.gstatic.com"])],
-        connectSrc: ["'self'", 'http:', 'https:', 'ws:', 'wss:']
+        scriptSrc:  ["'self'", `'nonce-${nonce}'`],
+        styleSrc:   ["'self'", "'unsafe-inline'"],
+        imgSrc:     ["'self'", 'data:', 'blob:'],
+        fontSrc:    ["'self'", 'data:'],
+        connectSrc: ["'self'"]
       }
     },
     crossOriginEmbedderPolicy: false
   });
 
   app.use((req, res, next) => {
-    if (req.path.startsWith('/api-docs')) {
-      return swaggerHelmet(req, res, next);
-    }
     const nonce = generateNonce();
     (req as any).cspNonce = nonce;
+    if (req.path.startsWith('/api-docs') || req.path.startsWith('/swagger-ui')) {
+      return swaggerHelmet(nonce)(req, res, next);
+    }
     return mainHelmet(nonce)(req, res, next);
   });
 
@@ -150,7 +145,7 @@ export function createApp() {
         res.setHeader('Access-Control-Allow-Origin', origin);
         res.setHeader('Access-Control-Allow-Credentials', 'true');
         res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, PATCH, OPTIONS');
-        res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, x-request-id, X-Requested-With');
+        res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, x-request-id, X-Requested-With, x-action-proof, x-customer-session, x-health-token');
       }
     }
     if (req.method === 'OPTIONS') {
@@ -181,52 +176,81 @@ export function createApp() {
   app.use('/api/orders', orderRouter);
   app.use('/api/sessions', sessionRouter);
 
-  // P1/Issue #15 FIX: Public health = liveness only (no version/topology leakage)
-  // Detailed readiness is protected and only accessible internally.
+  // P1/Issue #15 FIX: Public health = liveness only (lightweight, no DB dependency)
   app.get('/api/health', (_req, res) => {
-    res.json({ ok: true });
+    res.json({ ok: true, status: 'ok', service: 'tran-luu-qr-order' });
   });
 
-  // Detailed readiness check — requires admin permission and is intended for deployment checks.
-  app.get('/api/health/ready', requirePermission('backup'), async (_req, res) => {
+  // Readiness probe: Ping thực tế MongoDB và Redis
+  // Production chỉ cho localhost (Docker healthcheck) hoặc request có internal health token hợp lệ.
+  app.get('/api/health/ready', async (req, res) => {
+    const remoteIp = (req.socket.remoteAddress || '').replace(/^::ffff:/, '');
+    const isLocal = remoteIp === '127.0.0.1' || remoteIp === '::1' || req.ip === '127.0.0.1';
+    const internalToken = process.env.INTERNAL_HEALTH_TOKEN || process.env.HEALTH_CHECK_TOKEN;
+    const providedToken = req.headers['x-health-token'];
+    const hasValidToken = Boolean(internalToken && providedToken === internalToken);
+
+    if (!isLocal && !hasValidToken && process.env.NODE_ENV === 'production') {
+      return res.status(401).json({ code: 'UNAUTHORIZED', message: 'Readiness probe chỉ truy cập nội bộ hoặc qua health token' });
+    }
+
     try {
-      await getDb().command({ ping: 1 });
-      res.json({
+      const db = getDb();
+      if (!db) {
+        return res.status(503).json({ ok: false, status: 'unavailable', error: 'MongoDB client is not initialized' });
+      }
+      await db.command({ ping: 1 });
+
+      const redisRequired = process.env.REDIS_ENABLED === 'true';
+      const redisClient = getRedisClient();
+      const redisStatus = isRedisAvailable() && redisClient !== null;
+      if (redisRequired && (!redisStatus || await redisClient!.ping() !== 'PONG')) {
+        return res.status(503).json({ ok: false, status: 'unavailable', error: 'Redis is required but unreachable' });
+      }
+
+      res.status(200).json({
+        ok: true,
         status: 'ok',
-        version: '2.0.0',
         mongodb: 'connected',
-        redis: isRedisAvailable() ? 'connected' : 'fallback_memory',
+        redis: redisStatus ? 'connected' : (redisRequired ? 'unreachable' : 'disabled'),
         time: new Date().toISOString()
       });
     } catch {
-      res.status(503).json({ status: 'unavailable' });
+      res.status(503).json({ ok: false, status: 'unavailable', error: 'Dependency health check failed' });
     }
   });
 
-  // P1/Issue #13 FIX: Swagger protected by admin permission in production
-  app.get('/api-docs/openapi.json', requirePermission('backup'), (_req, res) => {
+  // Documentation is public; every protected operation still requires the
+  // Bearer token or signed HttpOnly cookie documented in the specification.
+  // Production docs are opt-in to avoid publishing the complete operational
+  // surface when interactive documentation is not required.
+  const apiDocsEnabled = process.env.NODE_ENV !== 'production' || process.env.API_DOCS_ENABLED === 'true';
+  app.use(['/api-docs', '/api-docs/*splat', '/swagger-ui', '/swagger-ui/*splat', '/v3/api-docs'], (_req, res, next) => {
+    if (!apiDocsEnabled) return res.status(404).json({ code: 'NOT_FOUND', message: 'Không tìm thấy API' });
+    next();
+  });
+  app.use('/api-docs/assets', express.static(path.resolve('node_modules/swagger-ui-dist'), {
+    immutable: true,
+    maxAge: '1y',
+    index: false
+  }));
+
+  app.get('/api-docs/openapi.json', (_req, res) => {
     res.setHeader('Content-Type', 'application/json');
     res.setHeader('Cache-Control', 'no-cache');
 
-    const isProd = process.env.NODE_ENV === 'production';
-    const prodUrl = (process.env.PUBLIC_ORIGIN && !process.env.PUBLIC_ORIGIN.includes('localhost'))
-      ? process.env.PUBLIC_ORIGIN
-      : 'https://api.tranluubadminton.vn';
-
-    const localBackendUrl = `http://localhost:${process.env.PORT || 3001}`;
-
-    const servers = isProd
-      ? [{ url: prodUrl, description: 'Production' }]  // No local server in production docs
-      : [{ url: localBackendUrl, description: 'Local' }, { url: prodUrl, description: 'Production' }];
-
-    res.json({ ...openapiSpec, servers });
+    res.json(openapiSpec);
   });
 
-  app.get(['/api-docs', '/api-docs/'], requirePermission('backup'), (_req, res) => {
+  app.get(['/api-docs', '/api-docs/'], (req, res) => {
     res.setHeader('Content-Type', 'text/html; charset=utf-8');
     res.setHeader('Cache-Control', 'no-cache');
-    res.send(getSwaggerUiHtml('/api-docs/openapi.json'));
+    res.send(getSwaggerUiHtml('/api-docs/openapi.json', (req as any).cspNonce));
   });
+
+  // Standard OpenAPI 3.x and Swagger UI aliases
+  app.get('/v3/api-docs', (_req, res) => res.redirect(301, '/api-docs/openapi.json'));
+  app.get(['/swagger-ui', '/swagger-ui/', '/swagger-ui/index.html'], (_req, res) => res.redirect(301, '/api-docs'));
 
   // The former in-app monitor was intentionally removed. Keep an explicit
   // 404 before the SPA fallback so stale bookmarks cannot silently render

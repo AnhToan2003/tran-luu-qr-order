@@ -3,6 +3,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import type { Server as HttpServer } from 'node:http';
 import type { IncomingMessage } from 'node:http';
 import cookieParser from 'cookie-parser';
+import proxyaddr from 'proxy-addr';
 import { getDb, getCollections } from './db.js';
 import { adminOrderJson, customerOrderJson } from './serialize.js';
 import type { OrderDoc } from './types.js';
@@ -29,11 +30,25 @@ interface ExtendedWebSocket extends WebSocket {
   authTimeout?: NodeJS.Timeout;
   /** Promise resolves info nếu admin cookie hợp lệ */
   adminVerifyPromise?: Promise<{ isValid: boolean; tokenHash?: string; expiresAt?: Date; userId?: string; permissions?: string[] }>;
+  customerVerifyPromise?: Promise<{ isValid: boolean; tokenHash?: string; expiresAt?: Date }>;
 }
 
 let wss: WebSocketServer | null = null;
 const connectionCounts = new Map<string, number>();
-const MAX_CONNECTIONS_PER_IP = 20;
+let totalConnections = 0;
+const MAX_CONNECTIONS_PER_IP = Number(process.env.WS_MAX_PER_IP || 100);
+const MAX_TOTAL_CONNECTIONS = Number(process.env.WS_MAX_TOTAL || 5000);
+
+export function resolveClientIp(req: IncomingMessage): string {
+  const trustedConfig = process.env.TRUSTED_PROXY_CIDRS;
+  const configured = trustedConfig?.split(',').map(value => value.trim()).filter(Boolean) || [];
+  const trustedRanges = configured.length > 0
+    ? configured
+    : (process.env.NODE_ENV !== 'production' ? ['loopback'] : []);
+  const trust = trustedRanges.length > 0 ? proxyaddr.compile(trustedRanges) : () => false;
+  const address = proxyaddr(req, trust);
+  return address.replace(/^::ffff:/, '').trim() || 'unknown';
+}
 
 function isAllowedWebSocketOrigin(origin: string | undefined): boolean {
   const publicOrigin = (process.env.PUBLIC_ORIGIN || '').replace(/\/$/, '');
@@ -44,9 +59,11 @@ function isAllowedWebSocketOrigin(origin: string | undefined): boolean {
   return new Set([
     'http://localhost:3000',
     'http://localhost:3001',
+    'http://localhost:3101',
     'http://localhost:5173',
     'http://127.0.0.1:3000',
     'http://127.0.0.1:3001',
+    'http://127.0.0.1:3101',
     'http://127.0.0.1:5173'
   ]).has(origin);
 }
@@ -109,6 +126,22 @@ async function resolveAdminFromUpgrade(req: IncomingMessage): Promise<{ isValid:
   }
 }
 
+async function resolveCustomerFromUpgrade(req: IncomingMessage): Promise<{ isValid: boolean; tokenHash?: string; expiresAt?: Date }> {
+  try {
+    const token = parseCookies(req.headers.cookie).tl_session;
+    if (!token || !/^[a-f0-9]{64}$/i.test(token)) return { isValid: false };
+    const tokenHash = createHash('sha256').update(token).digest('hex');
+    const session = await getCollections().customerSessions.findOne({
+      sessionTokenHash: tokenHash,
+      terminatedAt: null,
+      expiresAt: { $gt: new Date() }
+    });
+    return session ? { isValid: true, tokenHash, expiresAt: session.expiresAt } : { isValid: false };
+  } catch {
+    return { isValid: false };
+  }
+}
+
 export function initWebSocketServer(server: HttpServer): WebSocketServer {
   // Bound the payload so an unauthenticated socket cannot consume unbounded
   // memory/CPU before the subscribe message is validated.
@@ -122,7 +155,11 @@ export function initWebSocketServer(server: HttpServer): WebSocketServer {
         done(false, 403, 'WebSocket origin is not allowed');
         return;
       }
-      const ip = info.req.socket.remoteAddress || 'unknown';
+      if (totalConnections >= MAX_TOTAL_CONNECTIONS) {
+        done(false, 503, 'Server WebSocket capacity reached');
+        return;
+      }
+      const ip = resolveClientIp(info.req);
       const current = connectionCounts.get(ip) || 0;
       if (current >= MAX_CONNECTIONS_PER_IP) {
         done(false, 429, 'Too many WebSocket connections');
@@ -145,8 +182,9 @@ export function initWebSocketServer(server: HttpServer): WebSocketServer {
 
   wss.on('connection', (ws: ExtendedWebSocket, req: IncomingMessage) => {
     ws.isAlive = true;
-    const ip = req.socket.remoteAddress || 'unknown';
+    const ip = resolveClientIp(req);
     connectionCounts.set(ip, (connectionCounts.get(ip) || 0) + 1);
+    totalConnections++;
     ws.authTimeout = setTimeout(() => {
       if (!ws.role && ws.readyState === WebSocket.OPEN) {
         try { ws.close(4001, 'AUTH_REQUIRED'); } catch {}
@@ -155,6 +193,7 @@ export function initWebSocketServer(server: HttpServer): WebSocketServer {
 
     // Bắt đầu xác thực admin ngay khi kết nối — lưu Promise để await trong message handler
     ws.adminVerifyPromise = resolveAdminFromUpgrade(req);
+    ws.customerVerifyPromise = resolveCustomerFromUpgrade(req);
 
     ws.on('pong', () => {
       ws.isAlive = true;
@@ -203,21 +242,13 @@ export function initWebSocketServer(server: HttpServer): WebSocketServer {
                   ws.close(4001, 'ADMIN_UNAUTHORIZED');
                 } catch {}
               }
-            } else if (payload.role === 'customer' && typeof payload.sessionHash === 'string' && /^[a-f0-9]{32,64}$/i.test(payload.sessionHash)) {
-              // FE gửi raw token → BE hash SHA-256 để kiểm tra hiệu lực trong DB
-              const tokenHash = createHash('sha256').update(payload.sessionHash.trim()).digest('hex');
-              const colls = getCollections();
-              const sessionDoc = colls ? await colls.customerSessions.findOne({
-                sessionTokenHash: tokenHash,
-                terminatedAt: null,
-                expiresAt: { $gt: new Date() }
-              }) : null;
-
-              if (sessionDoc) {
+            } else if (payload.role === 'customer') {
+              const auth = await (ws.customerVerifyPromise ?? Promise.resolve({ isValid: false }));
+              if (auth.isValid && auth.tokenHash && auth.expiresAt) {
                 ws.role = 'customer';
                 if (ws.authTimeout) clearTimeout(ws.authTimeout);
-                ws.sessionHash = tokenHash;
-                ws.customerExpiresAt = sessionDoc.expiresAt;
+                ws.sessionHash = auth.tokenHash;
+                ws.customerExpiresAt = auth.expiresAt;
               } else {
                 // Phiên không tồn tại, đã hết hạn hoặc bị hủy: thu hồi quyền và đóng socket
                 ws.role = undefined;
@@ -239,6 +270,7 @@ export function initWebSocketServer(server: HttpServer): WebSocketServer {
       const count = connectionCounts.get(ip) || 1;
       if (count <= 1) connectionCounts.delete(ip);
       else connectionCounts.set(ip, count - 1);
+      totalConnections = Math.max(0, totalConnections - 1);
     });
   });
 
@@ -424,7 +456,7 @@ export function broadcastLocal(event: RealtimeEvent): void {
           ...rawOrder,
           id: rawOrder?.id || rawOrder?.orderId,
           items: Array.isArray(rawOrder?.items)
-            ? rawOrder.items.map(({ costPrice, ...rest }: any) => rest)
+            ? rawOrder.items.map(({ costPrice: _costPrice, ...rest }: any) => rest)
             : rawOrder?.items
         };
 
@@ -464,8 +496,12 @@ export function broadcastLocal(event: RealtimeEvent): void {
       }
 
       if (event.type === 'stock_updated') {
-        // Cập nhật tồn kho gửi cho tất cả các socket đang hoạt động
-        extWs.send(adminMessage);
+        // Chỉ phiên đã xác thực mới được nhận tín hiệu tồn kho. Trước đây
+        // socket chưa subscribe vẫn nhận được dữ liệu trong cửa sổ 10 giây
+        // trước khi auth timeout đóng kết nối.
+        if (extWs.role === 'admin' || extWs.role === 'customer') {
+          extWs.send(adminMessage);
+        }
       } else if (event.type === 'order_created' || event.type === 'order_updated') {
         if (extWs.role === 'admin') {
           // Phân định phạm vi chặt chẽ: Đơn thể thao vs Đơn nước uống

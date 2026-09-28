@@ -11,8 +11,18 @@ try {
   if (process.env.NODE_ENV === 'production' && !isRedisAvailable()) {
     throw new Error('[FATAL] Redis is required and must be reachable in production.');
   }
-  const { seedSampleData } = await import('./seedData.js');
-  await seedSampleData(db, false);
+  if (process.env.NODE_ENV !== 'production') {
+    const { seedSampleData } = await import('./seedData.js');
+    await seedSampleData(db, false);
+  } else {
+    // Production: Tuyệt đối không tự động chèn sample data khi khởi động!
+    const productCount = await db.collection('products').countDocuments();
+    if (productCount === 0) {
+      logInfo('production.db_empty', {
+        message: 'Cơ sở dữ liệu Production đang rỗng. Hãy chạy script bootstrap quản trị riêng có chủ đích.'
+      });
+    }
+  }
   const { initWebSocketServer } = await import('./websocket.js');
   const port = Number(process.env.PORT || 3001);
   const server = createApp().listen(port, '0.0.0.0', () => {

@@ -12,7 +12,6 @@ import { CartBottomSheet } from '../components/CartBottomSheet';
 import { OrderTrackingModal } from '../components/OrderTrackingModal';
 import { OrderHistoryModal } from '../components/OrderHistoryModal';
 
-const SESSION_TOKEN_KEY = 'tl_customer_session_token';
 const SESSION_COURT_KEY = 'tl_customer_session_court';
 
 export const CustomerOrderPage: React.FC = () => {
@@ -29,14 +28,8 @@ export const CustomerOrderPage: React.FC = () => {
   }, []);
 
   // Trạng thái phiên khách hàng độc lập
-  const [sessionToken, setSessionToken] = useState<string>(() => {
-    if (initialUrlParams.court) return ''; // Đang quét mới, không render token cũ
-    try {
-      return sessionStorage.getItem(SESSION_TOKEN_KEY) || '';
-    } catch {
-      return '';
-    }
-  });
+  // Non-secret UI marker only. The real credential stays in the HttpOnly cookie.
+  const [sessionToken, setSessionToken] = useState<string>('');
 
   const [courtInfo, setCourtInfo] = useState<{ courtId: string; code: string; name: string } | null>(() => {
     if (initialUrlParams.court) return null; // Đang quét mới, không render sân cũ
@@ -89,20 +82,9 @@ export const CustomerOrderPage: React.FC = () => {
           setIsLoadingCatalog(true);
           setQrError('');
 
-          // Nếu trước đó đang có phiên của sân khác, dọn dẹp phiên cũ
-          let currentToken = sessionToken;
-          try {
-            currentToken = currentToken || sessionStorage.getItem(SESSION_TOKEN_KEY) || '';
-          } catch { }
-
-          if (currentToken) {
-            try {
-              await apiFetch('/api/sessions/terminate', {
-                method: 'POST',
-                headers: { 'x-customer-session': currentToken }
-              });
-            } catch { }
-          }
+          // End any previous cookie-backed session before binding this browser
+          // to the newly scanned court.
+          try { await apiFetch('/api/sessions/terminate', { method: 'POST' }); } catch { }
 
           // Gọi backend để xác thực chữ ký số và sinh session token 256-bit an toàn
           const res = await apiFetch('/api/sessions/init', {
@@ -110,22 +92,15 @@ export const CustomerOrderPage: React.FC = () => {
             body: JSON.stringify({ courtCode: urlCourt, sig: urlSig })
           });
 
-          const data: { sessionToken: string; court: { courtId: string; code: string; name: string }; expiresAt: string } = await res.json();
+          const data: { court: { courtId: string; code: string; name: string }; expiresAt: string } = await res.json();
 
-          const tabOwnerId = typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : String(Date.now() + Math.random());
-          if (typeof window !== 'undefined') {
-            window.name = tabOwnerId;
-          }
-
-          // Lưu token phiên và thông tin sân vào sessionStorage (tách biệt theo từng tab/lượt khách)
+          // Store only non-sensitive court metadata. The credential is HttpOnly.
           try {
-            sessionStorage.setItem(SESSION_TOKEN_KEY, data.sessionToken);
             sessionStorage.setItem(SESSION_COURT_KEY, JSON.stringify(data.court));
-            sessionStorage.setItem('tl_tab_owner', tabOwnerId);
             sessionStorage.removeItem('tl_session_customer_info');
           } catch { }
 
-          setSessionToken(data.sessionToken);
+          setSessionToken(`court:${data.court.courtId}`);
           setCourtInfo(data.court);
           setCourtCode(data.court.code);
           setCartItems([]);
@@ -136,9 +111,7 @@ export const CustomerOrderPage: React.FC = () => {
         } catch (e: any) {
           setQrError(e.message || 'Không thể khởi tạo phiên gọi nước. Vui lòng quét lại mã QR tại sân.');
           try {
-            sessionStorage.removeItem(SESSION_TOKEN_KEY);
             sessionStorage.removeItem(SESSION_COURT_KEY);
-            sessionStorage.removeItem('tl_tab_owner');
           } catch { }
           setSessionToken('');
           setCourtInfo(null);
@@ -153,42 +126,13 @@ export const CustomerOrderPage: React.FC = () => {
       return;
     }
 
-    // Tình huống B: Reload / Reconnect trong phiên hiện tại (không có query params trên URL)
-    const currentTabId = typeof window !== 'undefined' ? window.name : '';
-    let storedTabOwner = '';
-    let existingToken = sessionToken;
-    try {
-      storedTabOwner = sessionStorage.getItem('tl_tab_owner') || '';
-      existingToken = existingToken || sessionStorage.getItem(SESSION_TOKEN_KEY) || '';
-    } catch { }
-
-    // BẢO VỆ DUPLICATE TAB: Nếu tab bị nhân bản (cloned context), window.name sẽ rỗng hoặc không khớp với tl_tab_owner
-    if (existingToken && (!currentTabId || currentTabId !== storedTabOwner)) {
-      console.warn('[SessionGuard] Phát hiện duplicate/cloned tab. Hủy token sao chép để đảm bảo phiên độc lập.');
-      sessionGenerationRef.current += 1;
-      try {
-        sessionStorage.removeItem(SESSION_TOKEN_KEY);
-        sessionStorage.removeItem(SESSION_COURT_KEY);
-        sessionStorage.removeItem('tl_tab_owner');
-      } catch { }
-      setSessionToken('');
-      setCourtInfo(null);
-      setCourtCode('');
-      setCartItems([]);
-      setMyOrders([]);
-      setQrError('Thẻ này được nhân bản từ một tab khác. Quý khách vui lòng quét lại mã QR tại sân để bắt đầu gọi nước.');
-      setIsLoadingCatalog(false);
-      return;
-    }
-
-    if (existingToken) {
+    // Reload/reconnect: validate the HttpOnly cookie without exposing it to JS.
+    {
       const validateCurrentSession = async () => {
         try {
-          const res = await apiFetch('/api/sessions/current', {
-            headers: { 'x-customer-session': existingToken }
-          });
+          const res = await apiFetch('/api/sessions/current');
           const data = await res.json();
-          setSessionToken(existingToken);
+          setSessionToken(`court:${data.court.courtId}`);
           setCourtInfo(data.court);
           setCourtCode(data.court.code);
           try {
@@ -198,7 +142,6 @@ export const CustomerOrderPage: React.FC = () => {
           if (err?.status === 401 || err?.code === 'SESSION_EXPIRED' || err?.code === 'SESSION_REQUIRED' || err?.code === 'INVALID_SESSION') {
             // Phiên hết hạn hoặc không hợp lệ -> xóa sạch phiên cũ
             try {
-              sessionStorage.removeItem(SESSION_TOKEN_KEY);
               sessionStorage.removeItem(SESSION_COURT_KEY);
             } catch { }
             setSessionToken('');
@@ -215,8 +158,6 @@ export const CustomerOrderPage: React.FC = () => {
       };
 
       void validateCurrentSession();
-    } else {
-      setIsLoadingCatalog(false);
     }
   }, []);
 
@@ -227,7 +168,6 @@ export const CustomerOrderPage: React.FC = () => {
     activeAbortControllerRef.current = new AbortController();
 
     try {
-      sessionStorage.removeItem(SESSION_TOKEN_KEY);
       sessionStorage.removeItem(SESSION_COURT_KEY);
       sessionStorage.removeItem('tl_session_customer_info');
     } catch { }
@@ -251,7 +191,6 @@ export const CustomerOrderPage: React.FC = () => {
     try {
       const url = '/api/catalog' + (courtCode ? '?court_code=' + encodeURIComponent(courtCode) : '');
       const res = await apiFetch(url, {
-        headers: sessionToken ? { 'x-customer-session': sessionToken } : undefined,
         signal: activeAbortControllerRef.current?.signal
       });
 
@@ -323,10 +262,7 @@ export const CustomerOrderPage: React.FC = () => {
     if (!sessionToken) return;
     const gen = sessionGenerationRef.current;
     try {
-      const res = await apiFetch('/api/orders/my', {
-        headers: { 'x-customer-session': sessionToken },
-        signal: activeAbortControllerRef.current?.signal
-      });
+      const res = await apiFetch('/api/orders/my', { signal: activeAbortControllerRef.current?.signal });
       if (gen !== sessionGenerationRef.current) return;
       const list: Order[] = await res.json();
       if (gen !== sessionGenerationRef.current) return;
@@ -437,8 +373,7 @@ export const CustomerOrderPage: React.FC = () => {
       try {
         ws = new WebSocket(wsUrl);
         ws.onopen = () => {
-          // Gửi sessionToken để BE hash và so khớp với event.sessionHash khi broadcast
-          ws?.send(JSON.stringify({ type: 'subscribe', role: 'customer', sessionHash: sessionToken }));
+          ws?.send(JSON.stringify({ type: 'subscribe', role: 'customer' }));
         };
         ws.onmessage = (event) => {
           try {
@@ -580,7 +515,6 @@ export const CustomerOrderPage: React.FC = () => {
     try {
       const res = await apiFetch('/api/orders', {
         method: 'POST',
-        headers: { 'x-customer-session': sessionToken },
         body: JSON.stringify({ ...payload, clientRequestId })
       });
       const order: Order = await res.json();

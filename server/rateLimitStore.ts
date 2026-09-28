@@ -41,9 +41,23 @@ export function createRateLimitStore(prefix: string): Store {
       if (!redis) return process.env.NODE_ENV === 'production' ? failClosedIncrement() : localIncrement(key);
       try {
         const redisKey = `ratelimit:${prefix}:${key}`;
-        const hits = await redis.incr(redisKey);
-        if (hits === 1) await redis.pexpire(redisKey, windowMs);
-        const ttl = await redis.pttl(redisKey);
+        // INCR and TTL assignment must be atomic. A process crash between two
+        // separate commands would otherwise leave a rate-limit key without an
+        // expiry and permanently lock that principal out.
+        const result = await redis.eval(
+          `local hits = redis.call('INCR', KEYS[1])
+           local ttl = redis.call('PTTL', KEYS[1])
+           if ttl < 0 then
+             redis.call('PEXPIRE', KEYS[1], ARGV[1])
+             ttl = tonumber(ARGV[1])
+           end
+           return { hits, ttl }`,
+          1,
+          redisKey,
+          String(windowMs)
+        ) as [number, number];
+        const hits = Number(result[0]);
+        const ttl = Number(result[1]);
         return { totalHits: hits, resetTime: new Date(Date.now() + Math.max(ttl, 0)) };
       } catch {
         return process.env.NODE_ENV === 'production' ? failClosedIncrement() : localIncrement(key);

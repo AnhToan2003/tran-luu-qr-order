@@ -20,6 +20,9 @@ function inferSensitiveAction(url: string): string | undefined {
   if (/\/api\/admin\/courts(?:\/|$)/.test(path)) return 'courts.manage';
   if (/\/api\/admin\/settings$/.test(path)) return 'settings';
   if (/\/api\/admin\/catalog\/import$/.test(path)) return 'catalog.import';
+  if (/\/api\/admin\/backup\/full$/.test(path)) return 'backup.export';
+  if (/\/api\/admin\/clean\/purge$/.test(path)) return 'data.purge';
+  if (/\/api\/admin\/sports\/(items|intake|batch-intake)(?:\/|$)/.test(path)) return 'inventory';
   if (/\/api\/admin\/rbac\//.test(path)) return 'rbac.manage';
   return undefined;
 }
@@ -125,7 +128,7 @@ export async function apiFetch(url: string, options: RequestInit = {}) {
       headers: requestHeaders
     });
   } catch (err: any) {
-    if (err?.name === 'AbortError') {
+    if (err?.name === 'AbortError' || err?.name === 'TimeoutError') {
       if (options.signal?.reason === 'session_changed' || options.signal?.reason === 'caller_aborted') {
         throw err;
       }

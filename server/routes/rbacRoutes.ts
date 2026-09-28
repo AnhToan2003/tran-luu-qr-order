@@ -1,6 +1,7 @@
 import { Router } from 'express';
+import { randomUUID } from 'node:crypto';
 import { z } from 'zod';
-import { getCollections, getDb } from '../db.js';
+import { getCollections } from '../db.js';
 import { requirePermission, requireActionProofFor, hashPassword, revokeUserSessions, revokeRoleSessions, validatePasswordStrength } from '../auth.js';
 import { SYSTEM_PERMISSIONS, type SystemPermission, type RoleDoc, type AdminUserDoc } from '../types.js';
 import { ApiError } from '../errors.js';
@@ -48,7 +49,7 @@ async function assertCanManageTarget(res: any, target: AdminUserDoc, c: ReturnTy
   }
 
   const targetRole = await c.roles.findOne({ roleId: target.roleId });
-  const targetPermissions = targetRole?.permissions || [];
+  const targetPermissions = [...(targetRole?.permissions || []), ...(target.customPermissions || [])];
   if (!targetRole || !targetPermissions.every(permission => callerPermissions.includes(permission))) {
     throw new ApiError(403, 'PERMISSION_ESCALATION', 'Không thể quản lý tài khoản có quyền cao hơn tài khoản hiện tại.');
   }
@@ -194,7 +195,7 @@ rbacRouter.delete('/roles/:roleId', requireActionProofFor('rbac.manage'), async 
   // Kiểm tra xem có user nào đang dùng role này không
   const usersCount = await c.adminUsers.countDocuments({ roleId });
   if (usersCount > 0) {
-    throw new ApiError(400, 'ROLE_IN_USE', `Đang có ${usersCount} tài khoản được gán vai trò này. Vui lòng chuyển vai trò của họ trước khi xóa!`);
+    throw new ApiError(409, 'ROLE_IN_USE', `Đang có ${usersCount} tài khoản được gán vai trò này. Vui lòng chuyển vai trò của họ trước khi xóa!`);
   }
 
   await c.roles.deleteOne({ roleId });
@@ -280,7 +281,7 @@ rbacRouter.post('/users', requireActionProofFor('rbac.manage'), async (req, res)
   validatePasswordStrength(body.password, cleanUsername);
 
   const now = new Date();
-  const userId = `user_${Date.now().toString(36)}_${Math.random().toString(36).substring(2, 6)}`;
+  const userId = `user_${randomUUID()}`;
   const newUser: AdminUserDoc = {
     userId,
     username: cleanUsername,

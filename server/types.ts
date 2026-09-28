@@ -9,6 +9,8 @@ export interface CourtDoc {
   name: string;    // 'Sân 01'
   sortOrder: number;
   isActive: boolean;
+  /** Incrementing revocation epoch. Rotating it invalidates every older printed QR for this court. */
+  qrVersion?: number;
   deletedAt?: Date | null;
   createdAt: Date;
   updatedAt: Date;
@@ -247,6 +249,5 @@ export interface AdminUserDoc {
   createdAt: Date;
   updatedAt: Date;
 }
-
 
 

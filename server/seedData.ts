@@ -1,7 +1,8 @@
 import { Db, MongoClient } from 'mongodb';
-import { getCollections, connectToDatabase, DB_NAME } from './db.js';
+import { DB_NAME } from './db.js';
 import { hashPassword } from './auth.js';
-import type { RoleDoc, AdminUserDoc } from './types.js';
+import { SYSTEM_PERMISSIONS, type RoleDoc, type AdminUserDoc } from './types.js';
+import { maskUriCredentials } from './utils/maskUri.js';
 
 // SVG representations of authentic Vietnamese badminton drinks
 const lavieSvg = `data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 260" width="200" height="260">
@@ -498,7 +499,7 @@ export async function seedSampleData(db: Db, force = false): Promise<{ courtsCou
         roleId: 'admin',
         name: 'Quản trị viên (Admin)',
         description: 'Toàn quyền truy cập tất cả chức năng trên hệ thống',
-        permissions: ['orders', 'sports-pos', 'drink-intake', 'sports-intake', 'intake-history', 'order-history', 'revenue-report', 'settings'],
+        permissions: SYSTEM_PERMISSIONS.map(permission => permission.id),
         isSystem: true,
         createdAt: now,
         updatedAt: now
@@ -615,7 +616,7 @@ export async function bootstrapAdminUser(
 if (process.argv[1] && process.argv[1].endsWith('seedData.ts')) {
   (async () => {
     const uri = process.env.MONGO_URI || 'mongodb://localhost:27017';
-    console.log(`[Seed] Connecting to MongoDB: ${uri}`);
+    console.log(`[Seed] Connecting to MongoDB: ${maskUriCredentials(uri)}`);
     const client = new MongoClient(uri);
     await client.connect();
     const db = client.db(process.env.DB_NAME || DB_NAME);

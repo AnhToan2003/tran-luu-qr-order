@@ -7,7 +7,7 @@ import { getDb, getCollections } from './db.js';
 import { ApiError } from './errors.js';
 import type { CustomerSessionDoc, SystemPermission } from './types.js';
 import { revokeAdminSession, revokeAdminUser, revokeRoleSockets } from './websocket.js';
-import { cacheGet, cacheSet, cacheDel, getRedisClient } from './redis.js';
+import { cacheGet, cacheSet, cacheDel } from './redis.js';
 import { createRateLimitStore } from './rateLimitStore.js';
 
 // P2/Issue #11 FIX: Use async crypto.scrypt instead of scryptSync to avoid blocking event loop
@@ -50,9 +50,6 @@ export function extractBearerToken(req: Parameters<RequestHandler>[0]): string |
   }
   return undefined;
 }
-
-// Alias for backward compatibility
-const getAdminCookieToken = extractBearerToken;
 
 export function validateAuthConfig() {
   if (!process.env.ADMIN_PASSWORD_HASH || !/^[a-f0-9]{32}:[a-f0-9]{128}$/.test(process.env.ADMIN_PASSWORD_HASH)) {
@@ -373,7 +370,20 @@ export const authRouter = Router();
 
 function createLoginRateLimit() {
   const windowMs = 15 * 60 * 1000; // 15 minutes
-  const limit = 20; // max 20 attempts per window per IP+username
+  const limit = 10; // max attempts per window per IP+username
+
+  // The account-scoped limiter below prevents focused brute force, while this
+  // IP-wide limiter prevents rotating usernames to bypass that protection.
+  const ipLimiter = rateLimit({
+    windowMs,
+    limit: 50,
+    skipSuccessfulRequests: true,
+    standardHeaders: 'draft-8',
+    legacyHeaders: false,
+    store: createRateLimitStore('login-ip'),
+    keyGenerator: (req) => ipKeyGenerator(req.ip || req.socket.remoteAddress || 'unknown'),
+    message: { code: 'TOO_MANY_ATTEMPTS', message: 'Thử đăng nhập quá nhiều lần. Vui lòng thử lại sau 15 phút.' }
+  });
 
   const limiterOptions: Parameters<typeof rateLimit>[0] = {
     windowMs,
@@ -386,18 +396,22 @@ function createLoginRateLimit() {
     // Use ipKeyGenerator helper to properly handle IPv6 addresses
     keyGenerator: (req) => {
       const ip = ipKeyGenerator(req.ip || req.socket.remoteAddress || 'unknown');
-      const username = (req.body?.username || '').toLowerCase().substring(0, 40);
+      const username = typeof req.body?.username === 'string' ? req.body.username.toLowerCase().substring(0, 80) : '';
       return `login:${ip}:${username}`;
     },
     message: { code: 'TOO_MANY_ATTEMPTS', message: 'Thử đăng nhập quá nhiều lần. Vui lòng thử lại sau 15 phút.' }
   };
 
-  return rateLimit(limiterOptions);
+  return [ipLimiter, rateLimit(limiterOptions)];
 }
 
-authRouter.post('/login', createLoginRateLimit(), async (req, res, next) => {
+authRouter.post('/login', ...createLoginRateLimit(), async (req, res, next) => {
   try {
-    const input = z.object({ username: z.string().max(80), password: z.string().min(1).max(256) }).parse(req.body);
+    const input = z.object({
+      username: z.string().trim().min(1).max(80),
+      password: z.string().min(1).max(256),
+      authMode: z.enum(['cookie', 'bearer']).optional().default('cookie')
+    }).strict().parse(req.body);
     const c = getCollections();
     let authenticated = false;
     let username = input.username;
@@ -421,8 +435,14 @@ authRouter.post('/login', createLoginRateLimit(), async (req, res, next) => {
       }
     } else {
       const user = await c.adminUsers.findOne({ username: input.username, isActive: true });
-      // P2/Issue #11 FIX: async verifyPassword
-      if (user && await verifyPassword(input.password, user.passwordHash)) {
+      // Always perform one scrypt verification, including for an unknown or
+      // disabled username. This reduces the timing difference attackers could
+      // otherwise use to enumerate valid staff accounts.
+      const comparisonHash = user?.passwordHash || process.env.ADMIN_PASSWORD_HASH;
+      const passwordMatches = comparisonHash
+        ? await verifyPassword(input.password, comparisonHash)
+        : false;
+      if (user && passwordMatches) {
         authenticated = true;
         userId = user.userId;
         roleId = user.roleId;
@@ -445,19 +465,23 @@ authRouter.post('/login', createLoginRateLimit(), async (req, res, next) => {
       expiresAt
     });
 
-    // P1/Issue #10 FIX: Web browser flow — set HttpOnly cookie ONLY.
-    // Do NOT return the token in the JSON response body.
-    // This prevents token leakage via JS/XSS/browser extensions/logs.
-    // If you need Bearer tokens for API clients, use a separate /api/admin/auth/token endpoint.
-    res.cookie(cookieName, token, cookieOptions()).json({
+    const response = {
       success: true,
-      // token and accessToken intentionally omitted — use HttpOnly cookie
-      tokenType: 'cookie',
+      tokenType: input.authMode === 'bearer' ? 'Bearer' : 'cookie',
       expiresIn: 12 * 60 * 60,
+      expiresAt: expiresAt.toISOString(),
       username,
       roleId,
       mustChangePassword
-    });
+    };
+
+    if (input.authMode === 'bearer') {
+      // Explicit Swagger/API-client flow. The normal browser login remains
+      // cookie-only, so application JavaScript never receives the raw token.
+      return res.json({ ...response, accessToken: token });
+    }
+
+    return res.cookie(cookieName, token, cookieOptions()).json(response);
   } catch (err) {
     next(err);
   }

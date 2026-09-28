@@ -38,12 +38,6 @@ catalogRouter.get('/', async (req, res) => {
         message: 'Vui lòng quét mã QR tại sân để bắt đầu xem menu và gọi nước.'
       });
     }
-    if (!verifyCourtSignature(courtCode, rawSig)) {
-      return res.status(403).json({
-        code: 'INVALID_QR_SIGNATURE',
-        message: 'Mã QR không hợp lệ hoặc đường dẫn đã bị can thiệp. Vui lòng quét trực tiếp mã QR tại sân!'
-      });
-    }
   }
 
   const court = await colls.courts.findOne({ code: courtCode, deletedAt: null });
@@ -52,6 +46,16 @@ catalogRouter.get('/', async (req, res) => {
       code: 'COURT_NOT_FOUND',
       message: `Không tìm thấy thông tin sân ${courtCode}`
     });
+  }
+
+  if (!hasSessionHeader && !hasSessionCookie) {
+    const rawSig = typeof req.query.sig === 'string' ? req.query.sig.trim() : '';
+    if (!verifyCourtSignature(courtCode, rawSig, court.qrVersion ?? 0)) {
+      return res.status(403).json({
+        code: 'INVALID_QR_SIGNATURE',
+        message: 'Mã QR không hợp lệ, đã bị thay đổi hoặc đã được thu hồi. Vui lòng quét mã QR hiện hành tại sân!'
+      });
+    }
   }
 
   if (court.isActive === false) {

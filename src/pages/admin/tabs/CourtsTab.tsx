@@ -9,6 +9,7 @@ interface CourtsTabProps {
   onOpenQrPreview: (court: Court) => void;
   onDownloadCourtQrPng: (court: Court) => void;
   onOpenEditCourtModal: (court: Court) => void;
+  onRotateCourtQr: (court: Court) => void;
   onDeleteCourt: (id: string, name: string) => void;
 }
 
@@ -20,6 +21,7 @@ export const CourtsTab: React.FC<CourtsTabProps> = ({
   onOpenQrPreview,
   onDownloadCourtQrPng,
   onOpenEditCourtModal,
+  onRotateCourtQr,
   onDeleteCourt,
 }) => {
   return (
@@ -181,6 +183,22 @@ export const CourtsTab: React.FC<CourtsTabProps> = ({
                 title="Đổi tên sân hiển thị"
               >
                 ✏️ Sửa
+              </button>
+
+              <button
+                onClick={() => onRotateCourtQr(court)}
+                style={{
+                  padding: '8px 8px',
+                  backgroundColor: '#FFF7ED',
+                  border: '1px solid #FDBA74',
+                  color: '#9A3412',
+                  borderRadius: 'var(--radius-sm)',
+                  fontWeight: 700,
+                  fontSize: 'var(--font-size-xs)'
+                }}
+                title="Thu hồi QR hiện tại và tạo chữ ký mới"
+              >
+                🔄 QR
               </button>
 
               <button

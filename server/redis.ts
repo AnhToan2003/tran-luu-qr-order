@@ -17,10 +17,10 @@ function buildRedisOptions(): RedisOptions {
     connectTimeout: 2000,
     maxRetriesPerRequest: 1,
     retryStrategy(times) {
-      if (times > 3) {
-        return null; // Stop retrying after 3 failed attempts to avoid log spam
-      }
-      return Math.min(times * 1000, 3000);
+      // Keep retrying after a runtime outage. Production rate limits fail
+      // closed while Redis is unavailable, then recover automatically when it
+      // returns instead of requiring an application restart.
+      return Math.min(times * 1000, 10_000);
     }
   };
 }
@@ -41,10 +41,13 @@ export async function initRedis(): Promise<Redis | null> {
     const redisUrl = process.env.REDIS_URL || process.env.REDIS_URI;
     if (redisUrl) {
       redisClient = new Redis(redisUrl, {
+        // Support the common deployment layout where the URL contains only
+        // the internal host and the password is injected as a separate secret.
+        password: process.env.REDIS_PASSWORD || undefined,
         lazyConnect: true,
         connectTimeout: 2500,
         maxRetriesPerRequest: 1,
-        retryStrategy: (times) => (times > 3 ? null : 1500)
+        retryStrategy: (times) => Math.min(times * 1000, 10_000)
       });
     } else {
       redisClient = new Redis(buildRedisOptions());
