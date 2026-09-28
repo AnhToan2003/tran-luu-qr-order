@@ -83,11 +83,9 @@ export const CustomerOrderPage: React.FC = () => {
           setIsLoadingCatalog(true);
           setQrError('');
 
-          // End any previous cookie-backed session before binding this browser
-          // to the newly scanned court.
-          try { await apiFetch('/api/sessions/terminate', { method: 'POST' }); } catch { }
-
-          // Gọi backend để xác thực chữ ký số và sinh session token 256-bit an toàn
+          // Gọi backend ngay để xác thực chữ ký số và sinh session token 256-bit an toàn.
+          // /sessions/init thay cookie HttpOnly cũ bằng phiên mới; không cần chờ
+          // terminate trước và tránh response xóa cookie mới nếu chạy song song.
           const res = await apiFetch('/api/sessions/init', {
             method: 'POST',
             body: JSON.stringify({ courtCode: urlCourt, sig: urlSig })
