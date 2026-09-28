@@ -15,9 +15,9 @@ export const CustomerHeader: React.FC<CustomerHeaderProps> = ({
 }) => {
   const isAvailable = isAcceptingOrders && !courtDisabledMessage;
   const statusLabel = courtDisabledMessage
-    ? 'Sân tạm dừng nhận đơn'
+    ? 'Sân tạm dừng'
     : !isAcceptingOrders
-    ? 'Quầy đang tạm dừng nhận đơn'
+    ? 'Quầy tạm dừng'
     : 'Quầy nước đang mở nhận đơn';
   const dotColor = isAvailable ? 'var(--color-primary, #10B981)' : '#EF4444';
   const textColor = isAvailable ? 'var(--color-text-muted)' : '#DC2626';

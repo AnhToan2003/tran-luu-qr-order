@@ -780,43 +780,6 @@ export const CustomerOrderPage: React.FC = () => {
           courtName={selectedCourt.name}
         />
 
-        {/* Cảnh báo khi sân bị khóa nhận đơn hoặc quầy đóng */}
-        {courtDisabledMessage ? (
-          <div style={{
-            margin: '12px 16px 0',
-            padding: '12px 14px',
-            backgroundColor: '#FEF2F2',
-            border: '1px solid #F87171',
-            borderRadius: 'var(--radius-md)',
-            color: '#B91C1C',
-            fontSize: 'var(--font-size-xs)',
-            fontWeight: 700,
-            display: 'flex',
-            alignItems: 'center',
-            gap: '8px'
-          }}>
-            <span style={{ fontSize: '16px' }}>🚫</span>
-            <span>{courtDisabledMessage}</span>
-          </div>
-        ) : !isAcceptingOrders ? (
-          <div style={{
-            margin: '12px 16px 0',
-            padding: '10px 14px',
-            backgroundColor: '#FEE2E2',
-            border: '1px solid #EF4444',
-            borderRadius: 'var(--radius-md)',
-            color: '#991B1B',
-            fontSize: 'var(--font-size-xs)',
-            fontWeight: 700,
-            display: 'flex',
-            alignItems: 'center',
-            gap: '8px'
-          }}>
-            <span>⚠️</span>
-            <span>Quầy nước hiện đang tạm dừng nhận đơn mới. Quý khách vui lòng quay lại sau ít phút.</span>
-          </div>
-        ) : null}
-
         {/* Thanh chọn nhóm danh mục ngang */}
         <div style={{
           padding: '12px 16px 4px',
