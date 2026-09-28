@@ -3,6 +3,7 @@ import React from 'react';
 interface CustomerHeaderProps {
   onOpenMyOrders: () => void;
   hasActiveOrder: boolean;
+  isStatusLoading?: boolean;
   isAcceptingOrders?: boolean;
   courtDisabledMessage?: string | null;
 }
@@ -10,11 +11,14 @@ interface CustomerHeaderProps {
 export const CustomerHeader: React.FC<CustomerHeaderProps> = ({
   onOpenMyOrders,
   hasActiveOrder,
+  isStatusLoading = false,
   isAcceptingOrders = true,
   courtDisabledMessage = null
 }) => {
   const isAvailable = isAcceptingOrders && !courtDisabledMessage;
-  const statusLabel = courtDisabledMessage
+  const statusLabel = isStatusLoading
+    ? ''
+    : courtDisabledMessage
     ? 'Sân tạm dừng'
     : !isAcceptingOrders
     ? 'Quầy tạm dừng'
@@ -60,8 +64,8 @@ export const CustomerHeader: React.FC<CustomerHeaderProps> = ({
             }}
           />
         </div>
-        <div>
-          <div style={{
+        <div style={{ minWidth: 0 }}>
+          {!isStatusLoading && <div style={{
             fontSize: 'var(--font-size-base)',
             fontWeight: 700,
             color: 'var(--color-deep)',
@@ -69,7 +73,7 @@ export const CustomerHeader: React.FC<CustomerHeaderProps> = ({
             lineHeight: 1.2
           }}>
             Sân Cầu Lông Trần Lựu
-          </div>
+          </div>}
           <div style={{
             display: 'flex',
             alignItems: 'center',

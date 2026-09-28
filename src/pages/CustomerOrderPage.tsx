@@ -50,6 +50,7 @@ export const CustomerOrderPage: React.FC = () => {
 
   const [products, setProducts] = useState<Product[]>([]);
   const [isAcceptingOrders, setIsAcceptingOrders] = useState<boolean>(false);
+  const [hasLoadedCatalog, setHasLoadedCatalog] = useState<boolean>(false);
   const [courtDisabledMessage, setCourtDisabledMessage] = useState<string | null>(null);
   const [isLoadingCatalog, setIsLoadingCatalog] = useState<boolean>(true);
 
@@ -129,6 +130,7 @@ export const CustomerOrderPage: React.FC = () => {
     // Reload/reconnect: validate the HttpOnly cookie without exposing it to JS.
     {
       const validateCurrentSession = async () => {
+        setIsLoadingCatalog(true);
         try {
           const res = await apiFetch('/api/sessions/current');
           const data = await res.json();
@@ -206,6 +208,7 @@ export const CustomerOrderPage: React.FC = () => {
       const newProducts: Product[] = data.products || [];
       setProducts(newProducts);
       setIsAcceptingOrders(data.isAcceptingOrders);
+      setHasLoadedCatalog(true);
       if (data.court) {
         setCourtInfo(data.court);
       }
@@ -558,6 +561,24 @@ export const CustomerOrderPage: React.FC = () => {
   }, [courtCode, courtInfo]);
 
   // ================= 7. MÀN HÌNH HƯỚNG DẪN KHI CHƯA CÓ PHIÊN HOẶC CHƯA QUÉT QR =================
+  if ((!courtCode || !sessionToken) && isLoadingCatalog && initialUrlParams.court) {
+    return (
+      <main
+        aria-label="Đang mở thực đơn"
+        style={{ minHeight: '100vh', backgroundColor: 'var(--color-bg)' }}
+      />
+    );
+  }
+
+  if ((!courtCode || !sessionToken) && isLoadingCatalog && courtInfo) {
+    return (
+      <main
+        aria-label="Đang tải phiên gọi nước"
+        style={{ minHeight: '100vh', backgroundColor: 'var(--color-bg)' }}
+      />
+    );
+  }
+
   if (!courtCode || !sessionToken) {
     return (
       <div style={{
@@ -696,6 +717,7 @@ export const CustomerOrderPage: React.FC = () => {
         <CustomerHeader
           onOpenMyOrders={() => { setIsHistoryOpen(true); void checkMyActiveOrders(); }}
           hasActiveOrder={hasActiveOrder}
+          isStatusLoading={!hasLoadedCatalog || isLoadingCatalog}
           isAcceptingOrders={isAcceptingOrders}
           courtDisabledMessage={courtDisabledMessage}
         />
@@ -843,11 +865,7 @@ export const CustomerOrderPage: React.FC = () => {
           gridTemplateColumns: 'repeat(2, 1fr)',
           gap: '12px'
         }}>
-          {isLoadingCatalog ? (
-            <div style={{ gridColumn: '1 / -1', textAlign: 'center', padding: '50px 20px', color: 'var(--color-text-muted)' }}>
-              Đang tải danh mục nước giải khát...
-            </div>
-          ) : products.length === 0 ? (
+          {isLoadingCatalog ? null : products.length === 0 ? (
             <div style={{ gridColumn: '1 / -1', textAlign: 'center', padding: '50px 20px', color: 'var(--color-text-muted)' }}>
               Hiện chưa có sản phẩm nào sẵn sàng phục vụ.
             </div>
