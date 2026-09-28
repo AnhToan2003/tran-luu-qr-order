@@ -38,20 +38,6 @@ function inferSensitiveAction(url: string): string | undefined {
   return undefined;
 }
 
-function actionSuccessMessage(action: string): string {
-  const map: Record<string, string> = {
-    'inventory': '✅ Xác nhận thành công — Thao tác kho hàng đã được thực hiện',
-    'drink.category': '✅ Xác nhận thành công — Đã cập nhật hạng mục nước',
-    'sports.category': '✅ Xác nhận thành công — Đã cập nhật hạng mục thể thao',
-    'courts.manage': '✅ Xác nhận thành công — Đã cập nhật quản lý sân',
-    'settings': '✅ Xác nhận thành công — Đã lưu cài đặt hệ thống',
-    'catalog.import': '✅ Xác nhận thành công — Đã nhập danh mục sản phẩm',
-    'backup.export': '✅ Xác nhận thành công — Đã tạo bản sao lưu dữ liệu',
-    'data.purge': '✅ Xác nhận thành công — Đã xóa dữ liệu theo yêu cầu',
-    'rbac.manage': '✅ Xác nhận thành công — Đã cập nhật phân quyền tài khoản'
-  };
-  return map[action] || '✅ Xác nhận mật khẩu thành công — Thao tác đã được thực hiện';
-}
 
 async function requestActionProof(action: string): Promise<string> {
   return await promptActionProofModal({
@@ -176,11 +162,6 @@ export async function apiFetch(url: string, options: RequestInit = {}): Promise<
         retryHeaders.set('x-action-proof', proof);
         const retryOptions = { ...options, headers: retryHeaders, __proofRetried: true } as RequestInit;
         const retryResponse = await apiFetch(url, retryOptions);
-        if (retryResponse.ok && typeof window !== 'undefined' && typeof window.dispatchEvent === 'function') {
-          window.dispatchEvent(new CustomEvent('api-action-success', {
-            detail: actionSuccessMessage(sensitiveAction)
-          }));
-        }
         return retryResponse;
       } catch (err: any) {
         if (isActionProofCancelled(err)) {

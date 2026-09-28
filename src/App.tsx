@@ -1,6 +1,6 @@
 import React, { useState, useEffect, lazy, Suspense } from 'react';
 import { CustomerOrderPage } from './pages/CustomerOrderPage';
-import { GlobalActionProofModal, GlobalSuccessToast } from './components';
+import { GlobalActionProofModal } from './components';
 const AdminEntry = lazy(() => import('./pages/admin/AdminEntry').then(m => ({ default: m.AdminEntry })));
 
 export const App: React.FC = () => {
@@ -25,7 +25,6 @@ export const App: React.FC = () => {
         <CustomerOrderPage />
       )}
       <GlobalActionProofModal />
-      <GlobalSuccessToast />
     </>
   );
 };

@@ -8,7 +8,6 @@ export * from './ErrorBoundary.js';
 export * from './FloatingCartBar.js';
 export * from './ForceChangePasswordModal.js';
 export * from './GlobalActionProofModal.js';
-export * from './GlobalSuccessToast.js';
 export * from './OrderHistoryModal.js';
 export * from './OrderTrackingModal.js';
 export * from './ProductCard.js';
