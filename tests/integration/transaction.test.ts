@@ -194,7 +194,7 @@ describe('P0 Issue #1: Concurrent Order - No Oversell', () => {
 
     // Launch 10 concurrent orders, each requesting 1 unit
     // Only 5 should succeed
-    const attempts = Array.from({ length: 10 }, (_, i) => ({
+    const attempts = Array.from({ length: 10 }, () => ({
       productId: 'limited-product',
       quantity: 1
     }));

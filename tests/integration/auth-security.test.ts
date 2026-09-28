@@ -23,9 +23,6 @@ beforeAll(async () => {
   process.env.NODE_ENV = 'test';
   process.env.ADMIN_USERNAME = 'admin';
   process.env.ADMIN_PASSWORD_HASH = await hashPassword('AdminPass123!') as unknown as string;
-  // eslint-disable-next-line @typescript-eslint/no-var-requires
-  const { hashPassword: hp } = await import('../../server/auth.js');
-  process.env.ADMIN_PASSWORD_HASH = await hp('AdminPass123!');
   process.env.COOKIE_SECRET = 'test-cookie-secret-that-is-long-enough-for-testing';
   process.env.REDIS_ENABLED = 'false';
 
@@ -84,7 +81,6 @@ describe('Operational surface', () => {
 
 describe('P1 Issue #5: Logout Token Revocation', () => {
   let sessionCookie: string;
-  let bearerToken: string | undefined;
 
   it('login sets HttpOnly cookie (no token in response body)', async () => {
     const res = await request(app)
