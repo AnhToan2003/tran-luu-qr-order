@@ -1,3 +1,5 @@
+import { promptActionProofModal } from './actionProofModal.js';
+
 export class ApiError extends Error {
   constructor(public status: number, public code: string, message: string, public requestId?: string) { super(message); }
 }
@@ -28,22 +30,19 @@ function inferSensitiveAction(url: string): string | undefined {
 }
 
 async function requestActionProof(action: string): Promise<string> {
-  const password = typeof window !== 'undefined'
-    ? window.prompt('Thao tác này cần xác nhận mật khẩu quản trị. Vui lòng nhập mật khẩu:')
-    : null;
-  if (!password) throw new ApiError(403, 'ACTION_PROOF_REQUIRED', 'Đã hủy xác nhận mật khẩu quản trị.');
-
-  const verifyResponse = await fetch('/api/admin/auth/verify-action-password', {
-    method: 'POST',
-    credentials: 'same-origin',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ password, action })
-  });
-  const verifyBody = await verifyResponse.json().catch(() => ({}));
-  if (!verifyResponse.ok || typeof verifyBody.proofToken !== 'string') {
-    throw new ApiError(verifyResponse.status || 403, verifyBody.code || 'INVALID_PASSWORD', verifyBody.message || 'Mật khẩu quản trị không chính xác.');
+  if (typeof window !== 'undefined') {
+    try {
+      return await promptActionProofModal({
+        action,
+        title: 'Xác Nhận Mật Khẩu Quản Trị',
+        description: 'Thao tác này cần xác nhận mật khẩu quản trị. Vui lòng nhập mật khẩu:'
+      });
+    } catch (e: any) {
+      throw new ApiError(403, 'ACTION_PROOF_REQUIRED', e.message || 'Đã hủy xác nhận mật khẩu quản trị.');
+    }
   }
-  return verifyBody.proofToken;
+
+  throw new ApiError(403, 'ACTION_PROOF_REQUIRED', 'Đã hủy xác nhận mật khẩu quản trị.');
 }
 
 export function setActionProof(proofToken: string): void {
@@ -59,16 +58,18 @@ export const safeSessionStorage = {
     }
   },
   setItem(key: string, value: string): void {
-    inMemorySessionMap.set(key, value);
     try {
       sessionStorage.setItem(key, value);
-    } catch {}
+    } catch {
+      inMemorySessionMap.set(key, value);
+    }
   },
   removeItem(key: string): void {
-    inMemorySessionMap.delete(key);
     try {
       sessionStorage.removeItem(key);
-    } catch {}
+    } catch {
+      inMemorySessionMap.delete(key);
+    }
   }
 };
 
@@ -81,16 +82,18 @@ export const safeLocalStorage = {
     }
   },
   setItem(key: string, value: string): void {
-    inMemoryLocalMap.set(key, value);
     try {
       localStorage.setItem(key, value);
-    } catch {}
+    } catch {
+      inMemoryLocalMap.set(key, value);
+    }
   },
   removeItem(key: string): void {
-    inMemoryLocalMap.delete(key);
     try {
       localStorage.removeItem(key);
-    } catch {}
+    } catch {
+      inMemoryLocalMap.delete(key);
+    }
   }
 };
 
@@ -106,20 +109,19 @@ function safeSessionStorageRemove(key: string): void {
   safeSessionStorage.removeItem(key);
 }
 
-export async function apiFetch(url: string, options: RequestInit = {}) {
-  let response: Response;
+export async function apiFetch(url: string, options: RequestInit = {}): Promise<Response> {
   const method = (options.method || 'GET').toUpperCase();
-  const requestHeaders = new Headers(options.headers);
-  // Keep headers in a single `Headers` instance. Building a plain object with
-  // both `Content-Type` and the lower-cased entry from Headers can make the
-  // browser serialize the value as `application/json, application/json`,
-  // which Express does not recognise as a JSON media type.
-  if (options.body != null && !requestHeaders.has('Content-Type')) {
+  const requestHeaders = new Headers(options.headers || {});
+  if (!requestHeaders.has('Content-Type') && options.body != null && !(options.body instanceof FormData)) {
     requestHeaders.set('Content-Type', 'application/json');
   }
-  if (pendingActionProof && !['GET', 'HEAD', 'OPTIONS'].includes(method)) {
+  if (pendingActionProof && !requestHeaders.has('x-action-proof') && !['GET', 'HEAD', 'OPTIONS'].includes(method)) {
     requestHeaders.set('x-action-proof', pendingActionProof);
   }
+  if (!requestHeaders.has('x-client-request-id')) {
+    requestHeaders.set('x-client-request-id', crypto.randomUUID());
+  }
+  let response: Response;
   try {
     response = await fetch(url, {
       ...options,

@@ -1,20 +1,22 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { apiFetch, setActionProof } from '../lib/api';
 
-interface AdminPasswordConfirmModalProps {
+export interface AdminPasswordConfirmModalProps {
   isOpen: boolean;
   title?: string;
   actionDescription?: string;
   confirmButtonText?: string;
+  action?: string;
   onClose: () => void;
-  onSuccess: () => void;
+  onSuccess: (proofToken?: string) => void;
 }
 
 export const AdminPasswordConfirmModal: React.FC<AdminPasswordConfirmModalProps> = ({
   isOpen,
   title = 'Xác Nhận Mật Khẩu Quản Trị',
-  actionDescription = 'Thao tác này ảnh hưởng trực tiếp đến dữ liệu kho và kế toán. Vui lòng nhập mật khẩu quản trị viên để tiếp tục.',
+  actionDescription = 'Thao tác này cần xác nhận mật khẩu quản trị. Vui lòng nhập mật khẩu:',
   confirmButtonText = 'Xác Nhận Mật Khẩu',
+  action = 'inventory',
   onClose,
   onSuccess
 }) => {
@@ -33,6 +35,16 @@ export const AdminPasswordConfirmModal: React.FC<AdminPasswordConfirmModalProps>
     }
   }, [isOpen]);
 
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && isOpen && !isVerifying) {
+        onClose();
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [isOpen, isVerifying, onClose]);
+
   if (!isOpen) return null;
 
   const handleSubmit = async (e?: React.FormEvent) => {
@@ -49,7 +61,7 @@ export const AdminPasswordConfirmModal: React.FC<AdminPasswordConfirmModalProps>
       const res = await apiFetch('/api/admin/auth/verify-action-password', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ password: cleanPassword, action: 'inventory' })
+        body: JSON.stringify({ password: cleanPassword, action: action || 'inventory' })
       });
 
       if (!res.ok) {
@@ -61,7 +73,7 @@ export const AdminPasswordConfirmModal: React.FC<AdminPasswordConfirmModalProps>
       if (!data.proofToken) throw new Error('Máy chủ không cấp được mã xác nhận thao tác');
       setActionProof(data.proofToken);
       onClose();
-      onSuccess();
+      onSuccess(data.proofToken);
     } catch (err: any) {
       setErrorMessage(err.message || 'Mật khẩu không chính xác. Vui lòng thử lại!');
       inputRef.current?.focus();
@@ -79,7 +91,7 @@ export const AdminPasswordConfirmModal: React.FC<AdminPasswordConfirmModalProps>
       bottom: 0,
       backgroundColor: 'rgba(15, 23, 42, 0.75)',
       backdropFilter: 'blur(5px)',
-      zIndex: 9999,
+      zIndex: 99999,
       display: 'flex',
       alignItems: 'center',
       justifyContent: 'center',
