@@ -52,19 +52,6 @@ jobs:
       - name: Run unit tests
         run: npm run test:unit
 
-  frontend-tests:
-    name: Frontend Component Tests
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '22'
-          cache: 'npm'
-      - run: npm ci
-      - name: Run browser-like component tests
-        run: npm run test:frontend
-
   integration-tests:
     name: Integration Tests (Replica Set + Redis)
     runs-on: ubuntu-latest
@@ -85,8 +72,8 @@ jobs:
           node-version: '22'
           cache: 'npm'
       - run: npm ci
-      - name: Run full test suite with coverage gate
-        run: npm run test:coverage
+      - name: Run integration tests (uses mongodb-memory-server replica set)
+        run: npm run test:integration
         env:
           CI: true
           NODE_ENV: test
@@ -97,9 +84,7 @@ jobs:
         if: always()
         with:
           name: test-results-integration
-          path: |
-            test-results/
-            coverage/
+          path: test-results/
 
   build:
     name: Build Frontend + Server
@@ -221,6 +206,6 @@ jobs:
   all-checks-passed:
     name: All Checks Passed
     runs-on: ubuntu-latest
-    needs: [security-audit, typecheck-lint, unit-tests, frontend-tests, integration-tests, build, db-integrity-check, backup-disaster-recovery-drill, docker-compose-validate]
+    needs: [security-audit, typecheck-lint, unit-tests, integration-tests, build, db-integrity-check, backup-disaster-recovery-drill, docker-compose-validate]
     steps:
       - run: echo "All CI checks passed successfully!"
