@@ -114,8 +114,9 @@ export const SportsIntakeHistoryTab: React.FC = () => {
 
   // Pagination & Server Summary
   const [page, setPage] = useState<number>(1);
-  const [limit] = useState<number>(50);
+  const [limit, setLimit] = useState<number>(20);
   const [totalPages, setTotalPages] = useState<number>(1);
+  const [totalItems, setTotalItems] = useState<number>(0);
   const [activeSummary, setActiveSummary] = useState<SportsIntakeSummary>({
     totalBatches: 0,
     totalQuantity: 0,
@@ -163,6 +164,7 @@ export const SportsIntakeHistoryTab: React.FC = () => {
       }
       const data = await res.json();
       setItems(data.items || []);
+      setTotalItems(data.totalItems || 0);
       setTotalPages(data.totalPages || 1);
       if (data.summary) {
         setActiveSummary(data.summary);
@@ -567,55 +569,124 @@ export const SportsIntakeHistoryTab: React.FC = () => {
           </table>
         </div>
 
-        {/* Pagination */}
-        {totalPages > 1 && (
-          <div style={{
-            display: 'flex',
-            justifyContent: 'space-between',
-            alignItems: 'center',
-            padding: '12px 20px',
-            borderTop: '1px solid var(--color-border)',
-            backgroundColor: 'var(--color-surface)'
-          }}>
-            <span style={{ fontSize: '13px', color: '#475569', fontWeight: 700 }}>
-              Trang {page} / {totalPages}
-            </span>
-            <div style={{ display: 'flex', gap: '6px' }}>
-              <button
-                onClick={() => setPage(p => Math.max(1, p - 1))}
-                disabled={page <= 1}
+        {/* Thanh Phân Trang Chuẩn */}
+        <div style={{
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: 'center',
+          padding: '12px 18px',
+          backgroundColor: 'var(--color-bg)',
+          borderTop: '1px solid var(--color-border)',
+          flexWrap: 'wrap',
+          gap: '10px'
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '14px', flexWrap: 'wrap' }}>
+            <div style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-muted)', fontWeight: 600 }}>
+              Trang <strong>{page}</strong> / <strong>{Math.max(1, totalPages)}</strong> • Khớp tổng cộng <strong>{totalItems}</strong> đợt nhập hàng
+            </div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+              <span style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-muted)', fontWeight: 600 }}>Hiển thị:</span>
+              <select
+                value={limit}
+                onChange={e => {
+                  setLimit(Number(e.target.value));
+                  setPage(1);
+                }}
                 style={{
-                  padding: '6px 12px',
+                  padding: '4px 8px',
                   borderRadius: 'var(--radius-sm)',
                   border: '1px solid var(--color-border)',
-                  backgroundColor: page <= 1 ? '#F1F5F9' : '#FFFFFF',
-                  color: page <= 1 ? '#94A3B8' : '#0F172A',
-                  cursor: page <= 1 ? 'not-allowed' : 'pointer',
-                  fontSize: '12px',
-                  fontWeight: 800
+                  fontSize: 'var(--font-size-xs)',
+                  backgroundColor: 'var(--color-surface)',
+                  color: 'var(--color-deep)',
+                  fontWeight: 700,
+                  cursor: 'pointer'
                 }}
               >
-                Trang trước
-              </button>
-              <button
-                onClick={() => setPage(p => Math.min(totalPages, p + 1))}
-                disabled={page >= totalPages}
-                style={{
-                  padding: '6px 12px',
-                  borderRadius: 'var(--radius-sm)',
-                  border: '1px solid var(--color-border)',
-                  backgroundColor: page >= totalPages ? '#F1F5F9' : '#FFFFFF',
-                  color: page >= totalPages ? '#94A3B8' : '#0F172A',
-                  cursor: page >= totalPages ? 'not-allowed' : 'pointer',
-                  fontSize: '12px',
-                  fontWeight: 800
-                }}
-              >
-                Trang sau
-              </button>
+                <option value={10}>10 đợt/trang</option>
+                <option value={20}>20 đợt/trang</option>
+                <option value={50}>50 đợt/trang</option>
+              </select>
             </div>
           </div>
-        )}
+
+          <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+            <button
+              type="button"
+              disabled={page <= 1 || isLoading}
+              onClick={() => setPage(p => Math.max(1, p - 1))}
+              style={{
+                padding: '6px 14px',
+                borderRadius: 'var(--radius-sm)',
+                border: '1px solid var(--color-border)',
+                backgroundColor: 'var(--color-surface)',
+                color: page <= 1 ? 'var(--color-text-muted)' : 'var(--color-deep)',
+                fontSize: 'var(--font-size-xs)',
+                fontWeight: 700,
+                cursor: page <= 1 || isLoading ? 'not-allowed' : 'pointer',
+                opacity: page <= 1 ? 0.5 : 1
+              }}
+            >
+              ◀ Trước
+            </button>
+
+            {Array.from({ length: Math.min(5, Math.max(1, totalPages)) }, (_, i) => {
+              let pageNum: number;
+              const maxP = Math.max(1, totalPages);
+              if (maxP <= 5) {
+                pageNum = i + 1;
+              } else if (page <= 3) {
+                pageNum = i + 1;
+              } else if (page >= maxP - 2) {
+                pageNum = maxP - 4 + i;
+              } else {
+                pageNum = page - 2 + i;
+              }
+              return (
+                <button
+                  key={pageNum}
+                  type="button"
+                  disabled={isLoading}
+                  onClick={() => setPage(pageNum)}
+                  style={{
+                    minWidth: '32px',
+                    height: '32px',
+                    padding: '0 6px',
+                    borderRadius: 'var(--radius-sm)',
+                    border: '1px solid',
+                    borderColor: page === pageNum ? 'var(--color-primary)' : 'var(--color-border)',
+                    backgroundColor: page === pageNum ? 'var(--color-primary)' : 'var(--color-surface)',
+                    color: page === pageNum ? '#FFFFFF' : 'var(--color-deep)',
+                    fontSize: 'var(--font-size-xs)',
+                    fontWeight: 700,
+                    cursor: isLoading ? 'wait' : 'pointer'
+                  }}
+                >
+                  {pageNum}
+                </button>
+              );
+            })}
+
+            <button
+              type="button"
+              disabled={page >= totalPages || isLoading}
+              onClick={() => setPage(p => Math.min(totalPages, p + 1))}
+              style={{
+                padding: '6px 14px',
+                borderRadius: 'var(--radius-sm)',
+                border: '1px solid var(--color-border)',
+                backgroundColor: 'var(--color-surface)',
+                color: page >= totalPages ? 'var(--color-text-muted)' : 'var(--color-deep)',
+                fontSize: 'var(--font-size-xs)',
+                fontWeight: 700,
+                cursor: page >= totalPages || isLoading ? 'not-allowed' : 'pointer',
+                opacity: page >= totalPages ? 0.5 : 1
+              }}
+            >
+              Sau ▶
+            </button>
+          </div>
+        </div>
       </div>
 
       {/* MODAL XEM CHI TIẾT PHIẾU NHẬP HÀNG (THEO ĐỢT) */}

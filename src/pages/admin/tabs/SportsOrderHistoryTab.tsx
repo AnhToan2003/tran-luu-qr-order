@@ -491,53 +491,98 @@ export const SportsOrderHistoryTab: React.FC = () => {
           </table>
         </div>
 
-        {/* PHÂN TRANG */}
-        {totalPages > 1 && (
-          <div style={{
-            display: 'flex',
-            justifyContent: 'space-between',
-            alignItems: 'center',
-            padding: '12px 18px',
-            borderTop: '1px solid #E2E8F0',
-            backgroundColor: '#F8FAFC'
-          }}>
+        {/* Thanh Phân Trang Chuẩn */}
+        <div style={{
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: 'center',
+          padding: '12px 18px',
+          backgroundColor: 'var(--color-bg)',
+          borderTop: '1px solid var(--color-border)',
+          flexWrap: 'wrap',
+          gap: '10px'
+        }}>
+          <div style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-muted)', fontWeight: 600 }}>
+            Trang <strong>{page}</strong> / <strong>{Math.max(1, totalPages)}</strong> • Khớp tổng cộng <strong>{summary.totalMatched}</strong> đơn hàng
+          </div>
+
+          <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
             <button
+              type="button"
+              disabled={page <= 1 || isLoading}
               onClick={() => setPage(p => Math.max(1, p - 1))}
-              disabled={page <= 1}
               style={{
                 padding: '6px 14px',
-                borderRadius: '6px',
-                border: '1px solid #CBD5E1',
-                backgroundColor: '#FFFFFF',
-                fontSize: '12px',
+                borderRadius: 'var(--radius-sm)',
+                border: '1px solid var(--color-border)',
+                backgroundColor: 'var(--color-surface)',
+                color: page <= 1 ? 'var(--color-text-muted)' : 'var(--color-deep)',
+                fontSize: 'var(--font-size-xs)',
                 fontWeight: 700,
-                cursor: page <= 1 ? 'not-allowed' : 'pointer',
-                opacity: page <= 1 ? 0.6 : 1
+                cursor: page <= 1 || isLoading ? 'not-allowed' : 'pointer',
+                opacity: page <= 1 ? 0.5 : 1
               }}
             >
-              Trang trước
+              ◀ Trước
             </button>
-            <span style={{ fontSize: '12px', fontWeight: 800, color: '#475569' }}>
-              Trang {page} / {totalPages}
-            </span>
+
+            {Array.from({ length: Math.min(5, Math.max(1, totalPages)) }, (_, i) => {
+              let pageNum: number;
+              const maxP = Math.max(1, totalPages);
+              if (maxP <= 5) {
+                pageNum = i + 1;
+              } else if (page <= 3) {
+                pageNum = i + 1;
+              } else if (page >= maxP - 2) {
+                pageNum = maxP - 4 + i;
+              } else {
+                pageNum = page - 2 + i;
+              }
+              return (
+                <button
+                  key={pageNum}
+                  type="button"
+                  disabled={isLoading}
+                  onClick={() => setPage(pageNum)}
+                  style={{
+                    minWidth: '32px',
+                    height: '32px',
+                    padding: '0 6px',
+                    borderRadius: 'var(--radius-sm)',
+                    border: '1px solid',
+                    borderColor: page === pageNum ? 'var(--color-primary)' : 'var(--color-border)',
+                    backgroundColor: page === pageNum ? 'var(--color-primary)' : 'var(--color-surface)',
+                    color: page === pageNum ? '#FFFFFF' : 'var(--color-deep)',
+                    fontSize: 'var(--font-size-xs)',
+                    fontWeight: 700,
+                    cursor: isLoading ? 'wait' : 'pointer'
+                  }}
+                >
+                  {pageNum}
+                </button>
+              );
+            })}
+
             <button
+              type="button"
+              disabled={page >= totalPages || isLoading}
               onClick={() => setPage(p => Math.min(totalPages, p + 1))}
-              disabled={page >= totalPages}
               style={{
                 padding: '6px 14px',
-                borderRadius: '6px',
-                border: '1px solid #CBD5E1',
-                backgroundColor: '#FFFFFF',
-                fontSize: '12px',
+                borderRadius: 'var(--radius-sm)',
+                border: '1px solid var(--color-border)',
+                backgroundColor: 'var(--color-surface)',
+                color: page >= totalPages ? 'var(--color-text-muted)' : 'var(--color-deep)',
+                fontSize: 'var(--font-size-xs)',
                 fontWeight: 700,
-                cursor: page >= totalPages ? 'not-allowed' : 'pointer',
-                opacity: page >= totalPages ? 0.6 : 1
+                cursor: page >= totalPages || isLoading ? 'not-allowed' : 'pointer',
+                opacity: page >= totalPages ? 0.5 : 1
               }}
             >
-              Trang sau
+              Sau ▶
             </button>
           </div>
-        )}
+        </div>
       </div>
 
       {/* MODAL CHI TIẾT & IN PHIẾU BÁN DỤNG CỤ / DỊCH VỤ */}

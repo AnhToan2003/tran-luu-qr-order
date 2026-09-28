@@ -148,9 +148,9 @@ export const StockIntakeTab: React.FC<StockIntakeTabProps> = ({
 
   // Pagination & Server Summary
   const [page, setPage] = useState<number>(1);
-  const [limit] = useState<number>(50);
+  const [limit, setLimit] = useState<number>(20);
   const [totalPages, setTotalPages] = useState<number>(1);
-  const [_totalItems, setTotalItems] = useState<number>(0);
+  const [totalItems, setTotalItems] = useState<number>(0);
   const [activeSummary, setActiveSummary] = useState<StockIntakeSummary>({
     totalBatches: 0,
     totalQuantity: 0,
@@ -582,7 +582,8 @@ export const StockIntakeTab: React.FC<StockIntakeTabProps> = ({
             </button>
           </div>
         ) : (
-          <div style={{ overflowX: 'auto' }}>
+          <>
+            <div style={{ overflowX: 'auto' }}>
             <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13px', textAlign: 'left' }}>
               <thead>
                 <tr style={{ backgroundColor: '#0A6B4A', color: '#FFFFFF', height: '44px' }}>
@@ -679,66 +680,127 @@ export const StockIntakeTab: React.FC<StockIntakeTabProps> = ({
               </tbody>
             </table>
           </div>
-        )}
-      </div>
 
-      {/* FOOTER SUMMARY & PAGINATION */}
-      <div style={{
-        padding: '14px 18px',
-        backgroundColor: 'var(--color-surface)',
-        borderRadius: 'var(--radius-sm)',
-        border: '1px solid var(--color-border)',
-        fontSize: '13px',
-        color: '#0F172A',
-        fontWeight: 600,
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'space-between',
-        flexWrap: 'wrap',
-        gap: '12px'
-      }}>
+          {/* Thanh Phân Trang Chuẩn */}
+          <div style={{
+            display: 'flex',
+            justifyContent: 'space-between',
+            alignItems: 'center',
+            padding: '12px 18px',
+            backgroundColor: 'var(--color-bg)',
+            borderTop: '1px solid var(--color-border)',
+            flexWrap: 'wrap',
+            gap: '10px'
+          }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '14px', flexWrap: 'wrap' }}>
+              <div style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-muted)', fontWeight: 600 }}>
+                Trang <strong>{page}</strong> / <strong>{Math.max(1, totalPages)}</strong> • Khớp tổng cộng <strong>{totalItems}</strong> đợt nhập hàng
+              </div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                <span style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-muted)', fontWeight: 600 }}>Hiển thị:</span>
+                <select
+                  value={limit}
+                  onChange={e => {
+                    setLimit(Number(e.target.value));
+                    setPage(1);
+                  }}
+                  style={{
+                    padding: '4px 8px',
+                    borderRadius: 'var(--radius-sm)',
+                    border: '1px solid var(--color-border)',
+                    fontSize: 'var(--font-size-xs)',
+                    backgroundColor: 'var(--color-surface)',
+                    color: 'var(--color-deep)',
+                    fontWeight: 700,
+                    cursor: 'pointer'
+                  }}
+                >
+                  <option value={10}>10 đợt/trang</option>
+                  <option value={20}>20 đợt/trang</option>
+                  <option value={50}>50 đợt/trang</option>
+                </select>
+              </div>
+            </div>
 
+            <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+              <button
+                type="button"
+                disabled={page <= 1 || isLoading}
+                onClick={() => setPage(p => Math.max(1, p - 1))}
+                style={{
+                  padding: '6px 14px',
+                  borderRadius: 'var(--radius-sm)',
+                  border: '1px solid var(--color-border)',
+                  backgroundColor: 'var(--color-surface)',
+                  color: page <= 1 ? 'var(--color-text-muted)' : 'var(--color-deep)',
+                  fontSize: 'var(--font-size-xs)',
+                  fontWeight: 700,
+                  cursor: page <= 1 || isLoading ? 'not-allowed' : 'pointer',
+                  opacity: page <= 1 ? 0.5 : 1
+                }}
+              >
+                ◀ Trước
+              </button>
 
-        {/* Nút phân trang */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-          <button
-            disabled={page <= 1 || isLoading}
-            onClick={() => setPage(p => Math.max(1, p - 1))}
-            style={{
-              padding: '7px 14px',
-              borderRadius: 'var(--radius-sm)',
-              backgroundColor: page <= 1 ? '#F1F5F9' : 'var(--color-surface)',
-              border: '1.5px solid var(--color-border)',
-              color: page <= 1 ? '#94A3B8' : '#0F172A',
-              cursor: page <= 1 ? 'not-allowed' : 'pointer',
-              fontWeight: 800,
-              fontSize: '12px'
-            }}
-          >
-            ← Trước
-          </button>
-          <span style={{ fontWeight: 800, fontSize: '13px', color: '#0F172A' }}>
-            Trang {page} / {totalPages}
-          </span>
-          <button
-            disabled={page >= totalPages || isLoading}
-            onClick={() => setPage(p => Math.min(totalPages, p + 1))}
-            style={{
-              padding: '7px 14px',
-              borderRadius: 'var(--radius-sm)',
-              backgroundColor: page >= totalPages ? '#F1F5F9' : 'var(--color-surface)',
-              border: '1.5px solid var(--color-border)',
-              color: page >= totalPages ? '#94A3B8' : '#0F172A',
-              cursor: page >= totalPages ? 'not-allowed' : 'pointer',
-              fontWeight: 800,
-              fontSize: '12px'
-            }}
-          >
-            Sau →
-          </button>
-        </div>
+              {Array.from({ length: Math.min(5, Math.max(1, totalPages)) }, (_, i) => {
+                let pageNum: number;
+                const maxP = Math.max(1, totalPages);
+                if (maxP <= 5) {
+                  pageNum = i + 1;
+                } else if (page <= 3) {
+                  pageNum = i + 1;
+                } else if (page >= maxP - 2) {
+                  pageNum = maxP - 4 + i;
+                } else {
+                  pageNum = page - 2 + i;
+                }
+                return (
+                  <button
+                    key={pageNum}
+                    type="button"
+                    disabled={isLoading}
+                    onClick={() => setPage(pageNum)}
+                    style={{
+                      minWidth: '32px',
+                      height: '32px',
+                      padding: '0 6px',
+                      borderRadius: 'var(--radius-sm)',
+                      border: '1px solid',
+                      borderColor: page === pageNum ? 'var(--color-primary)' : 'var(--color-border)',
+                      backgroundColor: page === pageNum ? 'var(--color-primary)' : 'var(--color-surface)',
+                      color: page === pageNum ? '#FFFFFF' : 'var(--color-deep)',
+                      fontSize: 'var(--font-size-xs)',
+                      fontWeight: 700,
+                      cursor: isLoading ? 'wait' : 'pointer'
+                    }}
+                  >
+                    {pageNum}
+                  </button>
+                );
+              })}
 
-
+              <button
+                type="button"
+                disabled={page >= totalPages || isLoading}
+                onClick={() => setPage(p => Math.min(totalPages, p + 1))}
+                style={{
+                  padding: '6px 14px',
+                  borderRadius: 'var(--radius-sm)',
+                  border: '1px solid var(--color-border)',
+                  backgroundColor: 'var(--color-surface)',
+                  color: page >= totalPages ? 'var(--color-text-muted)' : 'var(--color-deep)',
+                  fontSize: 'var(--font-size-xs)',
+                  fontWeight: 700,
+                  cursor: page >= totalPages || isLoading ? 'not-allowed' : 'pointer',
+                  opacity: page >= totalPages ? 0.5 : 1
+                }}
+              >
+                Sau ▶
+              </button>
+            </div>
+          </div>
+        </>
+      )}
       </div>
 
       {/* MODAL XEM CHI TIẾT PHIẾU NHẬP HÀNG THEO ĐỢT (GOM NHÓM) */}
