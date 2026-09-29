@@ -151,13 +151,14 @@ export const CustomerOrderPage: React.FC = () => {
             // Phiên hết hạn hoặc không hợp lệ -> xóa sạch phiên cũ
             try {
               sessionStorage.removeItem(SESSION_COURT_KEY);
+              sessionStorage.removeItem('tl_last_activity_ts');
             } catch { }
             setSessionToken('');
             setCourtInfo(null);
             setCourtCode('');
             setCartItems([]);
             setMyOrders([]);
-            setQrError('Phiên sử dụng đã hết hạn hoặc không hợp lệ. Vui lòng quét lại mã QR tại sân.');
+            setQrError(err?.message || 'Phiên gọi nước đã hết hạn do không có hoạt động trong 30 phút. Vui lòng quét lại mã QR tại sân.');
           }
           // Lỗi mạng tạm thời, giữ nguyên phiên từ sessionStorage
         } finally {
@@ -405,7 +406,11 @@ export const CustomerOrderPage: React.FC = () => {
             }
           } catch { }
         };
-        ws.onclose = () => {
+        ws.onclose = (event: WebSocketEventMap['close']) => {
+          if (event.code === 4001 || event.reason === 'SESSION_EXPIRED') {
+            handleSessionExpired('Phiên gọi nước đã hết hạn do không có hoạt động trong 30 phút. Vui lòng quét lại mã QR tại sân.');
+            return;
+          }
           if (isMounted) {
             reconnectTimeout = setTimeout(connect, 3000);
           }
@@ -423,7 +428,7 @@ export const CustomerOrderPage: React.FC = () => {
       clearTimeout(reconnectTimeout);
       ws?.close();
     };
-  }, [sessionToken, fetchCatalog]);
+  }, [sessionToken, fetchCatalog, handleSessionExpired]);
 
   // ================= 5.2. PHÁT HIỆN KHÔNG HOẠT ĐỘNG → TỰ ĐỘNG KẾT THÚC PHIÊN =================
   // Nếu khách quét QR rồi bỏ trình duyệt mở mà không đóng (hoặc không giao dịch trong 30 phút),
@@ -480,7 +485,13 @@ export const CustomerOrderPage: React.FC = () => {
 
     const recordActivity = () => {
       if (isTerminating) return;
-      lastActivity = Date.now();
+      const now = Date.now();
+      // Ngăn chặn thao tác chạm tay "hồi sinh" phiên nếu đã quá 30 phút không hoạt động
+      if (now - lastActivity >= IDLE_TIMEOUT_MS) {
+        void terminateAndExpire();
+        return;
+      }
+      lastActivity = now;
       try {
         sessionStorage.setItem(STORAGE_KEY, String(lastActivity));
       } catch { }
@@ -494,7 +505,12 @@ export const CustomerOrderPage: React.FC = () => {
     // Kiểm tra xem thời gian thực tế trôi qua đã vượt quá 30 phút chưa!
     const onVisibilityOrFocus = () => {
       if (!document.hidden) {
-        checkAndSchedule();
+        const now = Date.now();
+        if (now - lastActivity >= IDLE_TIMEOUT_MS) {
+          void terminateAndExpire();
+        } else {
+          checkAndSchedule();
+        }
       }
     };
     document.addEventListener('visibilitychange', onVisibilityOrFocus);

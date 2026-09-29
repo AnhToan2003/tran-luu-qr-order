@@ -136,7 +136,11 @@ async function resolveCustomerFromUpgrade(req: IncomingMessage): Promise<{ isVal
       terminatedAt: null,
       expiresAt: { $gt: new Date() }
     });
-    return session ? { isValid: true, tokenHash, expiresAt: session.expiresAt } : { isValid: false };
+    if (!session) return { isValid: false };
+    const IDLE_TIMEOUT_MS = Math.max(1, parseInt(process.env.CUSTOMER_IDLE_TIMEOUT_MINUTES || '30', 10)) * 60 * 1000;
+    const lastActive = session.lastActiveAt || session.createdAt;
+    if (Date.now() - lastActive.getTime() > IDLE_TIMEOUT_MS) return { isValid: false };
+    return { isValid: true, tokenHash, expiresAt: session.expiresAt };
   } catch {
     return { isValid: false };
   }
@@ -310,12 +314,15 @@ export function initWebSocketServer(server: HttpServer): WebSocketServer {
 
       // Kiểm tra hiệu lực phiên của customer định kỳ trong DB
       if (extWs.role === 'customer' && extWs.sessionHash && colls) {
+        const IDLE_TIMEOUT_MS = Math.max(1, parseInt(process.env.CUSTOMER_IDLE_TIMEOUT_MINUTES || '30', 10)) * 60 * 1000;
         void colls.customerSessions.findOne({
           sessionTokenHash: extWs.sessionHash,
           terminatedAt: null,
           expiresAt: { $gt: now }
         }).then(validSession => {
-          if (!validSession && extWs.readyState === WebSocket.OPEN) {
+          const lastActive = validSession?.lastActiveAt || validSession?.createdAt;
+          const isIdle = lastActive && (now.getTime() - lastActive.getTime() > IDLE_TIMEOUT_MS);
+          if ((!validSession || isIdle) && extWs.readyState === WebSocket.OPEN) {
             extWs.role = undefined;
             extWs.sessionHash = undefined;
             extWs.customerExpiresAt = undefined;

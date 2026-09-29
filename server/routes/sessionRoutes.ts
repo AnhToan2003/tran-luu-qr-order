@@ -85,12 +85,15 @@ sessionRouter.post('/init', sessionInitRateLimiter, async (req, res) => {
   const now = new Date();
   const expiresAt = new Date(now.getTime() + ttlHours * 60 * 60 * 1000);
 
+  const CUSTOMER_IDLE_TIMEOUT_MS = Math.max(1, parseInt(process.env.CUSTOMER_IDLE_TIMEOUT_MINUTES || '30', 10)) * 60 * 1000;
+
   await colls.customerSessions.insertOne({
     sessionTokenHash,
     courtCode: court.code,
     courtId: court.courtId,
     courtNameSnapshot: court.name,
     createdAt: now,
+    lastActiveAt: now,
     expiresAt,
     terminatedAt: null,
     userAgent: req.headers['user-agent'],
@@ -143,6 +146,33 @@ sessionRouter.get('/current', sessionCurrentRateLimiter, async (req, res) => {
     throw new ApiError(401, 'SESSION_EXPIRED', 'Phiên sử dụng đã hết hạn hoặc không hợp lệ. Vui lòng quét lại mã QR tại sân.');
   }
 
+  const now = new Date();
+  const CUSTOMER_IDLE_TIMEOUT_MS = Math.max(1, parseInt(process.env.CUSTOMER_IDLE_TIMEOUT_MINUTES || '30', 10)) * 60 * 1000;
+  const lastActive = sessionDoc.lastActiveAt || sessionDoc.createdAt;
+  if (now.getTime() - lastActive.getTime() > CUSTOMER_IDLE_TIMEOUT_MS) {
+    await colls.customerSessions.updateOne(
+      { _id: sessionDoc._id },
+      { $set: { terminatedAt: now, terminationReason: 'IDLE_TIMEOUT' } }
+    );
+    revokeCustomerSession(sessionTokenHash);
+    await InventoryReservationService.releaseSession(sessionTokenHash);
+    res.clearCookie('tl_session', {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === 'production',
+      sameSite: 'strict',
+      path: '/'
+    });
+    throw new ApiError(401, 'SESSION_EXPIRED', 'Phiên gọi nước đã hết hạn do không có hoạt động trong 30 phút. Vui lòng quét lại mã QR tại sân để tiếp tục.');
+  }
+
+  // Throttle ghi nhận mốc hoạt động 15s để tránh tải DB
+  if (now.getTime() - lastActive.getTime() > 15000) {
+    void colls.customerSessions.updateOne(
+      { _id: sessionDoc._id },
+      { $set: { lastActiveAt: now } }
+    ).catch(() => {});
+  }
+
   res.json({
     court: {
       courtId: sessionDoc.courtId,
@@ -164,7 +194,7 @@ sessionRouter.post('/terminate', sessionTerminateRateLimiter, async (req, res) =
     const sessionTokenHash = createHash('sha256').update(token).digest('hex');
     await getCollections().customerSessions.updateOne(
       { sessionTokenHash, terminatedAt: null },
-      { $set: { terminatedAt: new Date() } }
+      { $set: { terminatedAt: new Date(), terminationReason: 'MANUAL' } }
     );
     revokeCustomerSession(sessionTokenHash);
     await InventoryReservationService.releaseSession(sessionTokenHash);

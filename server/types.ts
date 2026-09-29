@@ -144,8 +144,10 @@ export interface CustomerSessionDoc {
   courtId: string;
   courtNameSnapshot: string;
   createdAt: Date;
+  lastActiveAt?: Date;
   expiresAt: Date;
   terminatedAt?: Date | null;
+  terminationReason?: 'IDLE_TIMEOUT' | 'MANUAL' | 'EXPIRED' | string;
   userAgent?: string;
   ip?: string;
 }

@@ -6,9 +6,10 @@ import { z } from 'zod';
 import { getDb, getCollections } from './db.js';
 import { ApiError } from './errors.js';
 import type { CustomerSessionDoc, SystemPermission } from './types.js';
-import { revokeAdminSession, revokeAdminUser, revokeRoleSockets } from './websocket.js';
+import { revokeAdminSession, revokeAdminUser, revokeRoleSockets, revokeCustomerSession } from './websocket.js';
 import { cacheGet, cacheSet, cacheDel } from './redis.js';
 import { createRateLimitStore } from './rateLimitStore.js';
+import { InventoryReservationService } from './services/inventoryReservationService.js';
 
 // P2/Issue #11 FIX: Use async crypto.scrypt instead of scryptSync to avoid blocking event loop
 const scryptAsync = promisify(scrypt);
@@ -588,7 +589,7 @@ authRouter.post('/logout', async (req, res) => {
 
 export async function getCustomerSession(
   req: Parameters<RequestHandler>[0],
-  _res?: Parameters<RequestHandler>[1]
+  res?: Parameters<RequestHandler>[1]
 ): Promise<CustomerSessionDoc> {
   const headerSession = req.headers['x-customer-session'];
   let token: string | undefined;
@@ -613,6 +614,35 @@ export async function getCustomerSession(
 
   if (!session) {
     throw new ApiError(401, 'SESSION_EXPIRED', 'Phiên sử dụng đã hết hạn hoặc không hợp lệ. Vui lòng quét lại mã QR tại sân.');
+  }
+
+  const now = new Date();
+  const CUSTOMER_IDLE_TIMEOUT_MS = Math.max(1, parseInt(process.env.CUSTOMER_IDLE_TIMEOUT_MINUTES || '30', 10)) * 60 * 1000;
+  const lastActive = session.lastActiveAt || session.createdAt;
+  if (now.getTime() - lastActive.getTime() > CUSTOMER_IDLE_TIMEOUT_MS) {
+    await colls.customerSessions.updateOne(
+      { _id: session._id },
+      { $set: { terminatedAt: now, terminationReason: 'IDLE_TIMEOUT' } }
+    );
+    revokeCustomerSession(tokenHash);
+    await InventoryReservationService.releaseSession(tokenHash);
+    if (res && typeof (res as any).clearCookie === 'function') {
+      (res as any).clearCookie('tl_session', {
+        httpOnly: true,
+        secure: process.env.NODE_ENV === 'production',
+        sameSite: 'strict',
+        path: '/'
+      });
+    }
+    throw new ApiError(401, 'SESSION_EXPIRED', 'Phiên gọi nước đã hết hạn do không có hoạt động trong 30 phút. Vui lòng quét lại mã QR tại sân để tiếp tục.');
+  }
+
+  // Throttle ghi nhận mốc hoạt động 15s để tránh tải DB
+  if (now.getTime() - lastActive.getTime() > 15000) {
+    void colls.customerSessions.updateOne(
+      { _id: session._id },
+      { $set: { lastActiveAt: now } }
+    ).catch(() => {});
   }
 
   return session;
