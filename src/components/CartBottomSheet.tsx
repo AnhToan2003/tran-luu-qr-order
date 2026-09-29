@@ -254,7 +254,7 @@ export const CartBottomSheet: React.FC<CartBottomSheetProps> = ({
         </div>
 
         {/* Banner đồng hồ đếm ngược giữ hàng an toàn */}
-        {remainingSeconds > 0 && items.length > 0 && (
+        {reservationExpiresAt !== null && items.length > 0 && (
           <div style={{
             margin: '0 20px 8px 20px',
             padding: '8px 12px',
@@ -269,13 +269,15 @@ export const CartBottomSheet: React.FC<CartBottomSheetProps> = ({
             transition: 'all 0.3s ease'
           }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-              <span style={{ fontSize: '14px' }}>🔒</span>
+              <span style={{ fontSize: '14px' }}>{remainingSeconds === 0 ? '⚠️' : '🔒'}</span>
               <span style={{
                 fontSize: '12px',
                 fontWeight: 700,
                 color: remainingSeconds <= 30 ? '#991B1B' : '#166534'
               }}>
-                {remainingSeconds <= 30 ? 'Sắp hết hạn giữ món!' : 'Đang giữ hàng trong giỏ của bạn'}
+                {remainingSeconds === 0
+                  ? 'Đã hết thời hạn giữ món, vui lòng gửi đơn ngay!'
+                  : (remainingSeconds <= 30 ? 'Sắp hết hạn giữ món!' : 'Đang giữ hàng trong giỏ của bạn')}
               </span>
             </div>
             <div style={{
@@ -288,7 +290,9 @@ export const CartBottomSheet: React.FC<CartBottomSheetProps> = ({
               gap: '4px'
             }}>
               <span>⏱️</span>
-              <span>{Math.floor(remainingSeconds / 60)}:{String(remainingSeconds % 60).padStart(2, '0')}</span>
+              <span>
+                {String(Math.floor(remainingSeconds / 60)).padStart(2, '0')}:{String(remainingSeconds % 60).padStart(2, '0')}
+              </span>
             </div>
           </div>
         )}

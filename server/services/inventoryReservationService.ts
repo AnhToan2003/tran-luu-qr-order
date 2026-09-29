@@ -152,6 +152,11 @@ class InventoryReservationServiceImpl {
     const previousSession = this.sessions.get(sessionHash);
     let hasChanged = false;
 
+    // Giữ nguyên mốc expiresAt ban đầu nếu phiên giữ hàng vẫn còn hiệu lực để đồng hồ đếm ngược liên tục
+    const effectiveExpiresAt = (previousSession && previousSession.expiresAt > now)
+      ? previousSession.expiresAt
+      : expiresAt;
+
     // Kiểm tra xem giỏ hàng có thay đổi so với lần trước không
     if (!previousSession && reservedItemsMap.size > 0) {
       hasChanged = true;
@@ -173,7 +178,7 @@ class InventoryReservationServiceImpl {
         sessionHash,
         courtCode,
         items: reservedItemsMap,
-        expiresAt,
+        expiresAt: effectiveExpiresAt,
         createdAt: previousSession?.createdAt || now,
         lastActiveAt: now
       });
@@ -195,8 +200,8 @@ class InventoryReservationServiceImpl {
 
     return {
       ok: allOk,
-      expiresAt,
-      remainingSeconds: Math.ceil((expiresAt - now) / 1000),
+      expiresAt: effectiveExpiresAt,
+      remainingSeconds: Math.max(0, Math.ceil((effectiveExpiresAt - now) / 1000)),
       items: resultItems
     };
   }

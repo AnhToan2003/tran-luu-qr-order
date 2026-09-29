@@ -610,82 +610,107 @@ export const SportsOrderHistoryTab: React.FC = () => {
               backgroundColor: '#FFFFFF',
               borderRadius: '12px',
               width: '100%',
-              maxWidth: '560px',
+              maxWidth: '440px',
               boxShadow: '0 20px 25px -5px rgba(0, 0, 0, 0.25)',
               border: '1px solid #CBD5E1',
-              padding: '24px',
+              padding: '20px 18px',
               maxHeight: '90vh',
-              overflowY: 'auto'
+              overflowY: 'auto',
+              boxSizing: 'border-box'
             }}
           >
+            {/* THÔNG TIN NỘI BỘ DÀNH CHO QUẢN LÝ (KHÔNG IN RA PHIẾU CỦA KHÁCH) */}
+            <div className="no-print" style={{
+              backgroundColor: '#F0FDF4',
+              border: '1px dashed #86EFAC',
+              borderRadius: '8px',
+              padding: '10px 14px',
+              marginBottom: '14px',
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'center',
+              fontSize: '12px'
+            }}>
+              <span style={{ color: '#166534', fontWeight: 700 }}>
+                📊 Lợi nhuận đơn hàng:
+              </span>
+              <span style={{ fontWeight: 900, color: '#15803D', fontSize: '14px' }}>
+                +{formatVnd(selectedOrderForBill.totalProfitVnd || 0)}
+              </span>
+            </div>
+
             {/* Tiêu đề phiếu */}
-            <div style={{ textAlign: 'center', paddingBottom: '14px', borderBottom: '1px dashed #CBD5E1' }}>
-              <div style={{ fontSize: '18px', fontWeight: 900, color: '#0F172A' }}>
+            <div style={{ textAlign: 'center', paddingBottom: '12px', borderBottom: '1px dashed #0F172A' }}>
+              <div style={{ fontSize: '17px', fontWeight: 900, color: '#0F172A', letterSpacing: '0.02em', textTransform: 'uppercase' }}>
                 SÂN CẦU LÔNG TRẦN LỰU
               </div>
-              <div style={{ fontSize: '13px', color: '#475569', marginTop: '2px', fontWeight: 700 }}>
-                CHI TIẾT ĐƠN HÀNG BÁN THỂ THAO & DỊCH VỤ
+              <div style={{ fontSize: '11px', color: '#475569', marginTop: '2px', fontWeight: 700, textTransform: 'uppercase' }}>
+                HÓA ĐƠN BÁN HÀNG THỂ THAO & DỊCH VỤ
               </div>
-              <div style={{ fontSize: '15px', fontWeight: 900, color: 'var(--color-primary)', marginTop: '6px' }}>
+              <div style={{ fontSize: '13px', fontWeight: 900, color: '#0A6B4A', marginTop: '4px' }}>
                 MÃ ĐƠN: {selectedOrderForBill.displayCode}
               </div>
-              <div style={{ fontSize: '12px', color: '#64748B', marginTop: '2px' }}>
+              <div style={{ fontSize: '11px', color: '#64748B', marginTop: '2px' }}>
                 {new Date(selectedOrderForBill.createdAt).toLocaleString('vi-VN')}
               </div>
             </div>
 
             {/* Thông tin người mua & Người phụ trách */}
-            <div style={{ margin: '14px 0', fontSize: '13px', display: 'flex', flexDirection: 'column', gap: '6px' }}>
+            <div style={{ margin: '12px 0', fontSize: '12px', display: 'flex', flexDirection: 'column', gap: '4px', color: '#0F172A' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between' }}>
                 <span style={{ color: '#64748B', fontWeight: 600 }}>Đối tượng:</span>
-                <span style={{ fontWeight: 800, color: '#0F172A' }}>{selectedOrderForBill.courtName}</span>
+                <span style={{ fontWeight: 800 }}>{selectedOrderForBill.courtName}</span>
               </div>
               <div style={{ display: 'flex', justifyContent: 'space-between' }}>
                 <span style={{ color: '#64748B', fontWeight: 600 }}>Khách hàng:</span>
-                <span style={{ fontWeight: 800, color: '#0F172A' }}>
+                <span style={{ fontWeight: 800 }}>
                   {selectedOrderForBill.customerName} {selectedOrderForBill.customerPhone ? `(${selectedOrderForBill.customerPhone})` : ''}
                 </span>
               </div>
               <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                <span style={{ color: '#64748B', fontWeight: 600 }}>Người phụ trách / Thu ngân:</span>
-                <span style={{ fontWeight: 800, color: '#0F172A' }}>
+                <span style={{ color: '#64748B', fontWeight: 600 }}>Thu ngân:</span>
+                <span style={{ fontWeight: 800 }}>
                   {selectedOrderForBill.createdBy || selectedOrderForBill.staffName || 'Nhân viên quầy'}
                 </span>
               </div>
               <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                <span style={{ color: '#64748B', fontWeight: 600 }}>Phương thức thanh toán:</span>
+                <span style={{ color: '#64748B', fontWeight: 600 }}>Hình thức TT:</span>
                 <span style={{ fontWeight: 800, color: selectedOrderForBill.paymentMethod === 'transfer' ? '#0369A1' : '#15803D' }}>
                   {selectedOrderForBill.paymentMethod === 'cash' ? 'Tiền mặt' : 'Chuyển khoản QR'}
                 </span>
               </div>
             </div>
 
-            {/* Danh sách món chi tiết có cột Lợi nhuận */}
-            <div style={{ border: '1px solid #E2E8F0', borderRadius: '8px', overflow: 'hidden', margin: '14px 0' }}>
-              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12px' }}>
+            {/* Danh sách món chi tiết 4 CỘT CĂN ĐỀU (KHÔNG IN CỘT TIỀN LỜI) */}
+            <div style={{ borderTop: '1px dashed #0F172A', borderBottom: '1px dashed #0F172A', padding: '8px 0', margin: '8px 0' }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12px', tableLayout: 'fixed' }}>
                 <thead>
-                  <tr style={{ backgroundColor: '#0A6B4A', color: '#FFFFFF', height: '36px' }}>
-                    <th style={{ padding: '8px 10px', textAlign: 'left', fontWeight: 800, color: '#FFFFFF' }}>Mặt hàng / Dịch vụ</th>
-                    <th style={{ padding: '8px 10px', textAlign: 'center', fontWeight: 800, color: '#FFFFFF' }}>SL</th>
-                    <th style={{ padding: '8px 10px', textAlign: 'right', fontWeight: 800, color: '#FFFFFF' }}>Đơn giá</th>
-                    <th style={{ padding: '8px 10px', textAlign: 'right', fontWeight: 800, color: '#FFFFFF' }}>Thành tiền</th>
-                    <th style={{ padding: '8px 10px', textAlign: 'right', fontWeight: 800, color: '#FFFFFF' }}>Tiền lời</th>
+                  <tr style={{ color: '#475569', fontSize: '11px', textTransform: 'uppercase', borderBottom: '1px solid #E2E8F0' }}>
+                    <th style={{ textAlign: 'left', paddingBottom: '6px', fontWeight: 800, width: '45%' }}>Món / Dịch vụ</th>
+                    <th style={{ textAlign: 'center', paddingBottom: '6px', fontWeight: 800, width: '13%' }}>SL</th>
+                    <th style={{ textAlign: 'right', paddingBottom: '6px', fontWeight: 800, width: '21%' }}>Đơn giá</th>
+                    <th style={{ textAlign: 'right', paddingBottom: '6px', fontWeight: 800, width: '21%' }}>T.Tiền</th>
                   </tr>
                 </thead>
                 <tbody>
                   {selectedOrderForBill.items.map((it, idx) => {
                     const lineTotal = it.lineTotal || (it.quantity * it.unitPrice);
-                    const itemProfit = it.profitVnd !== undefined
-                      ? it.profitVnd
-                      : Math.max(0, lineTotal - ((it.costPrice || 0) * it.quantity));
+                    const itemName = it.name || it.nameSnapshot || 'Món';
 
                     return (
-                      <tr key={idx} style={{ borderBottom: '1px solid #F1F5F9' }}>
-                        <td style={{ padding: '8px 10px', fontWeight: 700, color: '#0F172A' }}>{it.name}</td>
-                        <td style={{ padding: '8px 10px', textAlign: 'center', fontWeight: 800, color: '#0F172A' }}>{it.quantity}</td>
-                        <td style={{ padding: '8px 10px', textAlign: 'right', color: '#475569' }}>{formatVnd(it.unitPrice)}</td>
-                        <td style={{ padding: '8px 10px', textAlign: 'right', fontWeight: 800, color: '#0F172A' }}>{formatVnd(lineTotal)}</td>
-                        <td style={{ padding: '8px 10px', textAlign: 'right', fontWeight: 800, color: '#0A6B4A' }}>+{formatVnd(itemProfit)}</td>
+                      <tr key={idx} style={{ borderBottom: idx < (selectedOrderForBill.items.length - 1) ? '1px dotted #E2E8F0' : 'none' }}>
+                        <td style={{ padding: '6px 0', fontWeight: 700, color: '#0F172A', lineHeight: '1.3', wordBreak: 'break-word' }}>
+                          {itemName}
+                        </td>
+                        <td style={{ textAlign: 'center', padding: '6px 0', fontWeight: 800, color: '#0F172A' }}>
+                          {it.quantity}
+                        </td>
+                        <td style={{ textAlign: 'right', padding: '6px 0', color: '#475569', fontSize: '11px' }}>
+                          {formatVnd(it.unitPrice)}
+                        </td>
+                        <td style={{ textAlign: 'right', padding: '6px 0', fontWeight: 800, color: '#0F172A' }}>
+                          {formatVnd(lineTotal)}
+                        </td>
                       </tr>
                     );
                   })}
@@ -693,48 +718,40 @@ export const SportsOrderHistoryTab: React.FC = () => {
               </table>
             </div>
 
-            {/* Tổng cộng & Tổng tiền lời */}
-            <div style={{
-              display: 'flex',
-              flexDirection: 'column',
-              gap: '8px',
-              backgroundColor: '#F8FAFC',
-              padding: '12px 16px',
-              borderRadius: '8px',
-              marginBottom: '18px',
-              border: '1px solid #E2E8F0'
-            }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <span style={{ fontSize: '13px', fontWeight: 800, color: '#475569' }}>TỔNG THANH TOÁN:</span>
-                <span style={{ fontSize: '18px', fontWeight: 900, color: 'var(--color-primary)' }}>
-                  {formatVnd(selectedOrderForBill.totalVnd)}
-                </span>
-              </div>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <span style={{ fontSize: '13px', fontWeight: 800, color: '#475569' }}>TỔNG LỢI NHUẬN:</span>
-                <span style={{ fontSize: '16px', fontWeight: 900, color: '#0A6B4A' }}>
-                  +{formatVnd(selectedOrderForBill.totalProfitVnd || 0)}
-                </span>
-              </div>
+            {/* Tổng cộng thanh toán (KHÔNG CÓ DÒNG LỢI NHUẬN TRÊN PHIẾU) */}
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '12px', marginBottom: '8px' }}>
+              <span style={{ fontSize: '13px', fontWeight: 900, color: '#0F172A' }}>TỔNG THANH TOÁN:</span>
+              <span style={{ fontSize: '18px', fontWeight: 900, color: '#0A6B4A' }}>
+                {formatVnd(selectedOrderForBill.totalVnd)}
+              </span>
+            </div>
+
+            {/* Lời cảm ơn */}
+            <div style={{ textAlign: 'center', fontSize: '11px', color: '#64748B', fontStyle: 'italic', marginTop: '8px', paddingTop: '8px', borderTop: '1px dotted #E2E8F0' }}>
+              Cảm ơn Quý khách & Hẹn gặp lại!
             </div>
 
             {/* Cụm nút thao tác (bị ẩn khi in bằng class no-print) */}
-            <div className="no-print" style={{ display: 'flex', gap: '8px' }}>
+            <div className="no-print" style={{ display: 'flex', gap: '8px', marginTop: '16px' }}>
               <button
                 onClick={() => window.print()}
                 style={{
                   flex: 1,
                   padding: '10px',
                   borderRadius: '8px',
-                  border: '1.5px solid #CBD5E1',
-                  backgroundColor: '#FFFFFF',
-                  color: '#0F172A',
+                  border: 'none',
+                  backgroundColor: '#0A6B4A',
+                  color: '#FFFFFF',
                   fontSize: '13px',
                   fontWeight: 800,
-                  cursor: 'pointer'
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: '6px'
                 }}
               >
-                In Phiếu
+                🖨️ In Phiếu
               </button>
               <button
                 onClick={() => setSelectedOrderForBill(null)}
@@ -742,9 +759,9 @@ export const SportsOrderHistoryTab: React.FC = () => {
                   flex: 1,
                   padding: '10px',
                   borderRadius: '8px',
-                  border: 'none',
-                  backgroundColor: 'var(--color-primary)',
-                  color: '#FFFFFF',
+                  border: '1.5px solid #CBD5E1',
+                  backgroundColor: '#FFFFFF',
+                  color: '#0F172A',
                   fontSize: '13px',
                   fontWeight: 800,
                   cursor: 'pointer'

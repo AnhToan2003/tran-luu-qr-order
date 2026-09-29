@@ -8,6 +8,7 @@ import { verifyCourtSignature } from '../services/qrSign.js';
 import { courtCode } from '../validation.js';
 import { revokeCustomerSession } from '../websocket.js';
 import { createRateLimitStore } from '../rateLimitStore.js';
+import { InventoryReservationService } from '../services/inventoryReservationService.js';
 
 export const sessionRouter = Router();
 
@@ -166,6 +167,7 @@ sessionRouter.post('/terminate', sessionTerminateRateLimiter, async (req, res) =
       { $set: { terminatedAt: new Date() } }
     );
     revokeCustomerSession(sessionTokenHash);
+    await InventoryReservationService.releaseSession(sessionTokenHash);
   }
 
   // Kết thúc phiên phía khách không xóa bất kỳ đơn hàng hoặc công nợ nào của quản trị

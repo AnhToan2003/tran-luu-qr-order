@@ -65,6 +65,9 @@ export const CustomerOrderPage: React.FC = () => {
   const [activeTrackingOrder, setActiveTrackingOrder] = useState<Order | null>(null);
   const [isTrackingModalOpen, setIsTrackingModalOpen] = useState<boolean>(false);
   const [reservationExpiresAt, setReservationExpiresAt] = useState<number | null>(null);
+  const reservationExpiresAtRef = useRef<number | null>(null);
+  reservationExpiresAtRef.current = reservationExpiresAt;
+  const lastReservedCartKeyRef = useRef<string>('');
 
   // Xóa key cũ tl_customer_profile khỏi localStorage để tránh rò rỉ dữ liệu giữa các khách
   useEffect(() => {
@@ -420,7 +423,51 @@ export const CustomerOrderPage: React.FC = () => {
     };
   }, [sessionToken, fetchCatalog]);
 
+  // ================= 5.2. PHÁT HIỆN KHÔNG HOẠT ĐỘNG → TỰ ĐỘNG KẾT THÚC PHIÊN =================
+  // Nếu khách quét QR rồi bỏ trình duyệt mở mà không đóng (hoặc không giao dịch trong 30 phút),
+  // phiên sẽ tự động bị thu hồi để giải phóng hàng tồn đã giữ.
+  useEffect(() => {
+    if (!sessionToken || !courtCode) return;
+
+    const IDLE_TIMEOUT_MS = 30 * 60 * 1000; // 30 phút không tương tác
+    let idleTimer: ReturnType<typeof setTimeout> | null = null;
+
+    const terminateAndExpire = async () => {
+      // Gọi terminate ngầm (không hiện alert), rồi reset giao diện
+      try {
+        await apiFetch('/api/sessions/terminate', { method: 'POST' }).catch(() => {});
+      } finally {
+        handleSessionExpired(
+          'Phiên gọi nước đã hết hạn do không có hoạt động trong 30 phút. Vui lòng quét lại mã QR tại sân để tiếp tục.'
+        );
+      }
+    };
+
+    const resetTimer = () => {
+      if (idleTimer !== null) clearTimeout(idleTimer);
+      idleTimer = setTimeout(terminateAndExpire, IDLE_TIMEOUT_MS);
+    };
+
+    const EVENTS: (keyof DocumentEventMap)[] = ['mousemove', 'mousedown', 'touchstart', 'keydown', 'scroll', 'click'];
+    EVENTS.forEach(evt => document.addEventListener(evt, resetTimer, { passive: true }));
+
+    // Khi tab được hiển thị lại sau khi ẩn, reset bộ đếm để tránh terminate ngay
+    const onVisible = () => {
+      if (!document.hidden) resetTimer();
+    };
+    document.addEventListener('visibilitychange', onVisible);
+
+    resetTimer(); // bắt đầu đếm ngay
+
+    return () => {
+      if (idleTimer !== null) clearTimeout(idleTimer);
+      EVENTS.forEach(evt => document.removeEventListener(evt, resetTimer));
+      document.removeEventListener('visibilitychange', onVisible);
+    };
+  }, [sessionToken, courtCode, handleSessionExpired]);
+
   // ================= 6. GIỎ HÀNG VÀ ĐẶT HÀNG =================
+
   const totalCartVnd = useMemo(() => {
     return cartItems.reduce((sum, item) => sum + item.lineTotal, 0);
   }, [cartItems]);
@@ -553,13 +600,32 @@ export const CustomerOrderPage: React.FC = () => {
     }
   }, [cartItems, courtInfo, isAcceptingOrders, sessionToken, checkMyActiveOrders, fetchCatalog, handleSessionExpired]);
 
+  // Giữ tham chiếu ổn định để không re-trigger effect khi danh mục sản phẩm được poll cập nhật
+  const productsRef = useRef(products);
+  productsRef.current = products;
+
+  const fetchCatalogRef = useRef(fetchCatalog);
+  fetchCatalogRef.current = fetchCatalog;
+
   // Tự động giữ hàng tạm thời (Soft Reservation with TTL) khi có món trong giỏ
   useEffect(() => {
     if (!sessionToken || !courtCode) return;
 
     if (cartItems.length === 0) {
+      lastReservedCartKeyRef.current = '';
       setReservationExpiresAt(null);
       void apiFetch('/api/catalog/release', { method: 'POST' }).catch(() => {});
+      return;
+    }
+
+    const currentCartKey = cartItems
+      .map(i => `${i.productId}:${i.quantity}`)
+      .sort()
+      .join('|');
+
+    // Nếu giỏ hàng không thay đổi so với lần đã giữ trước đó VÀ đồng hồ giữ hàng vẫn còn hiệu lực:
+    // Tuyệt đối KHÔNG gọi lại API giữ hàng (tránh lãng phí request và tránh giật lag đồng hồ)
+    if (currentCartKey === lastReservedCartKeyRef.current && reservationExpiresAtRef.current && reservationExpiresAtRef.current > Date.now()) {
       return;
     }
 
@@ -575,15 +641,29 @@ export const CustomerOrderPage: React.FC = () => {
         });
         if (res.ok) {
           const data = await res.json();
+          lastReservedCartKeyRef.current = currentCartKey;
           if (data?.expiresAt) {
-            setReservationExpiresAt(data.expiresAt);
+            // Convert timestamp ms
+            const expiresMs = typeof data.expiresAt === 'number'
+              ? data.expiresAt
+              : new Date(data.expiresAt).getTime();
+            if (!isNaN(expiresMs) && expiresMs > Date.now()) {
+              setReservationExpiresAt(prev => {
+                // Nếu đã có đồng hồ đếm ngược đang chạy và còn hiệu lực, giữ nguyên mốc cũ
+                // để đồng hồ đếm ngược chạy mượt mà từng giây, tuyệt đối không nhảy lùi/tiến!
+                if (prev !== null && prev > Date.now()) {
+                  return prev;
+                }
+                return expiresMs;
+              });
+            }
           }
           let hasOutOfStock = false;
           if (Array.isArray(data?.items)) {
             for (const it of data.items) {
               if (it.status === 'out_of_stock' || it.status === 'partially_reserved') {
                 hasOutOfStock = true;
-                const prName = products.find(p => p.id === it.productId)?.name || 'Món';
+                const prName = productsRef.current.find(p => p.id === it.productId)?.name || 'Món';
                 if (it.status === 'out_of_stock') {
                   setCartToast(`⚠️ "${prName}" tạm thời đang được khách khác giữ hàng`);
                 } else {
@@ -594,7 +674,7 @@ export const CustomerOrderPage: React.FC = () => {
             }
           }
           if (hasOutOfStock) {
-            void fetchCatalog();
+            void fetchCatalogRef.current();
           }
         }
       } catch {
@@ -603,7 +683,7 @@ export const CustomerOrderPage: React.FC = () => {
     }, 250);
 
     return () => clearTimeout(timer);
-  }, [cartItems, sessionToken, courtCode, products, fetchCatalog]);
+  }, [cartItems, sessionToken, courtCode]);
 
   const hasActiveOrder = useMemo(() => {
     return myOrders.some(o => !['delivered', 'cancelled'].includes(o.status));
@@ -931,6 +1011,7 @@ export const CustomerOrderPage: React.FC = () => {
           totalVnd={totalCartVnd}
           courtName={selectedCourt.name}
           onOpenCart={() => setIsCartOpen(true)}
+          reservationExpiresAt={reservationExpiresAt}
         />
 
         {/* Bottom Sheet giỏ hàng & Ly đá miễn phí */}

@@ -9,7 +9,7 @@ interface SportsPosTabProps {
   courts: Court[];
 }
 
-export const SportsPosTab: React.FC<SportsPosTabProps> = ({ courts }) => {
+export const SportsPosTab: React.FC<SportsPosTabProps> = ({ courts = [] }) => {
   const [items, setItems] = useState<SportsItem[]>([]);
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [error, setError] = useState<string>('');
@@ -166,9 +166,22 @@ export const SportsPosTab: React.FC<SportsPosTabProps> = ({ courts }) => {
       const data = await res.json();
       setCompletedOrder({
         ...data.order,
+        displayCode: data.order?.displayCode || 'Đơn POS',
         courtName: data.order?.courtNameSnapshot || data.order?.courtName || courtName,
         customerName: data.order?.customerName || trimmedName,
-        customerPhone: data.order?.customerPhone || cleanPhone
+        customerPhone: data.order?.customerPhone || cleanPhone,
+        totalVnd: data.order?.totalVnd ?? cartTotalVnd,
+        createdAt: data.order?.createdAt || new Date().toISOString(),
+        items: (data.order?.items && data.order.items.length > 0)
+          ? data.order.items
+          : cart.map(ci => ({
+              nameSnapshot: ci.item.name,
+              name: ci.item.name,
+              quantity: ci.quantity,
+              unitPriceVnd: ci.priceVnd,
+              priceVnd: ci.priceVnd,
+              lineTotalVnd: ci.priceVnd * ci.quantity
+            }))
       });
       clearCart();
       fetchItems(); // Tải lại để cập nhật tồn kho mới
@@ -747,12 +760,12 @@ export const SportsPosTab: React.FC<SportsPosTabProps> = ({ courts }) => {
                 MÃ ĐƠN: {completedOrder.displayCode}
               </div>
               <div style={{ fontSize: '11px', color: '#64748B', marginTop: '2px' }}>
-                {new Date(completedOrder.createdAt).toLocaleString('vi-VN')}
+                {completedOrder.createdAt ? new Date(completedOrder.createdAt).toLocaleString('vi-VN') : new Date().toLocaleString('vi-VN')}
               </div>
             </div>
 
             {/* Thông tin khách hàng & phục vụ */}
-            <div style={{ margin: '10px 0', fontSize: '12px', display: 'flex', flexDirection: 'column', gap: '3px', color: '#0F172A' }}>
+            <div style={{ margin: '12px 0', fontSize: '12px', display: 'flex', flexDirection: 'column', gap: '4px', color: '#0F172A' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between' }}>
                 <span style={{ color: '#64748B', fontWeight: 600 }}>Đối tượng:</span>
                 <span style={{ fontWeight: 800 }}>{completedOrder.courtName || completedOrder.courtNameSnapshot}</span>
@@ -773,32 +786,34 @@ export const SportsPosTab: React.FC<SportsPosTabProps> = ({ courts }) => {
               </div>
             </div>
 
-            {/* Chi tiết danh sách món */}
+            {/* Chi tiết danh sách món 4 CỘT CĂN ĐỀU */}
             <div style={{ borderTop: '1px dashed #0F172A', borderBottom: '1px dashed #0F172A', padding: '8px 0', margin: '8px 0' }}>
-              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12px' }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12px', tableLayout: 'fixed' }}>
                 <thead>
                   <tr style={{ color: '#475569', fontSize: '11px', textTransform: 'uppercase', borderBottom: '1px solid #E2E8F0' }}>
-                    <th style={{ textAlign: 'left', paddingBottom: '4px', fontWeight: 800 }}>Món</th>
-                    <th style={{ textAlign: 'center', paddingBottom: '4px', fontWeight: 800, width: '32px' }}>SL</th>
-                    <th style={{ textAlign: 'right', paddingBottom: '4px', fontWeight: 800, width: '68px' }}>Đơn giá</th>
-                    <th style={{ textAlign: 'right', paddingBottom: '4px', fontWeight: 800, width: '74px' }}>T.Tiền</th>
+                    <th style={{ textAlign: 'left', paddingBottom: '6px', fontWeight: 800, width: '45%' }}>Món / Dịch vụ</th>
+                    <th style={{ textAlign: 'center', paddingBottom: '6px', fontWeight: 800, width: '13%' }}>SL</th>
+                    <th style={{ textAlign: 'right', paddingBottom: '6px', fontWeight: 800, width: '21%' }}>Đơn giá</th>
+                    <th style={{ textAlign: 'right', paddingBottom: '6px', fontWeight: 800, width: '21%' }}>T.Tiền</th>
                   </tr>
                 </thead>
                 <tbody>
                   {completedOrder.items?.map((it: any, idx: number) => {
-                    const lineTotal = it.lineTotalVnd ?? (it.priceVnd * it.quantity);
+                    const unitPrice = it.unitPriceVnd ?? it.priceVnd ?? it.unitPrice ?? 0;
+                    const lineTotal = it.lineTotalVnd ?? it.lineTotal ?? (unitPrice * (it.quantity || 1));
+                    const itemName = it.nameSnapshot || it.name || it.itemNameSnapshot || 'Mặt hàng';
                     return (
                       <tr key={idx} style={{ borderBottom: idx < (completedOrder.items?.length - 1) ? '1px dotted #E2E8F0' : 'none' }}>
-                        <td style={{ padding: '4px 0', fontWeight: 700, color: '#0F172A', lineHeight: '1.2' }}>
-                          {it.nameSnapshot}
+                        <td style={{ padding: '6px 0', fontWeight: 700, color: '#0F172A', lineHeight: '1.3', wordBreak: 'break-word' }}>
+                          {itemName}
                         </td>
-                        <td style={{ textAlign: 'center', padding: '4px 0', fontWeight: 800, color: '#0F172A' }}>
+                        <td style={{ textAlign: 'center', padding: '6px 0', fontWeight: 800, color: '#0F172A' }}>
                           {it.quantity}
                         </td>
-                        <td style={{ textAlign: 'right', padding: '4px 0', color: '#475569', fontSize: '11px' }}>
-                          {formatVnd(it.priceVnd)}
+                        <td style={{ textAlign: 'right', padding: '6px 0', color: '#475569', fontSize: '11px' }}>
+                          {formatVnd(unitPrice)}
                         </td>
-                        <td style={{ textAlign: 'right', padding: '4px 0', fontWeight: 800, color: '#0F172A' }}>
+                        <td style={{ textAlign: 'right', padding: '6px 0', fontWeight: 800, color: '#0F172A' }}>
                           {formatVnd(lineTotal)}
                         </td>
                       </tr>
@@ -809,15 +824,15 @@ export const SportsPosTab: React.FC<SportsPosTabProps> = ({ courts }) => {
             </div>
 
             {/* Tổng cộng */}
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '10px', marginBottom: '8px' }}>
-              <span style={{ fontSize: '13px', fontWeight: 900, color: '#0F172A' }}>TỔNG CỘNG:</span>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '12px', marginBottom: '8px' }}>
+              <span style={{ fontSize: '13px', fontWeight: 900, color: '#0F172A' }}>TỔNG THANH TOÁN:</span>
               <span style={{ fontSize: '18px', fontWeight: 900, color: '#0A6B4A' }}>
                 {formatVnd(completedOrder.totalVnd)}
               </span>
             </div>
 
             {/* Lời cảm ơn */}
-            <div style={{ textAlign: 'center', fontSize: '11px', color: '#64748B', fontStyle: 'italic', marginTop: '6px', paddingTop: '6px', borderTop: '1px dotted #E2E8F0' }}>
+            <div style={{ textAlign: 'center', fontSize: '11px', color: '#64748B', fontStyle: 'italic', marginTop: '8px', paddingTop: '8px', borderTop: '1px dotted #E2E8F0' }}>
               Cảm ơn Quý khách & Hẹn gặp lại!
             </div>
 

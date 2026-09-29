@@ -160,11 +160,11 @@ input, select, textarea {
   -webkit-overflow-scrolling: touch;
 }
 
-/* ================= THERMAL POS PRINT RULES (COMPACT 80MM, NO PHANTOM PAGES) ================= */
+/* ================= THERMAL & INVOICE POS PRINT RULES (CENTERED, CLEAN 80MM / A4) ================= */
 @media print {
   @page {
-    size: 80mm auto;
-    margin: 0;
+    size: auto;
+    margin: 5mm;
   }
 
   html, body {
@@ -172,7 +172,7 @@ input, select, textarea {
     padding: 0 !important;
     background: #ffffff !important;
     color: #000000 !important;
-    width: 80mm !important;
+    width: 100% !important;
     height: auto !important;
     min-height: 0 !important;
     overflow: visible !important;
@@ -189,11 +189,13 @@ input, select, textarea {
 
   #receipt-modal-overlay {
     position: static !important;
-    display: block !important;
-    width: 80mm !important;
-    max-width: 80mm !important;
-    margin: 0 !important;
-    padding: 3mm 4mm !important;
+    display: flex !important;
+    justify-content: center !important;
+    align-items: flex-start !important;
+    width: 100% !important;
+    max-width: 100% !important;
+    margin: 0 auto !important;
+    padding: 0 !important;
     background: #ffffff !important;
     box-shadow: none !important;
     border: none !important;
@@ -203,16 +205,19 @@ input, select, textarea {
   #receipt-print-area {
     position: static !important;
     display: block !important;
-    width: 100% !important;
+    width: 380px !important;
     max-width: 100% !important;
-    margin: 0 !important;
-    padding: 0 !important;
+    margin: 0 auto !important;
+    padding: 10px 14px !important;
     background: #ffffff !important;
     color: #000000 !important;
     box-shadow: none !important;
-    border: none !important;
+    border: 1px dashed #CBD5E1 !important;
     page-break-inside: avoid !important;
     break-inside: avoid !important;
+    overflow: visible !important;
+    box-sizing: border-box !important;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif !important;
   }
 
   .no-print,

@@ -535,6 +535,7 @@ export interface SportsStockIntakeExportItem {
   costPriceVnd: number;
   sellingPriceVnd: number;
   totalCostVnd: number;
+  profitMarginVnd?: number;
   stockAfter: number;
   note?: string;
   createdAt: string;
@@ -542,7 +543,7 @@ export interface SportsStockIntakeExportItem {
 
 export async function exportSportsStockIntakeToExcel(
   items: SportsStockIntakeExportItem[],
-  summary: { totalBatches: number; totalQuantity: number; totalCostValueVnd: number }
+  summary: { totalBatches: number; totalQuantity: number; totalCostValueVnd: number; totalExpectedRevenueVnd?: number; totalExpectedProfitVnd?: number; overallMarginPct?: number }
 ): Promise<void> {
   const wb = new ExcelJS.Workbook();
   wb.creator = 'Sân Cầu Lông Trần Lựu';
@@ -564,6 +565,8 @@ export async function exportSportsStockIntakeToExcel(
       minute: '2-digit'
     });
 
+    const profitPerUnit = item.sellingPriceVnd - item.costPriceVnd;
+    const profitTotal = item.profitMarginVnd ?? (profitPerUnit * item.quantity);
     itemRows.push({
       stt: itemStt++,
       productName: sanitizeFormula(item.itemName),
@@ -574,6 +577,8 @@ export async function exportSportsStockIntakeToExcel(
       costPriceVnd: item.costPriceVnd,
       totalCostVnd: item.totalCostVnd,
       sellingPriceVnd: item.sellingPriceVnd,
+      profitPerUnit,
+      profitTotal,
       stockAfter: item.stockAfter,
       note: sanitizeFormula(item.note || '')
     });
@@ -589,9 +594,11 @@ export async function exportSportsStockIntakeToExcel(
       { header: 'Thời gian nhập', key: 'intakeDate', width: 18, align: 'center' },
       { header: 'Giờ nhập', key: 'intakeTime', width: 14, align: 'center' },
       { header: 'Số lượng nhập', key: 'quantity', width: 16, numFmt: '#,##0', align: 'right' },
-      { header: 'Giá nhập (Vốn)', key: 'costPriceVnd', width: 18, numFmt: '#,##0" đ"', align: 'right' },
-      { header: 'Tổng tiền nhập', key: 'totalCostVnd', width: 24, numFmt: '#,##0" đ"', align: 'right' },
+      { header: 'Giá vốn/đvt', key: 'costPriceVnd', width: 18, numFmt: '#,##0" đ"', align: 'right' },
+      { header: 'Tổng tiền vốn', key: 'totalCostVnd', width: 22, numFmt: '#,##0" đ"', align: 'right' },
       { header: 'Giá bán niêm yết', key: 'sellingPriceVnd', width: 18, numFmt: '#,##0" đ"', align: 'right' },
+      { header: 'Lợi nhuận/đvt', key: 'profitPerUnit', width: 18, numFmt: '#,##0" đ"', align: 'right' },
+      { header: 'Tổng LN dự kiến', key: 'profitTotal', width: 20, numFmt: '#,##0" đ"', align: 'right' },
       { header: 'Tồn sau nhập', key: 'stockAfter', width: 16, numFmt: '#,##0', align: 'center' },
       { header: 'Ghi chú đợt nhập', key: 'note', width: 28, align: 'left' }
     ],
@@ -600,7 +607,12 @@ export async function exportSportsStockIntakeToExcel(
 
   const grandTotalQuantity = items.reduce((s, i) => s + (i.quantity || 0), 0);
   const grandTotalCost = items.reduce((s, i) => s + (i.totalCostVnd || 0), 0);
+  const grandTotalProfit = items.reduce((s, i) => {
+    const pu = (i.sellingPriceVnd || 0) - (i.costPriceVnd || 0);
+    return s + (i.profitMarginVnd ?? (pu * (i.quantity || 0)));
+  }, 0);
 
+  const TOTAL_COLS = 13; // STT, name, unit, date, time, qty, costUnit, totalCost, selling, profitUnit, profitTotal, stock, note
   const totalRowIdx = detailSheet.rowCount + 1;
   const totalRow = detailSheet.getRow(totalRowIdx);
   totalRow.height = 28;
@@ -614,17 +626,19 @@ export async function exportSportsStockIntakeToExcel(
   totalRow.getCell(8).value = grandTotalCost;
   totalRow.getCell(9).value = '';
   totalRow.getCell(10).value = '';
-  totalRow.getCell(11).value = '';
+  totalRow.getCell(11).value = grandTotalProfit;
+  totalRow.getCell(12).value = '';
+  totalRow.getCell(13).value = '';
 
-  for (let c = 1; c <= 11; c++) {
+  for (let c = 1; c <= TOTAL_COLS; c++) {
     const cell = totalRow.getCell(c);
     cell.font = { bold: true, size: 11, name: 'Segoe UI', color: { argb: 'FFFFFFFF' } };
     cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF0A6B4A' } };
     cell.alignment = {
       vertical: 'middle',
-      horizontal: [6, 8].includes(c) ? 'right' : [2, 4].includes(c) ? 'center' : 'left'
+      horizontal: [6, 8, 11].includes(c) ? 'right' : [2, 4].includes(c) ? 'center' : 'left'
     };
-    if (c === 8) cell.numFmt = '#,##0" đ"';
+    if ([8, 11].includes(c)) cell.numFmt = '#,##0" đ"';
     if (c === 6) cell.numFmt = '#,##0';
     cell.border = {
       top: { style: 'thin', color: { argb: 'FFE2E8F0' } },
@@ -643,13 +657,16 @@ export async function exportSportsStockIntakeToExcel(
     year: 'numeric'
   });
 
+  const totalProfitDisplay = summary.totalExpectedProfitVnd ?? grandTotalProfit;
+
   const summaryRows = [
     { stt: 1, kpi: 'Tên cơ sở', value: 'Sân Cầu Lông Trần Lựu' },
     { stt: 2, kpi: 'Danh mục', value: 'Sản phẩm thể thao & Dịch vụ sân' },
     { stt: 3, kpi: 'Thời điểm xuất báo cáo', value: nowVietnamStr },
     { stt: 4, kpi: 'Tổng số đợt nhập hàng', value: `${summary.totalBatches || items.length} đợt` },
     { stt: 5, kpi: 'Tổng số lượng sản phẩm đã nhập', value: `${(summary.totalQuantity || grandTotalQuantity).toLocaleString('vi-VN')}` },
-    { stt: 6, kpi: 'Tổng tiền giá vốn nhập hàng (VNĐ)', value: `${(summary.totalCostValueVnd || grandTotalCost).toLocaleString('vi-VN')} đ` }
+    { stt: 6, kpi: 'Tổng tiền giá vốn nhập hàng (VNĐ)', value: `${(summary.totalCostValueVnd || grandTotalCost).toLocaleString('vi-VN')} đ` },
+    { stt: 7, kpi: 'Tổng lợi nhuận dự kiến (VNĐ)', value: `${totalProfitDisplay.toLocaleString('vi-VN')} đ` }
   ];
 
   addStyledSheet(

@@ -18,6 +18,7 @@ export interface Product {
 }
 
 
-export const formatVnd = (price: number): string => {
+export const formatVnd = (price?: number | null): string => {
+  if (price === undefined || price === null || isNaN(price)) return '0đ';
   return price.toLocaleString('vi-VN') + 'đ';
 };

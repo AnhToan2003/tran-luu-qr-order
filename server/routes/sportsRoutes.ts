@@ -1086,12 +1086,18 @@ sportsRouter.post('/pos/order', requirePermission('sports-pos'), async (req, res
       displayCode: createdOrder.displayCode,
       courtName: createdOrder.courtNameSnapshot,
       customerName: createdOrder.customerName,
+      customerPhone: createdOrder.customerPhone || '',
       orderType: createdOrder.orderType,
       status: createdOrder.status,
       paymentStatus: createdOrder.paymentStatus,
       totalVnd: createdOrder.totalVnd,
       paymentMethod: createdOrder.paymentMethod,
-      items: createdOrder.items,
+      items: (createdOrder.items || []).map(it => ({
+        ...it,
+        name: it.nameSnapshot,
+        priceVnd: it.unitPriceVnd,
+        lineTotal: it.lineTotalVnd
+      })),
       createdAt: createdOrder.createdAt
     }
   });
