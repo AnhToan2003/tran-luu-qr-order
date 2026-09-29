@@ -16,8 +16,6 @@ export const FloatingCartBar: React.FC<FloatingCartBarProps> = ({
   onOpenCart,
   reservationExpiresAt
 }) => {
-  if (totalItems === 0) return null;
-
   const [remainingSeconds, setRemainingSeconds] = useState<number>(() => {
     if (!reservationExpiresAt) return 0;
     return Math.max(0, Math.ceil((reservationExpiresAt - Date.now()) / 1000));
@@ -36,6 +34,8 @@ export const FloatingCartBar: React.FC<FloatingCartBarProps> = ({
     const interval = setInterval(update, 1000);
     return () => clearInterval(interval);
   }, [reservationExpiresAt]);
+
+  if (totalItems === 0) return null;
 
   const isExpiringSoon = remainingSeconds > 0 && remainingSeconds <= 30;
   const isExpired = reservationExpiresAt !== null && remainingSeconds === 0;
