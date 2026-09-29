@@ -12,3 +12,4 @@ export * from './OrderHistoryModal.js';
 export * from './OrderTrackingModal.js';
 export * from './ProductCard.js';
 export * from './TemporaryCredentialsModal.js';
+export * from './CustomerIntroSplash.js';

@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
+import { createPortal } from 'react-dom';
 import { formatVnd } from '../../../types/product';
 import { Court } from '../../../types/order';
 import { SportsItem, PosCartItem, SPORTS_CATEGORY_LABELS } from '../../../types/sports';
@@ -104,6 +105,25 @@ export const SportsPosTab: React.FC<SportsPosTabProps> = ({ courts }) => {
   const handleCheckout = async () => {
     if (cart.length === 0 || isSubmitting) return;
 
+    const trimmedName = customerName.trim();
+    const trimmedPhone = customerPhone.trim();
+
+    if (!trimmedName) {
+      setSubmitError('Vui lòng nhập tên khách hàng (bắt buộc).');
+      return;
+    }
+
+    if (!trimmedPhone) {
+      setSubmitError('Vui lòng nhập số điện thoại khách hàng (bắt buộc).');
+      return;
+    }
+
+    const cleanPhone = trimmedPhone.replace(/[\s.-]/g, '');
+    if (!/^(0|\+84)[0-9]{9}$/.test(cleanPhone)) {
+      setSubmitError('Số điện thoại không hợp lệ (yêu cầu đúng 10 số, ví dụ: 0912345678).');
+      return;
+    }
+
     setIsSubmitting(true);
     setSubmitError('');
 
@@ -116,8 +136,8 @@ export const SportsPosTab: React.FC<SportsPosTabProps> = ({ courts }) => {
       const orderData = {
         courtId: selectedCourtId,
         courtNameSnapshot: courtName,
-        customerName: customerName.trim() || 'Khách tại quầy',
-        customerPhone: customerPhone.trim(),
+        customerName: trimmedName,
+        customerPhone: cleanPhone,
         paymentMethod,
         items: cart.map(ci => ({
           itemId: ci.item.itemId,
@@ -144,7 +164,12 @@ export const SportsPosTab: React.FC<SportsPosTabProps> = ({ courts }) => {
 
       completeRequest('sports-pos-order');
       const data = await res.json();
-      setCompletedOrder(data.order);
+      setCompletedOrder({
+        ...data.order,
+        courtName: data.order?.courtNameSnapshot || data.order?.courtName || courtName,
+        customerName: data.order?.customerName || trimmedName,
+        customerPhone: data.order?.customerPhone || cleanPhone
+      });
       clearCart();
       fetchItems(); // Tải lại để cập nhật tồn kho mới
     } catch (err: any) {
@@ -554,26 +579,48 @@ export const SportsPosTab: React.FC<SportsPosTabProps> = ({ courts }) => {
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
               <div>
                 <label style={{ display: 'block', fontSize: '11px', fontWeight: 800, color: '#334155', marginBottom: '3px', textTransform: 'uppercase' }}>
-                  Tên khách:
+                  Tên khách: <span style={{ color: '#DC2626' }}>*</span>
                 </label>
                 <input
                   type="text"
                   placeholder="Nhập tên khách..."
                   value={customerName}
-                  onChange={e => setCustomerName(e.target.value)}
-                  style={{ width: '100%', padding: '7px 10px', borderRadius: 'var(--radius-sm)', border: '1.5px solid var(--color-border)', fontSize: '12px' }}
+                  onChange={e => {
+                    setCustomerName(e.target.value);
+                    if (submitError) setSubmitError('');
+                  }}
+                  style={{
+                    width: '100%',
+                    padding: '7px 10px',
+                    borderRadius: 'var(--radius-sm)',
+                    border: submitError && !customerName.trim() ? '1.5px solid #EF4444' : '1.5px solid var(--color-border)',
+                    backgroundColor: submitError && !customerName.trim() ? '#FEF2F2' : '#FFFFFF',
+                    fontSize: '12px',
+                    outline: 'none'
+                  }}
                 />
               </div>
               <div>
                 <label style={{ display: 'block', fontSize: '11px', fontWeight: 800, color: '#334155', marginBottom: '3px', textTransform: 'uppercase' }}>
-                  Số điện thoại:
+                  Số điện thoại: <span style={{ color: '#DC2626' }}>*</span>
                 </label>
                 <input
                   type="text"
                   placeholder="09..."
                   value={customerPhone}
-                  onChange={e => setCustomerPhone(e.target.value)}
-                  style={{ width: '100%', padding: '7px 10px', borderRadius: 'var(--radius-sm)', border: '1.5px solid var(--color-border)', fontSize: '12px' }}
+                  onChange={e => {
+                    setCustomerPhone(e.target.value);
+                    if (submitError) setSubmitError('');
+                  }}
+                  style={{
+                    width: '100%',
+                    padding: '7px 10px',
+                    borderRadius: 'var(--radius-sm)',
+                    border: submitError && !customerPhone.trim() ? '1.5px solid #EF4444' : '1.5px solid var(--color-border)',
+                    backgroundColor: submitError && !customerPhone.trim() ? '#FEF2F2' : '#FFFFFF',
+                    fontSize: '12px',
+                    outline: 'none'
+                  }}
                 />
               </div>
             </div>
@@ -657,107 +704,127 @@ export const SportsPosTab: React.FC<SportsPosTabProps> = ({ courts }) => {
         )}
       </div>
 
-      {/* COMPLETED ORDER BILL / RECEIPT MODAL */}
-      {completedOrder && (
-        <div style={{
-          position: 'fixed',
-          top: 0,
-          left: 0,
-          right: 0,
-          bottom: 0,
-          backgroundColor: 'rgba(15, 23, 42, 0.7)',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          zIndex: 1000,
-          padding: '16px'
-        }}>
+      {/* COMPLETED ORDER BILL / RECEIPT MODAL (COMPACT 80MM / THERMAL BILL) */}
+      {completedOrder && typeof document !== 'undefined' && createPortal(
+        <div
+          id="receipt-modal-overlay"
+          style={{
+            position: 'fixed',
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            backgroundColor: 'rgba(15, 23, 42, 0.7)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 10000,
+            padding: '16px'
+          }}
+        >
           <div
             id="receipt-print-area"
             style={{
               backgroundColor: '#FFFFFF',
               borderRadius: 'var(--radius-lg)',
               width: '100%',
-              maxWidth: '440px',
+              maxWidth: '380px',
               boxShadow: '0 20px 25px -5px rgba(0, 0, 0, 0.25)',
-              border: '1px solid var(--color-border)',
-              padding: '24px'
+              border: '1px solid #CBD5E1',
+              padding: '20px 18px',
+              boxSizing: 'border-box'
             }}
           >
-            <div style={{ textAlign: 'center', paddingBottom: '14px', borderBottom: '1px dashed #CBD5E1' }}>
-              <div style={{ fontSize: '18px', fontWeight: 900, color: '#0F172A' }}>
+            {/* Header bill */}
+            <div style={{ textAlign: 'center', paddingBottom: '10px', borderBottom: '1px dashed #0F172A' }}>
+              <div style={{ fontSize: '16px', fontWeight: 900, color: '#0F172A', letterSpacing: '0.02em', textTransform: 'uppercase' }}>
                 SÂN CẦU LÔNG TRẦN LỰU
               </div>
-              <div style={{ fontSize: '13px', color: '#475569', marginTop: '2px', fontWeight: 700 }}>
+              <div style={{ fontSize: '11px', color: '#475569', marginTop: '2px', fontWeight: 700, textTransform: 'uppercase' }}>
                 PHIẾU BÁN HÀNG TẠI QUẦY
               </div>
-              <div style={{ fontSize: '15px', fontWeight: 900, color: '#0A6B4A', marginTop: '6px' }}>
+              <div style={{ fontSize: '13px', fontWeight: 900, color: '#0A6B4A', marginTop: '4px' }}>
                 MÃ ĐƠN: {completedOrder.displayCode}
               </div>
-              <div style={{ fontSize: '12px', color: '#64748B', marginTop: '2px' }}>
+              <div style={{ fontSize: '11px', color: '#64748B', marginTop: '2px' }}>
                 {new Date(completedOrder.createdAt).toLocaleString('vi-VN')}
               </div>
             </div>
 
-            <div style={{ margin: '14px 0', fontSize: '13px', display: 'flex', flexDirection: 'column', gap: '4px' }}>
+            {/* Thông tin khách hàng & phục vụ */}
+            <div style={{ margin: '10px 0', fontSize: '12px', display: 'flex', flexDirection: 'column', gap: '3px', color: '#0F172A' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between' }}>
                 <span style={{ color: '#64748B', fontWeight: 600 }}>Đối tượng:</span>
-                <span style={{ fontWeight: 800, color: '#0F172A' }}>{completedOrder.courtName}</span>
+                <span style={{ fontWeight: 800 }}>{completedOrder.courtName || completedOrder.courtNameSnapshot}</span>
               </div>
               <div style={{ display: 'flex', justifyContent: 'space-between' }}>
                 <span style={{ color: '#64748B', fontWeight: 600 }}>Khách hàng:</span>
-                <span style={{ fontWeight: 800, color: '#0F172A' }}>{completedOrder.customerName}</span>
+                <span style={{ fontWeight: 800 }}>{completedOrder.customerName}</span>
               </div>
               <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                <span style={{ color: '#64748B', fontWeight: 600 }}>Phương thức:</span>
-                <span style={{ fontWeight: 800, color: '#0F172A' }}>
-                  {completedOrder.paymentMethod === 'cash' ? 'Tiền mặt' : 'Chuyển khoản QR'}
+                <span style={{ color: '#64748B', fontWeight: 600 }}>Số điện thoại:</span>
+                <span style={{ fontWeight: 800 }}>{completedOrder.customerPhone || '---'}</span>
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                <span style={{ color: '#64748B', fontWeight: 600 }}>Hình thức TT:</span>
+                <span style={{ fontWeight: 800 }}>
+                  {completedOrder.paymentMethod === 'transfer' ? 'Chuyển khoản QR' : 'Tiền mặt'}
                 </span>
               </div>
             </div>
 
-            {/* Item List */}
-            <div style={{ borderTop: '1px solid #E2E8F0', borderBottom: '1px solid #E2E8F0', padding: '10px 0', display: 'flex', flexDirection: 'column', gap: '8px' }}>
-              {completedOrder.items?.map((it: any, idx: number) => (
-                <div key={idx} style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px' }}>
-                  <div>
-                    <span style={{ fontWeight: 800, color: '#0F172A' }}>{it.nameSnapshot}</span>
-                    <span style={{ color: '#64748B', marginLeft: '6px' }}>x{it.quantity}</span>
-                  </div>
-                  <span style={{ fontWeight: 800, color: '#0F172A' }}>
-                    {formatVnd(it.lineTotalVnd)}
-                  </span>
-                </div>
-              ))}
+            {/* Chi tiết danh sách món */}
+            <div style={{ borderTop: '1px dashed #0F172A', borderBottom: '1px dashed #0F172A', padding: '8px 0', margin: '8px 0' }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12px' }}>
+                <thead>
+                  <tr style={{ color: '#475569', fontSize: '11px', textTransform: 'uppercase', borderBottom: '1px solid #E2E8F0' }}>
+                    <th style={{ textAlign: 'left', paddingBottom: '4px', fontWeight: 800 }}>Món</th>
+                    <th style={{ textAlign: 'center', paddingBottom: '4px', fontWeight: 800, width: '32px' }}>SL</th>
+                    <th style={{ textAlign: 'right', paddingBottom: '4px', fontWeight: 800, width: '68px' }}>Đơn giá</th>
+                    <th style={{ textAlign: 'right', paddingBottom: '4px', fontWeight: 800, width: '74px' }}>T.Tiền</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {completedOrder.items?.map((it: any, idx: number) => {
+                    const lineTotal = it.lineTotalVnd ?? (it.priceVnd * it.quantity);
+                    return (
+                      <tr key={idx} style={{ borderBottom: idx < (completedOrder.items?.length - 1) ? '1px dotted #E2E8F0' : 'none' }}>
+                        <td style={{ padding: '4px 0', fontWeight: 700, color: '#0F172A', lineHeight: '1.2' }}>
+                          {it.nameSnapshot}
+                        </td>
+                        <td style={{ textAlign: 'center', padding: '4px 0', fontWeight: 800, color: '#0F172A' }}>
+                          {it.quantity}
+                        </td>
+                        <td style={{ textAlign: 'right', padding: '4px 0', color: '#475569', fontSize: '11px' }}>
+                          {formatVnd(it.priceVnd)}
+                        </td>
+                        <td style={{ textAlign: 'right', padding: '4px 0', fontWeight: 800, color: '#0F172A' }}>
+                          {formatVnd(lineTotal)}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
             </div>
 
-            {/* Total */}
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '14px', marginBottom: '20px' }}>
-              <span style={{ fontSize: '15px', fontWeight: 900, color: '#0F172A' }}>TỔNG CỘNG:</span>
-              <span style={{ fontSize: '20px', fontWeight: 900, color: '#0A6B4A' }}>
+            {/* Tổng cộng */}
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '10px', marginBottom: '8px' }}>
+              <span style={{ fontSize: '13px', fontWeight: 900, color: '#0F172A' }}>TỔNG CỘNG:</span>
+              <span style={{ fontSize: '18px', fontWeight: 900, color: '#0A6B4A' }}>
                 {formatVnd(completedOrder.totalVnd)}
               </span>
             </div>
 
-            <div className="no-print" style={{ display: 'flex', gap: '8px' }}>
+            {/* Lời cảm ơn */}
+            <div style={{ textAlign: 'center', fontSize: '11px', color: '#64748B', fontStyle: 'italic', marginTop: '6px', paddingTop: '6px', borderTop: '1px dotted #E2E8F0' }}>
+              Cảm ơn Quý khách & Hẹn gặp lại!
+            </div>
+
+            {/* Cụm nút thao tác (bị ẩn khi in) */}
+            <div className="no-print" style={{ display: 'flex', gap: '8px', marginTop: '16px' }}>
               <button
                 onClick={() => window.print()}
-                style={{
-                  flex: 1,
-                  padding: '10px',
-                  borderRadius: 'var(--radius-sm)',
-                  border: '1.5px solid var(--color-border)',
-                  backgroundColor: '#FFFFFF',
-                  color: '#0F172A',
-                  fontSize: '13px',
-                  fontWeight: 800,
-                  cursor: 'pointer'
-                }}
-              >
-                In Phiếu
-              </button>
-              <button
-                onClick={() => setCompletedOrder(null)}
                 style={{
                   flex: 1,
                   padding: '10px',
@@ -767,6 +834,26 @@ export const SportsPosTab: React.FC<SportsPosTabProps> = ({ courts }) => {
                   color: '#FFFFFF',
                   fontSize: '13px',
                   fontWeight: 800,
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: '6px'
+                }}
+              >
+                🖨️ In Phiếu
+              </button>
+              <button
+                onClick={() => setCompletedOrder(null)}
+                style={{
+                  flex: 1,
+                  padding: '10px',
+                  borderRadius: 'var(--radius-sm)',
+                  border: '1.5px solid var(--color-border)',
+                  backgroundColor: '#F1F5F9',
+                  color: '#334155',
+                  fontSize: '13px',
+                  fontWeight: 800,
                   cursor: 'pointer'
                 }}
               >
@@ -774,7 +861,8 @@ export const SportsPosTab: React.FC<SportsPosTabProps> = ({ courts }) => {
               </button>
             </div>
           </div>
-        </div>
+        </div>,
+        document.body
       )}
 
     </div>

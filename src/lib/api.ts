@@ -39,12 +39,19 @@ function inferSensitiveAction(url: string): string | undefined {
 }
 
 
-async function requestActionProof(action: string): Promise<string> {
-  return await promptActionProofModal({
+export async function requestActionProof(
+  action: string,
+  options?: { title?: string; description?: string }
+): Promise<string> {
+  const proof = await promptActionProofModal({
     action,
-    title: 'Xác Nhận Mật Khẩu Quản Trị',
-    description: 'Thao tác này cần xác nhận mật khẩu quản trị. Vui lòng nhập mật khẩu:'
+    title: options?.title || 'Xác Nhận Mật Khẩu Quản Trị',
+    description: options?.description || 'Thao tác này cần xác nhận mật khẩu quản trị. Vui lòng nhập mật khẩu:'
   });
+  if (proof) {
+    setActionProof(proof);
+  }
+  return proof;
 }
 
 export function setActionProof(proofToken: string): void {

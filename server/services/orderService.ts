@@ -6,6 +6,7 @@ import { broadcastEvent } from '../websocket.js';
 import { invalidateCatalogCache } from '../redis.js';
 import { vietnamDate } from '../time.js';
 import type { OrderDoc, OrderItemDoc, PaymentAuditRecord } from '../types.js';
+import { InventoryReservationService } from './inventoryReservationService.js';
 
 export interface OrderPlacementContext {
   sessionHash: string;
@@ -91,6 +92,7 @@ export class OrderService {
         await c.orders.insertOne(order,{session});
         return order;
       });
+      InventoryReservationService.commitSession(sessionHash, input.items);
       broadcastEvent({
         type: 'order_created',
         data: createdOrder,

@@ -148,7 +148,7 @@ export const StockIntakeTab: React.FC<StockIntakeTabProps> = ({
 
   // Pagination & Server Summary
   const [page, setPage] = useState<number>(1);
-  const [limit, setLimit] = useState<number>(20);
+  const limit = 20;
   const [totalPages, setTotalPages] = useState<number>(1);
   const [totalItems, setTotalItems] = useState<number>(0);
   const [activeSummary, setActiveSummary] = useState<StockIntakeSummary>({
@@ -695,30 +695,6 @@ export const StockIntakeTab: React.FC<StockIntakeTabProps> = ({
             <div style={{ display: 'flex', alignItems: 'center', gap: '14px', flexWrap: 'wrap' }}>
               <div style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-muted)', fontWeight: 600 }}>
                 Trang <strong>{page}</strong> / <strong>{Math.max(1, totalPages)}</strong> • Khớp tổng cộng <strong>{totalItems}</strong> đợt nhập hàng
-              </div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                <span style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-muted)', fontWeight: 600 }}>Hiển thị:</span>
-                <select
-                  value={limit}
-                  onChange={e => {
-                    setLimit(Number(e.target.value));
-                    setPage(1);
-                  }}
-                  style={{
-                    padding: '4px 8px',
-                    borderRadius: 'var(--radius-sm)',
-                    border: '1px solid var(--color-border)',
-                    fontSize: 'var(--font-size-xs)',
-                    backgroundColor: 'var(--color-surface)',
-                    color: 'var(--color-deep)',
-                    fontWeight: 700,
-                    cursor: 'pointer'
-                  }}
-                >
-                  <option value={10}>10 đợt/trang</option>
-                  <option value={20}>20 đợt/trang</option>
-                  <option value={50}>50 đợt/trang</option>
-                </select>
               </div>
             </div>
 

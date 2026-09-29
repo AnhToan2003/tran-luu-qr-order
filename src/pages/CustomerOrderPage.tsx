@@ -11,6 +11,7 @@ import { FloatingCartBar } from '../components/FloatingCartBar';
 import { CartBottomSheet } from '../components/CartBottomSheet';
 import { OrderTrackingModal } from '../components/OrderTrackingModal';
 import { OrderHistoryModal } from '../components/OrderHistoryModal';
+import { CustomerIntroSplash } from '../components/CustomerIntroSplash';
 
 const SESSION_COURT_KEY = 'tl_customer_session_court';
 
@@ -26,6 +27,8 @@ export const CustomerOrderPage: React.FC = () => {
     }
     return { court: '', sig: '' };
   }, []);
+
+  const [showIntro, setShowIntro] = useState<boolean>(() => Boolean(initialUrlParams.court));
 
   // Trạng thái phiên khách hàng độc lập
   // Non-secret UI marker only. The real credential stays in the HttpOnly cookie.
@@ -61,6 +64,7 @@ export const CustomerOrderPage: React.FC = () => {
 
   const [activeTrackingOrder, setActiveTrackingOrder] = useState<Order | null>(null);
   const [isTrackingModalOpen, setIsTrackingModalOpen] = useState<boolean>(false);
+  const [reservationExpiresAt, setReservationExpiresAt] = useState<number | null>(null);
 
   // Xóa key cũ tl_customer_profile khỏi localStorage để tránh rò rỉ dữ liệu giữa các khách
   useEffect(() => {
@@ -549,6 +553,58 @@ export const CustomerOrderPage: React.FC = () => {
     }
   }, [cartItems, courtInfo, isAcceptingOrders, sessionToken, checkMyActiveOrders, fetchCatalog, handleSessionExpired]);
 
+  // Tự động giữ hàng tạm thời (Soft Reservation with TTL) khi có món trong giỏ
+  useEffect(() => {
+    if (!sessionToken || !courtCode) return;
+
+    if (cartItems.length === 0) {
+      setReservationExpiresAt(null);
+      void apiFetch('/api/catalog/release', { method: 'POST' }).catch(() => {});
+      return;
+    }
+
+    const timer = setTimeout(async () => {
+      try {
+        const payload = {
+          items: cartItems.map(i => ({ productId: i.productId, quantity: i.quantity }))
+        };
+        const res = await apiFetch('/api/catalog/reserve', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload)
+        });
+        if (res.ok) {
+          const data = await res.json();
+          if (data?.expiresAt) {
+            setReservationExpiresAt(data.expiresAt);
+          }
+          let hasOutOfStock = false;
+          if (Array.isArray(data?.items)) {
+            for (const it of data.items) {
+              if (it.status === 'out_of_stock' || it.status === 'partially_reserved') {
+                hasOutOfStock = true;
+                const prName = products.find(p => p.id === it.productId)?.name || 'Món';
+                if (it.status === 'out_of_stock') {
+                  setCartToast(`⚠️ "${prName}" tạm thời đang được khách khác giữ hàng`);
+                } else {
+                  setCartToast(`⚠️ "${prName}" chỉ còn giữ được ${it.reservedQuantity} phần`);
+                }
+                setTimeout(() => setCartToast(''), 4000);
+              }
+            }
+          }
+          if (hasOutOfStock) {
+            void fetchCatalog();
+          }
+        }
+      } catch {
+        // Safe background network error catch
+      }
+    }, 250);
+
+    return () => clearTimeout(timer);
+  }, [cartItems, sessionToken, courtCode, products, fetchCatalog]);
+
   const hasActiveOrder = useMemo(() => {
     return myOrders.some(o => !['delivered', 'cancelled'].includes(o.status));
   }, [myOrders]);
@@ -559,26 +615,9 @@ export const CustomerOrderPage: React.FC = () => {
   }, [courtCode, courtInfo]);
 
   // ================= 7. MÀN HÌNH HƯỚNG DẪN KHI CHƯA CÓ PHIÊN HOẶC CHƯA QUÉT QR =================
-  if ((!courtCode || !sessionToken) && isLoadingCatalog && initialUrlParams.court) {
-    return (
-      <main
-        aria-label="Đang mở thực đơn"
-        style={{ minHeight: '100vh', backgroundColor: 'var(--color-bg)' }}
-      />
-    );
-  }
-
-  if ((!courtCode || !sessionToken) && isLoadingCatalog && courtInfo) {
-    return (
-      <main
-        aria-label="Đang tải phiên gọi nước"
-        style={{ minHeight: '100vh', backgroundColor: 'var(--color-bg)' }}
-      />
-    );
-  }
-
   if (!courtCode || !sessionToken) {
-    return (
+    if (!showIntro) {
+      return (
       <div style={{
         minHeight: '100vh',
         display: 'flex',
@@ -674,6 +713,7 @@ export const CustomerOrderPage: React.FC = () => {
       </div>
     );
   }
+}
 
   // ================= 8. GIAO DIỆN CHÍNH CỦA KHÁCH HÀNG (TRONG PHIÊN) =================
   return (
@@ -683,18 +723,21 @@ export const CustomerOrderPage: React.FC = () => {
       justifyContent: 'center',
       backgroundColor: '#E5EDE7'
     }}>
-      <div className="customer-main-shell" style={{
-        width: '100%',
-        maxWidth: '480px',
-        minHeight: '100vh',
-        boxSizing: 'border-box',
-        overflowX: 'hidden',
-        backgroundColor: 'var(--color-bg)',
-        boxShadow: '0 0 35px rgba(18, 67, 46, 0.12)',
-        display: 'flex',
-        flexDirection: 'column',
-        position: 'relative'
-      }}>
+      {/* Lớp Intro Splash chuyển cảnh mượt mà phủ lên toàn màn hình */}
+      {showIntro && (
+        <CustomerIntroSplash
+          courtCode={courtCode || initialUrlParams.court}
+          courtName={courtInfo?.name}
+          isReady={Boolean(courtCode && sessionToken && hasLoadedCatalog && !isLoadingCatalog)}
+          errorMessage={qrError}
+          onFinish={() => setShowIntro(false)}
+        />
+      )}
+
+      {(courtCode && sessionToken) ? (
+        <div className="customer-main-shell" style={{
+          overflowX: 'hidden'
+        }}>
         {!isOnline && (
           <div role="status" style={{
             backgroundColor: '#DC2626',
@@ -857,11 +900,7 @@ export const CustomerOrderPage: React.FC = () => {
 
         {/* Thực đơn nước giải khát & đồ ăn */}
         <main className="customer-grid-products" style={{
-          padding: '12px 16px',
-          paddingBottom: totalCartCount > 0 ? '110px' : '40px',
-          display: 'grid',
-          gridTemplateColumns: 'repeat(2, 1fr)',
-          gap: '12px'
+          paddingBottom: totalCartCount > 0 ? '110px' : '40px'
         }}>
           {isLoadingCatalog ? null : products.length === 0 ? (
             <div style={{ gridColumn: '1 / -1', textAlign: 'center', padding: '50px 20px', color: 'var(--color-text-muted)' }}>
@@ -912,6 +951,7 @@ export const CustomerOrderPage: React.FC = () => {
           isSubmitting={isSubmittingOrder}
           canSubmit={isAcceptingOrders && !!courtInfo}
           error={submitError}
+          reservationExpiresAt={reservationExpiresAt}
         />
 
         {/* Modal theo dõi đơn hàng */}
@@ -928,6 +968,7 @@ export const CustomerOrderPage: React.FC = () => {
           />
         )}
       </div>
+      ) : null}
     </div>
   );
 };

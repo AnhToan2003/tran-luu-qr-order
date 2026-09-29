@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
+import { createPortal } from 'react-dom';
 import { formatVnd } from '../../../types/product';
 import { apiFetch } from '../../../lib/api';
 
@@ -586,20 +587,23 @@ export const SportsOrderHistoryTab: React.FC = () => {
       </div>
 
       {/* MODAL CHI TIẾT & IN PHIẾU BÁN DỤNG CỤ / DỊCH VỤ */}
-      {selectedOrderForBill && (
-        <div style={{
-          position: 'fixed',
-          top: 0,
-          left: 0,
-          right: 0,
-          bottom: 0,
-          backgroundColor: 'rgba(15, 23, 42, 0.65)',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          zIndex: 1100,
-          padding: '16px'
-        }}>
+      {selectedOrderForBill && typeof document !== 'undefined' && createPortal(
+        <div
+          id="receipt-modal-overlay"
+          style={{
+            position: 'fixed',
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            backgroundColor: 'rgba(15, 23, 42, 0.65)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 10000,
+            padding: '16px'
+          }}
+        >
           <div
             id="receipt-print-area"
             style={{
@@ -750,7 +754,8 @@ export const SportsOrderHistoryTab: React.FC = () => {
               </button>
             </div>
           </div>
-        </div>
+        </div>,
+        document.body
       )}
     </div>
   );

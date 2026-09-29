@@ -15,6 +15,7 @@ interface CartBottomSheetProps {
   isSubmitting: boolean;
   canSubmit: boolean;
   error?: string;
+  reservationExpiresAt?: number | null;
 }
 
 export const CartBottomSheet: React.FC<CartBottomSheetProps> = ({
@@ -29,7 +30,8 @@ export const CartBottomSheet: React.FC<CartBottomSheetProps> = ({
   onSubmitOrder,
   isSubmitting,
   canSubmit,
-  error
+  error,
+  reservationExpiresAt
 }) => {
   // Xóa sạch key cũ tl_customer_profile khỏi localStorage để tránh tự điền dữ liệu của người trước
   useEffect(() => {
@@ -37,6 +39,25 @@ export const CartBottomSheet: React.FC<CartBottomSheetProps> = ({
       localStorage.removeItem('tl_customer_profile');
     } catch { }
   }, []);
+
+  const [remainingSeconds, setRemainingSeconds] = useState<number>(() => {
+    if (!reservationExpiresAt) return 0;
+    return Math.max(0, Math.ceil((reservationExpiresAt - Date.now()) / 1000));
+  });
+
+  useEffect(() => {
+    if (!reservationExpiresAt) {
+      setRemainingSeconds(0);
+      return;
+    }
+    const update = () => {
+      const rem = Math.max(0, Math.ceil((reservationExpiresAt - Date.now()) / 1000));
+      setRemainingSeconds(rem);
+    };
+    update();
+    const interval = setInterval(update, 1000);
+    return () => clearInterval(interval);
+  }, [reservationExpiresAt]);
 
   const [prevCourt, setPrevCourt] = useState<string>(courtName);
   const storageKey = sessionToken ? `tl_session_customer_${sessionToken}` : 'tl_session_customer_info';
@@ -231,6 +252,46 @@ export const CartBottomSheet: React.FC<CartBottomSheetProps> = ({
             ✕
           </button>
         </div>
+
+        {/* Banner đồng hồ đếm ngược giữ hàng an toàn */}
+        {remainingSeconds > 0 && items.length > 0 && (
+          <div style={{
+            margin: '0 20px 8px 20px',
+            padding: '8px 12px',
+            backgroundColor: remainingSeconds <= 30 ? '#FEF2F2' : '#F0FDF4',
+            border: `1.5px solid ${remainingSeconds <= 30 ? '#FECACA' : '#BBF7D0'}`,
+            borderRadius: '10px',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            gap: '8px',
+            boxShadow: '0 1px 3px rgba(0,0,0,0.04)',
+            transition: 'all 0.3s ease'
+          }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+              <span style={{ fontSize: '14px' }}>🔒</span>
+              <span style={{
+                fontSize: '12px',
+                fontWeight: 700,
+                color: remainingSeconds <= 30 ? '#991B1B' : '#166534'
+              }}>
+                {remainingSeconds <= 30 ? 'Sắp hết hạn giữ món!' : 'Đang giữ hàng trong giỏ của bạn'}
+              </span>
+            </div>
+            <div style={{
+              fontSize: '13px',
+              fontWeight: 900,
+              color: remainingSeconds <= 30 ? '#DC2626' : '#166534',
+              fontVariantNumeric: 'tabular-nums',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '4px'
+            }}>
+              <span>⏱️</span>
+              <span>{Math.floor(remainingSeconds / 60)}:{String(remainingSeconds % 60).padStart(2, '0')}</span>
+            </div>
+          </div>
+        )}
 
         {/* Item List Scroll Area */}
         <div style={{
@@ -477,7 +538,7 @@ export const CartBottomSheet: React.FC<CartBottomSheetProps> = ({
                       setCustomerName(e.target.value);
                       if (validationError) setValidationError('');
                     }}
-                    placeholder="VD: Anh Tuấn"
+                    placeholder="Tên của bạn"
                     style={{
                       width: '100%',
                       boxSizing: 'border-box',
@@ -505,7 +566,7 @@ export const CartBottomSheet: React.FC<CartBottomSheetProps> = ({
                       setCustomerPhone(e.target.value);
                       if (validationError) setValidationError('');
                     }}
-                    placeholder="VD: 0901234567"
+                    placeholder="Số điện thoại của bạn"
                     style={{
                       width: '100%',
                       boxSizing: 'border-box',

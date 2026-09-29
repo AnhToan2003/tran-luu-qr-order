@@ -123,9 +123,6 @@ export const AdminPasswordConfirmModal: React.FC<AdminPasswordConfirmModalProps>
             <h3 style={{ fontSize: '16px', fontWeight: 800, color: '#0F172A', margin: 0 }}>
               {title}
             </h3>
-            <p style={{ fontSize: '12px', color: '#64748B', margin: '4px 0 0 0' }}>
-              Xác thực quyền hạn tài khoản
-            </p>
           </div>
           <button
             type="button"

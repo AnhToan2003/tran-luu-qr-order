@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { apiFetch } from '../../../lib/api';
+import { apiFetch, requestActionProof, setActionProof, isActionProofCancelled } from '../../../lib/api';
 
 interface PermissionDef {
   id: string;
@@ -108,13 +108,22 @@ export const RbacUsersTab: React.FC = () => {
   }, [fetchData]);
 
   // Handle Create User
-  const handleOpenCreateUser = () => {
-    setNewUsername('');
-    setNewFullName('');
-    setNewPassword('');
-    setNewUserRole(roles[0]?.roleId || 'staff_water');
-    setFormError('');
-    setIsCreateUserOpen(true);
+  const handleOpenCreateUser = async () => {
+    try {
+      await requestActionProof('rbac.manage', {
+        title: 'Xác Nhận Mật Khẩu Admin',
+        description: 'Vui lòng xác nhận mật khẩu admin trước khi thêm tài khoản phân quyền:'
+      });
+      setNewUsername('');
+      setNewFullName('');
+      setNewPassword('');
+      setNewUserRole(roles[0]?.roleId || 'staff_water');
+      setFormError('');
+      setIsCreateUserOpen(true);
+    } catch (err: any) {
+      if (isActionProofCancelled(err)) return;
+      showToast(err.message || 'Xác thực mật khẩu không thành công');
+    }
   };
 
   const handleCreateUser = async (e: React.FormEvent) => {
@@ -774,7 +783,10 @@ export const RbacUsersTab: React.FC = () => {
               <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px', marginTop: '10px' }}>
                 <button
                   type="button"
-                  onClick={() => setIsCreateUserOpen(false)}
+                  onClick={() => {
+                    setIsCreateUserOpen(false);
+                    setActionProof('');
+                  }}
                   style={{ padding: '8px 16px', borderRadius: '6px', border: '1px solid #CBD5E1', backgroundColor: '#FFFFFF', color: '#475569', fontWeight: 700, fontSize: '13px', cursor: 'pointer' }}
                 >
                   Hủy

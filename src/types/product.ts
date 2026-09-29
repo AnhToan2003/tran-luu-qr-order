@@ -13,6 +13,8 @@ export interface Product {
   imageSvg: string;
   imageUrl?: string;
   allowIce?: boolean;
+  isReserved?: boolean;
+  realStock?: number;
 }
 
 

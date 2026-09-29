@@ -1,17 +1,20 @@
 import { Router } from 'express';
 import { createHash } from 'node:crypto';
+import { z } from 'zod';
 import { getCollections } from '../db.js';
 import { getCustomerSession } from '../auth.js';
 import { verifyCourtSignature } from '../services/qrSign.js';
 import { courtCode as courtCodeSchema } from '../validation.js';
 import type { ProductDoc } from '../types.js';
 import { cacheGet, cacheSet } from '../redis.js';
+import { InventoryReservationService } from '../services/inventoryReservationService.js';
 
 export const catalogRouter = Router();
 
 catalogRouter.get('/', async (req, res) => {
   const colls = getCollections();
   let courtCode: string;
+  let customerSessionHash: string | undefined;
 
   const headerSession = req.headers['x-customer-session'];
   const hasSessionHeader = typeof headerSession === 'string' && /^[a-f0-9]{32,64}$/i.test(headerSession.trim());
@@ -20,6 +23,7 @@ catalogRouter.get('/', async (req, res) => {
   if (hasSessionHeader || hasSessionCookie) {
     const session = await getCustomerSession(req, res);
     courtCode = session.courtCode;
+    customerSessionHash = session.sessionTokenHash;
   } else {
     const rawCourt = typeof req.query.court_code === 'string' ? req.query.court_code : '05';
     const parsed = courtCodeSchema.safeParse(rawCourt);
@@ -74,7 +78,7 @@ catalogRouter.get('/', async (req, res) => {
   let mappedProducts = await cacheGet<Array<any>>('cache:catalog:available_products');
 
   if (!mappedProducts) {
-    // BR-15: Chỉ hiển thị sản phẩm còn hàng (stock > 0), sắp xếp ổn định theo nhóm và tên
+    // BR-15: Chỉ hiển thị sản phẩm còn bán (deletedAt null), sắp xếp ổn định theo nhóm và tên
     const products = await colls.products
       .find({ isAvailable: true, deletedAt: null, stock: { $gt: 0 } })
       .sort({ category: 1, name: 1 })
@@ -98,10 +102,25 @@ catalogRouter.get('/', async (req, res) => {
     void cacheSet('cache:catalog:available_products', mappedProducts, 180);
   }
 
+  // Áp dụng thuật toán Khóa mềm giữ giỏ hàng (Soft Reservation with TTL):
+  // Tính toán số lượng khả dụng thực tế bằng cách loại trừ các món đang bị giữ bởi phiên khác
+  const reservedMap = InventoryReservationService.getAllReservationsMap(customerSessionHash);
+  const dynamicProducts = mappedProducts.map((p: any) => {
+    const reservedByOthers = reservedMap.get(p.id) || 0;
+    const effectiveStock = Math.max(0, p.stock - reservedByOthers);
+    const isReserved = p.stock > 0 && effectiveStock === 0;
+    return {
+      ...p,
+      stock: effectiveStock,
+      realStock: p.stock,
+      isReserved
+    };
+  });
+
   const payload = {
     court: { courtId: court.courtId, code: court.code, name: court.name },
     isAcceptingOrders,
-    products: mappedProducts
+    products: dynamicProducts
   };
 
   const etag = `"${createHash('md5').update(JSON.stringify(payload)).digest('hex')}"`;
@@ -111,4 +130,40 @@ catalogRouter.get('/', async (req, res) => {
   }
 
   return res.json(payload);
+});
+
+// Endpoint giữ hàng tạm thời cho giỏ hàng (Soft-lock có TTL)
+catalogRouter.post('/reserve', async (req, res) => {
+  const session = await getCustomerSession(req, res);
+  const schema = z.object({
+    items: z.array(z.object({
+      productId: z.string().trim().min(1),
+      quantity: z.number().int().min(0).max(1000)
+    })).max(100)
+  });
+  const input = schema.parse(req.body);
+  const result = await InventoryReservationService.syncCartReservations(
+    session.sessionTokenHash,
+    input.items,
+    session.courtCode
+  );
+  return res.json(result);
+});
+
+// Endpoint giải phóng giữ hàng khi khách xóa món hoặc hủy giỏ
+catalogRouter.post('/release', async (req, res) => {
+  const session = await getCustomerSession(req, res);
+  const schema = z.object({
+    productIds: z.array(z.string().trim().min(1)).optional()
+  });
+  const input = schema.parse(req.body || {});
+  await InventoryReservationService.releaseSession(session.sessionTokenHash, input.productIds);
+  return res.json({ ok: true });
+});
+
+// Endpoint lấy thông tin giữ hàng hiện tại của khách
+catalogRouter.get('/reservation', async (req, res) => {
+  const session = await getCustomerSession(req, res);
+  const info = InventoryReservationService.getSessionInfo(session.sessionTokenHash);
+  return res.json(info || { expiresAt: 0, remainingSeconds: 0, items: {} });
 });

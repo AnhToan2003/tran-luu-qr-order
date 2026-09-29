@@ -5,7 +5,7 @@ import { formatVnd, Product } from '../../types/product';
 const downloadCourtQrPng = async (...args: Parameters<typeof import('../../lib/qrCode').downloadCourtQrPng>) => (await import('../../lib/qrCode')).downloadCourtQrPng(...args);
 const downloadAllCourtsPdf = async (...args: Parameters<typeof import('../../lib/qrCode').downloadAllCourtsPdf>) => (await import('../../lib/qrCode')).downloadAllCourtsPdf(...args);
 const generateCourtQrPng = async (...args: Parameters<typeof import('../../lib/qrCode').generateCourtQrPng>) => (await import('../../lib/qrCode')).generateCourtQrPng(...args);
-import { apiFetch, stableRequestId, completeRequest, isActionProofCancelled } from '../../lib/api';
+import { apiFetch, stableRequestId, completeRequest, isActionProofCancelled, requestActionProof, setActionProof } from '../../lib/api';
 
 if (typeof window !== 'undefined' && !(window as any).__alertFilterInstalled) {
   (window as any).__alertFilterInstalled = true;
@@ -2292,11 +2292,20 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({ onLogout }) => {
             <CourtsTab
               courts={courts}
               onDownloadAllCourtsPdf={() => downloadAllCourtsPdf(courts)}
-              onOpenAddCourtModal={() => {
-                const nextNum = (courts.length + 1).toString().padStart(2, '0');
-                setCourtFormCode(nextNum);
-                setCourtFormName(`Sân ${nextNum}`);
-                setIsCourtModalOpen(true);
+              onOpenAddCourtModal={async () => {
+                try {
+                  await requestActionProof('courts.manage', {
+                    title: 'Xác Nhận Mật Khẩu Admin',
+                    description: 'Vui lòng xác nhận mật khẩu admin trước khi thêm sân mới:'
+                  });
+                  const nextNum = (courts.length + 1).toString().padStart(2, '0');
+                  setCourtFormCode(nextNum);
+                  setCourtFormName(`Sân ${nextNum}`);
+                  setIsCourtModalOpen(true);
+                } catch (err: any) {
+                  if (isActionProofCancelled(err)) return;
+                  alert(err.message || 'Xác thực mật khẩu không thành công');
+                }
               }}
               onToggleCourt={handleToggleCourt}
               onOpenQrPreview={handleOpenQrPreview}
@@ -2908,7 +2917,10 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({ onLogout }) => {
               <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px', marginTop: '12px' }}>
                 <button
                   type="button"
-                  onClick={() => setIsCourtModalOpen(false)}
+                  onClick={() => {
+                    setIsCourtModalOpen(false);
+                    setActionProof('');
+                  }}
                   style={{ padding: '8px 14px', borderRadius: 'var(--radius-sm)', backgroundColor: 'var(--color-bg)' }}
                 >
                   Hủy
@@ -3161,8 +3173,12 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({ onLogout }) => {
                                   {p.name}
                                 </span>
                               </div>
-                              <div style={{ fontSize: '12px', color: '#334155', fontWeight: 600, marginTop: '2px' }}>
-                                {formatVnd(p.priceVnd)} • Tồn: {p.stock}
+                              <div style={{ fontSize: '12px', color: '#334155', fontWeight: 600, marginTop: '2px', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                <span>{formatVnd(p.priceVnd)}</span>
+                                <span>•</span>
+                                <span style={{ color: p.stock <= 0 ? '#DC2626' : (p.stock <= 5 ? '#D97706' : '#334155'), fontWeight: p.stock <= 5 ? 800 : 600 }}>
+                                  Tồn: {p.stock} {p.stock <= 0 ? '(Hết hàng)' : ''}
+                                </span>
                               </div>
                             </div>
 
@@ -3172,11 +3188,12 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({ onLogout }) => {
                               <div style={{ display: 'flex', alignItems: 'center', backgroundColor: 'var(--color-surface)', borderRadius: 'var(--radius-sm)', border: '1.5px solid var(--color-border)' }}>
                                 <button
                                   type="button"
+                                  disabled={itemData.quantity <= 0}
                                   onClick={() => {
                                     const newQty = Math.max(0, itemData.quantity - 1);
                                     setPosCart(prev => ({ ...prev, [p.id]: { quantity: newQty, iceQuantity: 0 } }));
                                   }}
-                                  style={{ width: '32px', height: '32px', border: 'none', background: 'transparent', fontWeight: 900, fontSize: '16px', cursor: 'pointer', color: '#0F172A' }}
+                                  style={{ width: '32px', height: '32px', border: 'none', background: 'transparent', fontWeight: 900, fontSize: '16px', cursor: itemData.quantity <= 0 ? 'not-allowed' : 'pointer', color: itemData.quantity <= 0 ? '#CBD5E1' : '#0F172A' }}
                                 >
                                   -
                                 </button>
@@ -3185,11 +3202,23 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({ onLogout }) => {
                                 </span>
                                 <button
                                   type="button"
+                                  disabled={p.stock <= 0 || itemData.quantity >= p.stock}
                                   onClick={() => {
+                                    if (p.stock <= 0 || itemData.quantity >= p.stock) return;
                                     const newQty = itemData.quantity + 1;
                                     setPosCart(prev => ({ ...prev, [p.id]: { quantity: newQty, iceQuantity: 0 } }));
                                   }}
-                                  style={{ width: '32px', height: '32px', border: 'none', background: 'transparent', fontWeight: 900, fontSize: '16px', cursor: 'pointer', color: 'var(--color-primary)' }}
+                                  style={{
+                                    width: '32px',
+                                    height: '32px',
+                                    border: 'none',
+                                    background: 'transparent',
+                                    fontWeight: 900,
+                                    fontSize: '16px',
+                                    cursor: (p.stock <= 0 || itemData.quantity >= p.stock) ? 'not-allowed' : 'pointer',
+                                    color: (p.stock <= 0 || itemData.quantity >= p.stock) ? '#CBD5E1' : 'var(--color-primary)'
+                                  }}
+                                  title={p.stock <= 0 ? 'Sản phẩm đã hết hàng' : (itemData.quantity >= p.stock ? `Đã đạt giới hạn tồn kho (${p.stock})` : undefined)}
                                 >
                                   +
                                 </button>
