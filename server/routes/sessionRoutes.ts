@@ -177,5 +177,5 @@ sessionRouter.post('/terminate', sessionTerminateRateLimiter, async (req, res) =
     sameSite: 'strict',
     path: '/'
   });
-  res.json({ ok: true, message: 'Phiên gọi nước đã kết thúc thành công.' });
+  res.json({ ok: true, message: 'Phiên gọi nước đã kết thúc.' });
 });
