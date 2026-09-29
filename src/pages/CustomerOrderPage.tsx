@@ -104,6 +104,7 @@ export const CustomerOrderPage: React.FC = () => {
           try {
             sessionStorage.setItem(SESSION_COURT_KEY, JSON.stringify(data.court));
             sessionStorage.removeItem('tl_session_customer_info');
+            sessionStorage.setItem('tl_last_activity_ts', String(Date.now()));
           } catch { }
 
           setSessionToken(`court:${data.court.courtId}`);
@@ -177,6 +178,7 @@ export const CustomerOrderPage: React.FC = () => {
     try {
       sessionStorage.removeItem(SESSION_COURT_KEY);
       sessionStorage.removeItem('tl_session_customer_info');
+      sessionStorage.removeItem('tl_last_activity_ts');
     } catch { }
 
     setSessionToken('');
@@ -430,9 +432,28 @@ export const CustomerOrderPage: React.FC = () => {
     if (!sessionToken || !courtCode) return;
 
     const IDLE_TIMEOUT_MS = 30 * 60 * 1000; // 30 phút không tương tác
+    const STORAGE_KEY = 'tl_last_activity_ts';
     let idleTimer: ReturnType<typeof setTimeout> | null = null;
+    let isTerminating = false;
+
+    // Lấy mốc hoạt động gần nhất từ sessionStorage (để duy trì cả khi reload/switch tab)
+    let lastActivity = Date.now();
+    try {
+      const stored = sessionStorage.getItem(STORAGE_KEY);
+      if (stored) {
+        const parsed = Number(stored);
+        if (!isNaN(parsed) && parsed > 0 && parsed <= Date.now()) {
+          lastActivity = parsed;
+        }
+      }
+    } catch { }
 
     const terminateAndExpire = async () => {
+      if (isTerminating) return;
+      isTerminating = true;
+      try {
+        sessionStorage.removeItem(STORAGE_KEY);
+      } catch { }
       // Gọi terminate ngầm (không hiện alert), rồi reset giao diện
       try {
         await apiFetch('/api/sessions/terminate', { method: 'POST' }).catch(() => { });
@@ -443,26 +464,58 @@ export const CustomerOrderPage: React.FC = () => {
       }
     };
 
-    const resetTimer = () => {
+    const checkAndSchedule = () => {
+      if (isTerminating) return;
+      const elapsed = Date.now() - lastActivity;
+      if (elapsed >= IDLE_TIMEOUT_MS) {
+        void terminateAndExpire();
+        return;
+      }
       if (idleTimer !== null) clearTimeout(idleTimer);
-      idleTimer = setTimeout(terminateAndExpire, IDLE_TIMEOUT_MS);
+      const remaining = IDLE_TIMEOUT_MS - elapsed;
+      idleTimer = setTimeout(() => {
+        void terminateAndExpire();
+      }, remaining);
+    };
+
+    const recordActivity = () => {
+      if (isTerminating) return;
+      lastActivity = Date.now();
+      try {
+        sessionStorage.setItem(STORAGE_KEY, String(lastActivity));
+      } catch { }
+      checkAndSchedule();
     };
 
     const EVENTS: (keyof DocumentEventMap)[] = ['mousemove', 'mousedown', 'touchstart', 'keydown', 'scroll', 'click'];
-    EVENTS.forEach(evt => document.addEventListener(evt, resetTimer, { passive: true }));
+    EVENTS.forEach(evt => document.addEventListener(evt, recordActivity, { passive: true }));
 
-    // Khi tab được hiển thị lại sau khi ẩn, reset bộ đếm để tránh terminate ngay
-    const onVisible = () => {
-      if (!document.hidden) resetTimer();
+    // Khi tab được hiển thị lại sau khi ẩn/khóa màn hình:
+    // Kiểm tra xem thời gian thực tế trôi qua đã vượt quá 30 phút chưa!
+    const onVisibilityOrFocus = () => {
+      if (!document.hidden) {
+        checkAndSchedule();
+      }
     };
-    document.addEventListener('visibilitychange', onVisible);
+    document.addEventListener('visibilitychange', onVisibilityOrFocus);
+    window.addEventListener('focus', onVisibilityOrFocus);
 
-    resetTimer(); // bắt đầu đếm ngay
+    // Định kỳ 15 giây kiểm tra 1 lần để phòng trường hợp browser background timer bị throttle
+    const heartbeat = setInterval(() => {
+      if (!isTerminating && Date.now() - lastActivity >= IDLE_TIMEOUT_MS) {
+        void terminateAndExpire();
+      }
+    }, 15000);
+
+    // Khởi động kiểm tra và lên lịch ngay
+    checkAndSchedule();
 
     return () => {
       if (idleTimer !== null) clearTimeout(idleTimer);
-      EVENTS.forEach(evt => document.removeEventListener(evt, resetTimer));
-      document.removeEventListener('visibilitychange', onVisible);
+      clearInterval(heartbeat);
+      EVENTS.forEach(evt => document.removeEventListener(evt, recordActivity));
+      document.removeEventListener('visibilitychange', onVisibilityOrFocus);
+      window.removeEventListener('focus', onVisibilityOrFocus);
     };
   }, [sessionToken, courtCode, handleSessionExpired]);
 
