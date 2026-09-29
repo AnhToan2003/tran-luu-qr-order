@@ -248,7 +248,7 @@ export const CustomerOrderPage: React.FC = () => {
           setCartToast('Giỏ hàng vừa được cập nhật theo số lượng tồn kho mới nhất');
           if (typeof setTimeout === 'function') setTimeout(() => setCartToast(''), 4000);
         }
-        return reconciled;
+        return modified ? reconciled : prev;
       });
     } catch (err: any) {
       if (gen !== sessionGenerationRef.current) return;
@@ -623,9 +623,9 @@ export const CustomerOrderPage: React.FC = () => {
       .sort()
       .join('|');
 
-    // Nếu giỏ hàng không thay đổi so với lần đã giữ trước đó VÀ đồng hồ giữ hàng vẫn còn hiệu lực:
-    // Tuyệt đối KHÔNG gọi lại API giữ hàng (tránh lãng phí request và tránh giật lag đồng hồ)
-    if (currentCartKey === lastReservedCartKeyRef.current && reservationExpiresAtRef.current && reservationExpiresAtRef.current > Date.now()) {
+    // Nếu giỏ hàng không thay đổi so với lần đã gửi giữ hàng:
+    // Tuyệt đối KHÔNG tự động gửi lại API (ngăn chặn việc đồng hồ hết hạn lại tự ý tua lại 03:00)
+    if (currentCartKey === lastReservedCartKeyRef.current) {
       return;
     }
 
@@ -684,6 +684,40 @@ export const CustomerOrderPage: React.FC = () => {
 
     return () => clearTimeout(timer);
   }, [cartItems, sessionToken, courtCode]);
+
+  // Tự động đóng giỏ hàng, xóa món và trả tồn kho về kho chung khi hết thời gian giữ món
+  const handleReservationExpired = useCallback(() => {
+    // 1. Thoát / đóng giỏ hàng ngay lập tức
+    setIsCartOpen(false);
+    // 2. Làm trống giỏ hàng và xóa mốc đếm ngược
+    setCartItems([]);
+    lastReservedCartKeyRef.current = '';
+    setReservationExpiresAt(null);
+    // 3. Giải phóng phiên giữ hàng trên máy chủ
+    void apiFetch('/api/catalog/release', { method: 'POST' }).catch(() => {});
+    // 4. Bật toast thông báo rõ ràng cho khách hàng
+    setCartToast('⏱️ Đã hết thời gian giữ món (3 phút). Giỏ hàng đã tự động đóng để nhường hàng cho khách khác!');
+    setTimeout(() => setCartToast(''), 5000);
+    // 5. Tải lại danh mục sản phẩm để đồng bộ tồn kho mới nhất
+    void fetchCatalogRef.current();
+  }, []);
+
+  // Lắng nghe mốc thời gian: khi chạm 00:00, tự động kích hoạt thoát giỏ hàng
+  useEffect(() => {
+    if (!reservationExpiresAt) return;
+
+    const remainingMs = reservationExpiresAt - Date.now();
+    if (remainingMs <= 0) {
+      handleReservationExpired();
+      return;
+    }
+
+    const timer = setTimeout(() => {
+      handleReservationExpired();
+    }, remainingMs);
+
+    return () => clearTimeout(timer);
+  }, [reservationExpiresAt, handleReservationExpired]);
 
   const hasActiveOrder = useMemo(() => {
     return myOrders.some(o => !['delivered', 'cancelled'].includes(o.status));
