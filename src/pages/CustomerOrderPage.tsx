@@ -435,7 +435,7 @@ export const CustomerOrderPage: React.FC = () => {
     const terminateAndExpire = async () => {
       // Gọi terminate ngầm (không hiện alert), rồi reset giao diện
       try {
-        await apiFetch('/api/sessions/terminate', { method: 'POST' }).catch(() => {});
+        await apiFetch('/api/sessions/terminate', { method: 'POST' }).catch(() => { });
       } finally {
         handleSessionExpired(
           'Phiên gọi nước đã hết hạn do không có hoạt động trong 30 phút. Vui lòng quét lại mã QR tại sân để tiếp tục.'
@@ -614,7 +614,7 @@ export const CustomerOrderPage: React.FC = () => {
     if (cartItems.length === 0) {
       lastReservedCartKeyRef.current = '';
       setReservationExpiresAt(null);
-      void apiFetch('/api/catalog/release', { method: 'POST' }).catch(() => {});
+      void apiFetch('/api/catalog/release', { method: 'POST' }).catch(() => { });
       return;
     }
 
@@ -694,9 +694,9 @@ export const CustomerOrderPage: React.FC = () => {
     lastReservedCartKeyRef.current = '';
     setReservationExpiresAt(null);
     // 3. Giải phóng phiên giữ hàng trên máy chủ
-    void apiFetch('/api/catalog/release', { method: 'POST' }).catch(() => {});
+    void apiFetch('/api/catalog/release', { method: 'POST' }).catch(() => { });
     // 4. Bật toast thông báo rõ ràng cho khách hàng
-    setCartToast('⏱️ Đã hết thời gian giữ món (3 phút). Giỏ hàng đã tự động đóng để nhường hàng cho khách khác!');
+    setCartToast('⏱️ Đã hết thời gian giữ món. Giỏ hàng đã tự động đóng để nhường hàng cho khách khác!');
     setTimeout(() => setCartToast(''), 5000);
     // 5. Tải lại danh mục sản phẩm để đồng bộ tồn kho mới nhất
     void fetchCatalogRef.current();
@@ -732,102 +732,102 @@ export const CustomerOrderPage: React.FC = () => {
   if (!courtCode || !sessionToken) {
     if (!showIntro) {
       return (
-      <div style={{
-        minHeight: '100vh',
-        display: 'flex',
-        justifyContent: 'center',
-        backgroundColor: '#E5EDE7',
-        padding: '16px'
-      }}>
         <div style={{
-          width: '100%',
-          maxWidth: '480px',
-          backgroundColor: '#FFFFFF',
-          borderRadius: '24px',
-          boxShadow: '0 10px 30px rgba(18, 67, 46, 0.12)',
-          padding: '32px 24px',
+          minHeight: '100vh',
           display: 'flex',
-          flexDirection: 'column',
-          alignItems: 'center',
-          textAlign: 'center',
           justifyContent: 'center',
-          gap: '20px'
+          backgroundColor: '#E5EDE7',
+          padding: '16px'
         }}>
           <div style={{
-            width: '120px',
-            height: '120px',
-            borderRadius: '50%',
-            overflow: 'hidden',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            border: '3.5px solid #10B981',
-            boxShadow: '0 10px 30px rgba(16, 185, 129, 0.35)',
-            backgroundColor: '#09251B',
-            flexShrink: 0
-          }}>
-            <img
-              src="/images/logo.jpg"
-              alt="Sân Cầu Lông Trần Lựu"
-              style={{
-                width: '100%',
-                height: '100%',
-                objectFit: 'cover',
-                transform: 'scale(1.3)',
-                display: 'block'
-              }}
-            />
-          </div>
-
-          <div>
-            <h1 style={{ fontSize: '22px', fontWeight: 900, color: 'var(--color-deep)', marginBottom: '8px' }}>
-              Sân Cầu Lông Trần Lựu
-            </h1>
-            <p style={{ fontSize: '14px', color: 'var(--color-text-muted)', lineHeight: 1.6 }}>
-              Hệ thống gọi nước giải khát phục vụ tận sân
-            </p>
-          </div>
-
-
-
-          {qrError && (
-            <div style={{
-              width: '100%',
-              padding: '12px 14px',
-              backgroundColor: '#FEF2F2',
-              border: '1px solid #F87171',
-              borderRadius: '12px',
-              color: '#991B1B',
-              fontSize: '13px',
-              fontWeight: 600
-            }}>
-              {qrError}
-            </div>
-          )}
-
-          <div style={{
-            backgroundColor: '#F8FAFC',
-            border: '1.5px dashed #CBD5E1',
-            borderRadius: '16px',
-            padding: '20px 16px',
             width: '100%',
+            maxWidth: '480px',
+            backgroundColor: '#FFFFFF',
+            borderRadius: '24px',
+            boxShadow: '0 10px 30px rgba(18, 67, 46, 0.12)',
+            padding: '32px 24px',
             display: 'flex',
             flexDirection: 'column',
-            gap: '10px'
+            alignItems: 'center',
+            textAlign: 'center',
+            justifyContent: 'center',
+            gap: '20px'
           }}>
-            <span style={{ fontSize: '28px' }}>📱</span>
-            <div style={{ fontWeight: 800, fontSize: '15px', color: '#1E293B' }}>
-              Vui lòng quét mã QR tại sân thi đấu
+            <div style={{
+              width: '120px',
+              height: '120px',
+              borderRadius: '50%',
+              overflow: 'hidden',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              border: '3.5px solid #10B981',
+              boxShadow: '0 10px 30px rgba(16, 185, 129, 0.35)',
+              backgroundColor: '#09251B',
+              flexShrink: 0
+            }}>
+              <img
+                src="/images/logo.jpg"
+                alt="Sân Cầu Lông Trần Lựu"
+                style={{
+                  width: '100%',
+                  height: '100%',
+                  objectFit: 'cover',
+                  transform: 'scale(1.3)',
+                  display: 'block'
+                }}
+              />
             </div>
-            <p style={{ fontSize: '13px', color: '#64748B', lineHeight: 1.5, margin: 0 }}>
-              Mỗi sân thi đấu đều có dán một mã QR riêng biệt trên cột lưới hoặc bàn nghỉ. Hãy dùng Camera điện thoại hoặc Zalo để quét mã và bắt đầu lượt gọi nước mới!
-            </p>
+
+            <div>
+              <h1 style={{ fontSize: '22px', fontWeight: 900, color: 'var(--color-deep)', marginBottom: '8px' }}>
+                Sân Cầu Lông Trần Lựu
+              </h1>
+              <p style={{ fontSize: '14px', color: 'var(--color-text-muted)', lineHeight: 1.6 }}>
+                Hệ thống gọi nước giải khát phục vụ tận sân
+              </p>
+            </div>
+
+
+
+            {qrError && (
+              <div style={{
+                width: '100%',
+                padding: '12px 14px',
+                backgroundColor: '#FEF2F2',
+                border: '1px solid #F87171',
+                borderRadius: '12px',
+                color: '#991B1B',
+                fontSize: '13px',
+                fontWeight: 600
+              }}>
+                {qrError}
+              </div>
+            )}
+
+            <div style={{
+              backgroundColor: '#F8FAFC',
+              border: '1.5px dashed #CBD5E1',
+              borderRadius: '16px',
+              padding: '20px 16px',
+              width: '100%',
+              display: 'flex',
+              flexDirection: 'column',
+              gap: '10px'
+            }}>
+              <span style={{ fontSize: '28px' }}>📱</span>
+              <div style={{ fontWeight: 800, fontSize: '15px', color: '#1E293B' }}>
+                Vui lòng quét mã QR tại sân thi đấu
+              </div>
+              <p style={{ fontSize: '13px', color: '#64748B', lineHeight: 1.5, margin: 0 }}>
+                Mỗi sân thi đấu đều có dán một mã QR riêng biệt trên cột lưới hoặc bàn nghỉ. Hãy dùng Camera điện thoại hoặc Zalo để quét mã và bắt đầu lượt gọi nước mới!
+              </p>
+            </div>
           </div>
         </div>
-      </div>
-    );
+      );
+    }
   }
-}
 
   // ================= 8. GIAO DIỆN CHÍNH CỦA KHÁCH HÀNG (TRONG PHIÊN) =================
   return (
@@ -852,237 +852,237 @@ export const CustomerOrderPage: React.FC = () => {
         <div className="customer-main-shell" style={{
           overflowX: 'hidden'
         }}>
-        {!isOnline && (
-          <div role="status" style={{
-            backgroundColor: '#DC2626',
-            color: '#FFFFFF',
-            padding: '8px 16px',
-            fontSize: '12px',
-            fontWeight: 700,
-            textAlign: 'center',
-            position: 'sticky',
-            top: 0,
-            zIndex: 100,
-            boxShadow: '0 2px 8px rgba(0,0,0,0.2)'
-          }}>
-            ⚠️ Mất kết nối internet. Đang chờ kết nối lại mạng Wi-Fi / 4G sân cầu lông...
-          </div>
-        )}
-        {/* Header */}
-        <CustomerHeader
-          onOpenMyOrders={() => { setIsHistoryOpen(true); void checkMyActiveOrders(); }}
-          hasActiveOrder={hasActiveOrder}
-          isStatusLoading={!hasLoadedCatalog || isLoadingCatalog}
-          isAcceptingOrders={isAcceptingOrders}
-          courtDisabledMessage={courtDisabledMessage}
-        />
+          {!isOnline && (
+            <div role="status" style={{
+              backgroundColor: '#DC2626',
+              color: '#FFFFFF',
+              padding: '8px 16px',
+              fontSize: '12px',
+              fontWeight: 700,
+              textAlign: 'center',
+              position: 'sticky',
+              top: 0,
+              zIndex: 100,
+              boxShadow: '0 2px 8px rgba(0,0,0,0.2)'
+            }}>
+              ⚠️ Mất kết nối internet. Đang chờ kết nối lại mạng Wi-Fi / 4G sân cầu lông...
+            </div>
+          )}
+          {/* Header */}
+          <CustomerHeader
+            onOpenMyOrders={() => { setIsHistoryOpen(true); void checkMyActiveOrders(); }}
+            hasActiveOrder={hasActiveOrder}
+            isStatusLoading={!hasLoadedCatalog || isLoadingCatalog}
+            isAcceptingOrders={isAcceptingOrders}
+            courtDisabledMessage={courtDisabledMessage}
+          />
 
 
 
-        {/* Thông báo cập nhật giỏ hàng tự động */}
-        {cartToast && (
-          <div role="status" style={{
-            margin: '8px 16px 0',
-            padding: '10px 14px',
-            backgroundColor: '#EFF6FF',
-            border: '1px solid #93C5FD',
-            borderRadius: 'var(--radius-md)',
-            color: '#1D4ED8',
-            fontSize: 'var(--font-size-xs)',
-            fontWeight: 700,
-            display: 'flex',
-            alignItems: 'center',
-            gap: '8px'
-          }}>
-            <span>ℹ️</span>
-            <span>{cartToast}</span>
-          </div>
-        )}
+          {/* Thông báo cập nhật giỏ hàng tự động */}
+          {cartToast && (
+            <div role="status" style={{
+              margin: '8px 16px 0',
+              padding: '10px 14px',
+              backgroundColor: '#EFF6FF',
+              border: '1px solid #93C5FD',
+              borderRadius: 'var(--radius-md)',
+              color: '#1D4ED8',
+              fontSize: 'var(--font-size-xs)',
+              fontWeight: 700,
+              display: 'flex',
+              alignItems: 'center',
+              gap: '8px'
+            }}>
+              <span>ℹ️</span>
+              <span>{cartToast}</span>
+            </div>
+          )}
 
-        {/* Cảnh báo mã QR không hợp lệ */}
-        {qrError && (
-          <div role="alert" style={{
-            margin: '12px 16px',
-            padding: '16px',
-            background: '#FEF2F2',
-            border: '1.5px solid #F87171',
-            borderRadius: 'var(--radius-md)',
-            color: '#991B1B'
-          }}>
-            <div style={{ display: 'flex', alignItems: 'flex-start', gap: '10px' }}>
-              <span style={{ fontSize: '22px' }}>🛡️</span>
-              <div style={{ flex: 1 }}>
-                <div style={{ fontWeight: 800, fontSize: 'var(--font-size-sm)', marginBottom: '4px' }}>
-                  Lưu ý về mã QR sân thi đấu:
+          {/* Cảnh báo mã QR không hợp lệ */}
+          {qrError && (
+            <div role="alert" style={{
+              margin: '12px 16px',
+              padding: '16px',
+              background: '#FEF2F2',
+              border: '1.5px solid #F87171',
+              borderRadius: 'var(--radius-md)',
+              color: '#991B1B'
+            }}>
+              <div style={{ display: 'flex', alignItems: 'flex-start', gap: '10px' }}>
+                <span style={{ fontSize: '22px' }}>🛡️</span>
+                <div style={{ flex: 1 }}>
+                  <div style={{ fontWeight: 800, fontSize: 'var(--font-size-sm)', marginBottom: '4px' }}>
+                    Lưu ý về mã QR sân thi đấu:
+                  </div>
+                  <div style={{ fontSize: 'var(--font-size-xs)', lineHeight: 1.5, marginBottom: '10px' }}>
+                    {qrError}
+                  </div>
+                  <button
+                    onClick={() => void fetchCatalog()}
+                    style={{
+                      cursor: 'pointer',
+                      padding: '6px 12px',
+                      borderRadius: 'var(--radius-sm)',
+                      backgroundColor: '#FFFFFF',
+                      border: '1px solid #DC2626',
+                      color: '#DC2626',
+                      fontWeight: 700,
+                      fontSize: '11px'
+                    }}
+                  >
+                    Thử lại
+                  </button>
                 </div>
-                <div style={{ fontSize: 'var(--font-size-xs)', lineHeight: 1.5, marginBottom: '10px' }}>
-                  {qrError}
-                </div>
-                <button
-                  onClick={() => void fetchCatalog()}
-                  style={{
-                    cursor: 'pointer',
-                    padding: '6px 12px',
-                    borderRadius: 'var(--radius-sm)',
-                    backgroundColor: '#FFFFFF',
-                    border: '1px solid #DC2626',
-                    color: '#DC2626',
-                    fontWeight: 700,
-                    fontSize: '11px'
-                  }}
-                >
-                  Thử lại
-                </button>
               </div>
             </div>
-          </div>
-        )}
-
-        {/* Modal Danh sách đơn hàng trong phiên hiện tại */}
-        <OrderHistoryModal
-          isOpen={isHistoryOpen}
-          courtCode={courtCode}
-          courtName={selectedCourt.name}
-          orders={myOrders}
-          onClose={() => setIsHistoryOpen(false)}
-          onSelectOrder={(order) => {
-            setActiveTrackingOrder(order);
-            setIsHistoryOpen(false);
-            setIsTrackingModalOpen(true);
-          }}
-        />
-
-        {/* Ngữ cảnh vị trí Sân */}
-        <CourtContextBadge
-          courtName={selectedCourt.name}
-        />
-
-        {/* Thanh chọn nhóm danh mục ngang */}
-        <div style={{
-          padding: '12px 16px 4px',
-          display: 'flex',
-          gap: '8px',
-          overflowX: 'auto',
-          scrollbarWidth: 'none',
-          WebkitOverflowScrolling: 'touch'
-        }}>
-          {(() => {
-            const defaultTabs: Array<{ key: string; label: string }> = [
-              { key: 'all', label: 'Tất cả' },
-              { key: 'water', label: 'Nước suối' },
-              { key: 'isotonic', label: 'Bù khoáng' },
-              { key: 'soda', label: 'Có gas' },
-              { key: 'energy', label: 'Tăng lực' },
-              { key: 'tea', label: 'Trà' },
-              { key: 'juice', label: 'Trái cây/Sữa' },
-              { key: 'food', label: 'Thức ăn' }
-            ];
-            const extraCats = Array.from(
-              new Set(products.map(p => p.category).filter(c => c && !defaultTabs.some(t => t.key === c)))
-            );
-            const allTabs = [
-              ...defaultTabs,
-              ...extraCats.map(cat => ({ key: cat, label: cat.charAt(0).toUpperCase() + cat.slice(1) }))
-            ];
-            return allTabs.map(cat => {
-              const isSelected = selectedCategory === cat.key;
-              return (
-                <button
-                  key={cat.key}
-                  type="button"
-                  onClick={() => setSelectedCategory(cat.key)}
-                  style={{
-                    padding: '7px 14px',
-                    borderRadius: '20px',
-                    border: isSelected ? '1.5px solid var(--color-primary)' : '1px solid var(--color-border)',
-                    backgroundColor: isSelected ? 'var(--color-primary)' : '#FFFFFF',
-                    color: isSelected ? '#FFFFFF' : '#334155',
-                    fontSize: '12px',
-                    fontWeight: 800,
-                    whiteSpace: 'nowrap',
-                    cursor: 'pointer',
-                    boxShadow: isSelected ? '0 2px 6px rgba(10, 107, 74, 0.25)' : 'none',
-                    transition: 'all 0.15s ease'
-                  }}
-                >
-                  {cat.label}
-                </button>
-              );
-            });
-          })()}
-        </div>
-
-        {/* Thực đơn nước giải khát & đồ ăn */}
-        <main className="customer-grid-products" style={{
-          paddingBottom: totalCartCount > 0 ? '110px' : '40px'
-        }}>
-          {isLoadingCatalog ? null : products.length === 0 ? (
-            <div style={{ gridColumn: '1 / -1', textAlign: 'center', padding: '50px 20px', color: 'var(--color-text-muted)' }}>
-              Hiện chưa có sản phẩm nào sẵn sàng phục vụ.
-            </div>
-          ) : (
-            products
-              .filter(p => selectedCategory === 'all' || p.category === selectedCategory)
-              .map(product => {
-                const inCart = cartItems.find(i => i.productId === product.id)?.quantity || 0;
-                return (
-                  <ProductCard
-                    key={product.id}
-                    product={product}
-                    quantityInCart={inCart}
-                    onAddToCart={() => handleAddToCart(product)}
-                    onIncrease={() => handleUpdateQuantity(product.id, inCart + 1)}
-                    onDecrease={() => handleUpdateQuantity(product.id, inCart - 1)}
-                  />
-                );
-              })
           )}
-        </main>
 
-        {/* Thanh giỏ hàng nổi đáy */}
-        <FloatingCartBar
-          totalItems={totalCartCount}
-          totalVnd={totalCartVnd}
-          courtName={selectedCourt.name}
-          onOpenCart={() => setIsCartOpen(true)}
-          reservationExpiresAt={reservationExpiresAt}
-        />
-
-        {/* Bottom Sheet giỏ hàng & Ly đá miễn phí */}
-        <CartBottomSheet
-          key={sessionToken || 'no-session'}
-          sessionToken={sessionToken}
-          isOpen={isCartOpen}
-          courtName={selectedCourt.name}
-          items={cartItems}
-          totalVnd={totalCartVnd}
-          onClose={() => {
-            setIsCartOpen(false);
-            setSubmitError('');
-          }}
-          onUpdateQuantity={handleUpdateQuantity}
-          onRemoveItem={handleRemoveItem}
-          onSubmitOrder={handleSubmitOrder}
-          isSubmitting={isSubmittingOrder}
-          canSubmit={isAcceptingOrders && !!courtInfo}
-          error={submitError}
-          reservationExpiresAt={reservationExpiresAt}
-        />
-
-        {/* Modal theo dõi đơn hàng */}
-        {activeTrackingOrder && (
-          <OrderTrackingModal
-            order={activeTrackingOrder}
-            isOpen={isTrackingModalOpen}
-            onClose={() => {
-              setIsTrackingModalOpen(false);
-              if (['delivered', 'cancelled'].includes(activeTrackingOrder.status)) {
-                setActiveTrackingOrder(null);
-              }
+          {/* Modal Danh sách đơn hàng trong phiên hiện tại */}
+          <OrderHistoryModal
+            isOpen={isHistoryOpen}
+            courtCode={courtCode}
+            courtName={selectedCourt.name}
+            orders={myOrders}
+            onClose={() => setIsHistoryOpen(false)}
+            onSelectOrder={(order) => {
+              setActiveTrackingOrder(order);
+              setIsHistoryOpen(false);
+              setIsTrackingModalOpen(true);
             }}
           />
-        )}
-      </div>
+
+          {/* Ngữ cảnh vị trí Sân */}
+          <CourtContextBadge
+            courtName={selectedCourt.name}
+          />
+
+          {/* Thanh chọn nhóm danh mục ngang */}
+          <div style={{
+            padding: '12px 16px 4px',
+            display: 'flex',
+            gap: '8px',
+            overflowX: 'auto',
+            scrollbarWidth: 'none',
+            WebkitOverflowScrolling: 'touch'
+          }}>
+            {(() => {
+              const defaultTabs: Array<{ key: string; label: string }> = [
+                { key: 'all', label: 'Tất cả' },
+                { key: 'water', label: 'Nước suối' },
+                { key: 'isotonic', label: 'Bù khoáng' },
+                { key: 'soda', label: 'Có gas' },
+                { key: 'energy', label: 'Tăng lực' },
+                { key: 'tea', label: 'Trà' },
+                { key: 'juice', label: 'Trái cây/Sữa' },
+                { key: 'food', label: 'Thức ăn' }
+              ];
+              const extraCats = Array.from(
+                new Set(products.map(p => p.category).filter(c => c && !defaultTabs.some(t => t.key === c)))
+              );
+              const allTabs = [
+                ...defaultTabs,
+                ...extraCats.map(cat => ({ key: cat, label: cat.charAt(0).toUpperCase() + cat.slice(1) }))
+              ];
+              return allTabs.map(cat => {
+                const isSelected = selectedCategory === cat.key;
+                return (
+                  <button
+                    key={cat.key}
+                    type="button"
+                    onClick={() => setSelectedCategory(cat.key)}
+                    style={{
+                      padding: '7px 14px',
+                      borderRadius: '20px',
+                      border: isSelected ? '1.5px solid var(--color-primary)' : '1px solid var(--color-border)',
+                      backgroundColor: isSelected ? 'var(--color-primary)' : '#FFFFFF',
+                      color: isSelected ? '#FFFFFF' : '#334155',
+                      fontSize: '12px',
+                      fontWeight: 800,
+                      whiteSpace: 'nowrap',
+                      cursor: 'pointer',
+                      boxShadow: isSelected ? '0 2px 6px rgba(10, 107, 74, 0.25)' : 'none',
+                      transition: 'all 0.15s ease'
+                    }}
+                  >
+                    {cat.label}
+                  </button>
+                );
+              });
+            })()}
+          </div>
+
+          {/* Thực đơn nước giải khát & đồ ăn */}
+          <main className="customer-grid-products" style={{
+            paddingBottom: totalCartCount > 0 ? '110px' : '40px'
+          }}>
+            {isLoadingCatalog ? null : products.length === 0 ? (
+              <div style={{ gridColumn: '1 / -1', textAlign: 'center', padding: '50px 20px', color: 'var(--color-text-muted)' }}>
+                Hiện chưa có sản phẩm nào sẵn sàng phục vụ.
+              </div>
+            ) : (
+              products
+                .filter(p => selectedCategory === 'all' || p.category === selectedCategory)
+                .map(product => {
+                  const inCart = cartItems.find(i => i.productId === product.id)?.quantity || 0;
+                  return (
+                    <ProductCard
+                      key={product.id}
+                      product={product}
+                      quantityInCart={inCart}
+                      onAddToCart={() => handleAddToCart(product)}
+                      onIncrease={() => handleUpdateQuantity(product.id, inCart + 1)}
+                      onDecrease={() => handleUpdateQuantity(product.id, inCart - 1)}
+                    />
+                  );
+                })
+            )}
+          </main>
+
+          {/* Thanh giỏ hàng nổi đáy */}
+          <FloatingCartBar
+            totalItems={totalCartCount}
+            totalVnd={totalCartVnd}
+            courtName={selectedCourt.name}
+            onOpenCart={() => setIsCartOpen(true)}
+            reservationExpiresAt={reservationExpiresAt}
+          />
+
+          {/* Bottom Sheet giỏ hàng & Ly đá miễn phí */}
+          <CartBottomSheet
+            key={sessionToken || 'no-session'}
+            sessionToken={sessionToken}
+            isOpen={isCartOpen}
+            courtName={selectedCourt.name}
+            items={cartItems}
+            totalVnd={totalCartVnd}
+            onClose={() => {
+              setIsCartOpen(false);
+              setSubmitError('');
+            }}
+            onUpdateQuantity={handleUpdateQuantity}
+            onRemoveItem={handleRemoveItem}
+            onSubmitOrder={handleSubmitOrder}
+            isSubmitting={isSubmittingOrder}
+            canSubmit={isAcceptingOrders && !!courtInfo}
+            error={submitError}
+            reservationExpiresAt={reservationExpiresAt}
+          />
+
+          {/* Modal theo dõi đơn hàng */}
+          {activeTrackingOrder && (
+            <OrderTrackingModal
+              order={activeTrackingOrder}
+              isOpen={isTrackingModalOpen}
+              onClose={() => {
+                setIsTrackingModalOpen(false);
+                if (['delivered', 'cancelled'].includes(activeTrackingOrder.status)) {
+                  setActiveTrackingOrder(null);
+                }
+              }}
+            />
+          )}
+        </div>
       ) : null}
     </div>
   );

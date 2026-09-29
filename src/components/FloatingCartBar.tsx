@@ -46,18 +46,14 @@ export const FloatingCartBar: React.FC<FloatingCartBarProps> = ({
       bottom: 0,
       left: 0,
       right: 0,
-      padding: '8px 12px',
-      paddingBottom: 'calc(8px + var(--sab, env(safe-area-inset-bottom, 0px)))',
-      backgroundColor: 'rgba(255, 255, 255, 0.92)',
-      backdropFilter: 'blur(12px)',
-      WebkitBackdropFilter: 'blur(12px)',
-      borderTop: '1px solid rgba(0, 0, 0, 0.06)',
-      boxShadow: '0 -4px 20px rgba(0, 0, 0, 0.08)',
+      padding: '10px 14px',
+      paddingBottom: 'calc(10px + var(--sab, env(safe-area-inset-bottom, 0px)))',
       zIndex: 50,
       display: 'flex',
       flexDirection: 'column',
       alignItems: 'center',
-      justifyContent: 'center'
+      justifyContent: 'center',
+      pointerEvents: 'none'
     }}>
       <div
         onClick={onOpenCart}
@@ -65,14 +61,16 @@ export const FloatingCartBar: React.FC<FloatingCartBarProps> = ({
         tabIndex={0}
         aria-label="Xem chi tiết giỏ hàng"
         style={{
+          pointerEvents: 'auto',
           maxWidth: '480px',
           width: '100%',
           backgroundColor: '#0F2E22',
           backgroundImage: 'linear-gradient(135deg, #0F2E22 0%, #164634 100%)',
           color: '#FFFFFF',
-          borderRadius: '16px',
+          borderRadius: '18px',
           overflow: 'hidden',
-          boxShadow: '0 6px 20px rgba(15, 46, 34, 0.35)',
+          boxShadow: '0 8px 30px rgba(15, 46, 34, 0.45), 0 2px 8px rgba(0, 0, 0, 0.2)',
+          border: '1px solid rgba(255, 255, 255, 0.15)',
           cursor: 'pointer',
           transition: 'transform 0.15s ease, box-shadow 0.15s ease',
           userSelect: 'none'
