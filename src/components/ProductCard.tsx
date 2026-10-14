@@ -59,12 +59,12 @@ export const ProductCard: React.FC<ProductCardProps> = ({
         </span>
       )}
 
-      {/* Product Image Frame with Pure White Seamless Background */}
+      {/* Product Image Frame — nền khớp menu để ảnh có alpha/multiply hoà vào */}
       <div
         style={{
           width: '100%',
           aspectRatio: '1 / 1',
-          backgroundColor: '#FFFFFF',
+          backgroundColor: '#F4F8F5',
           borderRadius: '12px',
           display: 'flex',
           alignItems: 'center',
@@ -83,7 +83,8 @@ export const ProductCard: React.FC<ProductCardProps> = ({
             maxWidth: '100%',
             maxHeight: '100%',
             objectFit: 'contain',
-            filter: 'drop-shadow(0 4px 10px rgba(0, 0, 0, 0.05))',
+            mixBlendMode: 'multiply',
+            filter: 'drop-shadow(0 6px 12px rgba(18, 67, 46, 0.12))',
             opacity: isOutOfStock ? 0.45 : 1,
             transition: 'transform 0.2s ease'
           }}

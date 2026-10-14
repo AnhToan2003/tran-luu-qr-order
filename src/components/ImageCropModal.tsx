@@ -13,6 +13,7 @@ export interface CropConfig {
   pan: { x: number; y: number };
   rotation: number;
   originalSrc: string;
+  autoRemoveBg?: boolean;
 }
 
 export interface ImageCropModalProps {
@@ -39,6 +40,92 @@ type DragTarget =
   | 'pan-image'
   | null;
 
+/**
+ * High-performance BFS flood fill from borders to make white/light backgrounds 100% transparent
+ * Preserves all interior white graphics & text inside the product (like white can labels)
+ */
+function removeWhiteBackground(
+  ctx: CanvasRenderingContext2D,
+  width: number,
+  height: number,
+  tolerance = 35
+) {
+  const imgData = ctx.getImageData(0, 0, width, height);
+  const data = imgData.data;
+  const visited = new Uint8Array(width * height);
+  const queue: number[] = [];
+
+  const isBackgroundPixel = (x: number, y: number): boolean => {
+    const idx = (y * width + x) * 4;
+    const r = data[idx];
+    const g = data[idx + 1];
+    const b = data[idx + 2];
+    const a = data[idx + 3];
+    if (a < 20) return true; // already transparent
+    const minVal = 255 - tolerance;
+    if (r >= minVal && g >= minVal && b >= minVal) return true;
+    const maxChannel = Math.max(r, g, b);
+    const minChannel = Math.min(r, g, b);
+    return maxChannel >= 225 && (maxChannel - minChannel) <= 22;
+  };
+
+  // Seed BFS from all 4 borders
+  for (let x = 0; x < width; x++) {
+    queue.push(x, 0);
+    queue.push(x, height - 1);
+  }
+  for (let y = 0; y < height; y++) {
+    queue.push(0, y);
+    queue.push(width - 1, y);
+  }
+
+  let head = 0;
+  while (head < queue.length) {
+    const x = queue[head++];
+    const y = queue[head++];
+    const pos = y * width + x;
+
+    if (visited[pos]) continue;
+    visited[pos] = 1;
+
+    if (!isBackgroundPixel(x, y)) continue;
+
+    // Set pixel to 100% transparent
+    const idx = pos * 4;
+    data[idx + 3] = 0;
+
+    if (x > 0 && !visited[pos - 1]) queue.push(x - 1, y);
+    if (x < width - 1 && !visited[pos + 1]) queue.push(x + 1, y);
+    if (y > 0 && !visited[pos - width]) queue.push(x, y - 1);
+    if (y < height - 1 && !visited[pos + width]) queue.push(x, y + 1);
+  }
+
+  // Soften boundary pixels for smooth edge anti-aliasing
+  for (let y = 1; y < height - 1; y++) {
+    for (let x = 1; x < width - 1; x++) {
+      const pos = y * width + x;
+      const idx = pos * 4;
+      if (data[idx + 3] > 0) {
+        const hasTransparentNeighbor =
+          data[(pos - 1) * 4 + 3] === 0 ||
+          data[(pos + 1) * 4 + 3] === 0 ||
+          data[(pos - width) * 4 + 3] === 0 ||
+          data[(pos + width) * 4 + 3] === 0;
+        if (hasTransparentNeighbor) {
+          const r = data[idx];
+          const g = data[idx + 1];
+          const b = data[idx + 2];
+          if (r > 215 && g > 215 && b > 215) {
+            data[idx + 3] = Math.max(30, Math.min(180, 255 - Math.min(r, g, b)));
+          }
+        }
+      }
+    }
+  }
+
+  ctx.putImageData(imgData, 0, 0);
+}
+
 export const ImageCropModal: React.FC<ImageCropModalProps> = ({
   isOpen,
   imageSrc,
@@ -53,10 +140,9 @@ export const ImageCropModal: React.FC<ImageCropModalProps> = ({
   const [isLoaded, setIsLoaded] = useState(false);
   const [zoom, setZoom] = useState(1.0);
   const [pan, setPan] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
-  const [rotation, setRotation] = useState(0); // 0, 90, 180, 270
-
-  // Crop box bounding rectangle in container coordinates (pixels)
+  const [rotation, setRotation] = useState(0);
   const [cropBox, setCropBox] = useState<CropBoxRect>({ x: 40, y: 30, w: 300, h: 270 });
+  const [autoRemoveBg, setAutoRemoveBg] = useState(true);
 
   const [dragTarget, setDragTarget] = useState<DragTarget>(null);
   const [isProcessing, setIsProcessing] = useState(false);
@@ -78,7 +164,7 @@ export const ImageCropModal: React.FC<ImageCropModalProps> = ({
 
   const minBoxDim = 40;
 
-  // 1. Load natural image and restore previous crop config or compute smart defaults
+  // 1. Load natural image and restore previous crop configuration
   useEffect(() => {
     if (!isOpen || !imageSrc) return;
     setIsLoaded(false);
@@ -90,14 +176,15 @@ export const ImageCropModal: React.FC<ImageCropModalProps> = ({
       imgElementRef.current = img;
       setIsLoaded(true);
 
-      // Restore previous configuration if editing existing/previous crop
       if (initialConfig && initialConfig.cropBox && initialConfig.cropBox.w > 0) {
         setCropBox(initialConfig.cropBox);
         setZoom(initialConfig.zoom || 1.0);
         setPan(initialConfig.pan || { x: 0, y: 0 });
         setRotation(initialConfig.rotation || 0);
+        if (initialConfig.autoRemoveBg !== undefined) {
+          setAutoRemoveBg(initialConfig.autoRemoveBg);
+        }
       } else {
-        // Smart initial framing: image stays fixed, box hugs product
         const effW = img.naturalWidth;
         const effH = img.naturalHeight;
         const fitScale = Math.min((containerWidth - 20) / effW, (containerHeight - 20) / effH);
@@ -110,8 +197,8 @@ export const ImageCropModal: React.FC<ImageCropModalProps> = ({
         setZoom(1.0);
         setPan({ x: 0, y: 0 });
         setRotation(0);
+        setAutoRemoveBg(true);
 
-        // Initial box slightly inset from image bounds
         setCropBox({
           x: Math.max(10, imgLeft + Math.round(dispW * 0.05)),
           y: Math.max(10, imgTop + Math.round(dispH * 0.05)),
@@ -126,18 +213,16 @@ export const ImageCropModal: React.FC<ImageCropModalProps> = ({
     img.src = imageSrc;
   }, [isOpen, imageSrc, initialConfig, containerWidth, containerHeight]);
 
-  // Compute fixed display scale for the stationary image
   const isRotated90 = rotation % 180 !== 0;
   const effW = isRotated90 ? naturalSize.height : naturalSize.width;
   const effH = isRotated90 ? naturalSize.width : naturalSize.height;
 
-  // Base fit scale: image is stationary within viewport
   const baseFitScale = (effW > 0 && effH > 0)
     ? Math.min((containerWidth - 20) / effW, (containerHeight - 20) / effH)
     : 1;
   const imageDisplayScale = baseFitScale * zoom;
 
-  // Non-passive wheel handler for zooming stationary image without page scroll
+  // Non-passive wheel handler
   useEffect(() => {
     const el = containerRef.current;
     if (!el || !isOpen) return;
@@ -157,7 +242,7 @@ export const ImageCropModal: React.FC<ImageCropModalProps> = ({
     };
   }, [isOpen]);
 
-  // 2. Drag Handlers: Image stays fixed ("ảnh giữ nguyên"), only crop edges move
+  // Pointer dragging: Image stays stationary, only crop handles move
   const handlePointerDown = (e: React.PointerEvent<HTMLDivElement>, target: DragTarget) => {
     e.preventDefault();
     e.stopPropagation();
@@ -202,13 +287,11 @@ export const ImageCropModal: React.FC<ImageCropModalProps> = ({
       return;
     }
 
-    // Edge and Corner handle resizing: adjusts crop box only
     let newX = init.x;
     let newY = init.y;
     let newW = init.w;
     let newH = init.h;
 
-    // Horizontal handle adjustments
     if (dragTarget === 'handle-left' || dragTarget === 'handle-tl' || dragTarget === 'handle-bl') {
       const rightEdge = init.x + init.w;
       newX = Math.max(0, Math.min(rightEdge - minBoxDim, init.x + dx));
@@ -217,7 +300,6 @@ export const ImageCropModal: React.FC<ImageCropModalProps> = ({
       newW = Math.max(minBoxDim, Math.min(containerWidth - init.x, init.w + dx));
     }
 
-    // Vertical handle adjustments
     if (dragTarget === 'handle-top' || dragTarget === 'handle-tl' || dragTarget === 'handle-tr') {
       const bottomEdge = init.y + init.h;
       newY = Math.max(0, Math.min(bottomEdge - minBoxDim, init.y + dy));
@@ -243,9 +325,7 @@ export const ImageCropModal: React.FC<ImageCropModalProps> = ({
     setDragTarget(null);
   };
 
-  // 3. Quick presets for instant framing
   const handleSetRatioTall = () => {
-    // 3:4 aspect ratio for tall bottles/cans
     const h = Math.min(containerHeight - 20, 270);
     const w = Math.round(h * 0.72);
     setCropBox({
@@ -257,7 +337,6 @@ export const ImageCropModal: React.FC<ImageCropModalProps> = ({
   };
 
   const handleSetRatioWide = () => {
-    // 4:3 aspect ratio for wide boxes/snacks
     const w = Math.min(containerWidth - 20, 300);
     const h = Math.round(w * 0.75);
     setCropBox({
@@ -287,7 +366,7 @@ export const ImageCropModal: React.FC<ImageCropModalProps> = ({
     setZoom(1.0);
   };
 
-  // 4. Live Preview: Automatically zooms the product as user drags edges closer to the product!
+  // Live Menu Card Preview: Shows product fitting seamlessly into the menu frame (#F4F8F5)
   useEffect(() => {
     if (!previewCanvasRef.current || !imgElementRef.current || !isLoaded || cropBox.w <= 0 || cropBox.h <= 0) return;
     const canvas = previewCanvasRef.current;
@@ -298,12 +377,10 @@ export const ImageCropModal: React.FC<ImageCropModalProps> = ({
     canvas.width = pSize;
     canvas.height = pSize;
 
-    // Always pure white background
-    ctx.fillStyle = '#FFFFFF';
-    ctx.fillRect(0, 0, pSize, pSize);
+    // Use transparent background
+    ctx.clearRect(0, 0, pSize, pSize);
 
-    // As user drags edges closer to product (smaller cropBox), fitRatio increases => product zooms in!
-    const availableDim = pSize * 0.90; // 90px
+    const availableDim = pSize * 0.90;
     const fitRatio = Math.min(availableDim / cropBox.w, availableDim / cropBox.h);
     const targetW = cropBox.w * fitRatio;
     const targetH = cropBox.h * fitRatio;
@@ -331,9 +408,14 @@ export const ImageCropModal: React.FC<ImageCropModalProps> = ({
     ctx.scale(canvasImgScale, canvasImgScale);
     ctx.drawImage(imgElementRef.current, -naturalSize.width / 2, -naturalSize.height / 2);
     ctx.restore();
-  }, [cropBox, zoom, pan, rotation, isLoaded, imageDisplayScale, naturalSize.width, naturalSize.height, containerWidth, containerHeight]);
 
-  // 5. Final Export: Offscreen 600x600 canvas with pure white background outside crop
+    // Auto remove white background for preview
+    if (autoRemoveBg) {
+      removeWhiteBackground(ctx, pSize, pSize, 35);
+    }
+  }, [cropBox, zoom, pan, rotation, isLoaded, imageDisplayScale, naturalSize.width, naturalSize.height, containerWidth, containerHeight, autoRemoveBg]);
+
+  // Export: Transparent background with white background removal so product fits menu seamlessly
   const handleConfirmCrop = useCallback(async () => {
     if (!imgElementRef.current || effW === 0 || effH === 0 || cropBox.w <= 0 || cropBox.h <= 0) return;
     setIsProcessing(true);
@@ -349,11 +431,9 @@ export const ImageCropModal: React.FC<ImageCropModalProps> = ({
       ctx.imageSmoothingEnabled = true;
       ctx.imageSmoothingQuality = 'high';
 
-      // Pure white #FFFFFF background seamless with cards
-      ctx.fillStyle = '#FFFFFF';
-      ctx.fillRect(0, 0, outputSize, outputSize);
+      // Transparent base: no solid color filled!
+      ctx.clearRect(0, 0, outputSize, outputSize);
 
-      // Fit the cropped area (cropBox.w x cropBox.h) onto 600x600 canvas with 6% margin
       const availableDim = outputSize * 0.90; // 540px
       const fitRatio = Math.min(availableDim / cropBox.w, availableDim / cropBox.h);
       const targetW = cropBox.w * fitRatio;
@@ -361,7 +441,6 @@ export const ImageCropModal: React.FC<ImageCropModalProps> = ({
       const targetX = (outputSize - targetW) / 2;
       const targetY = (outputSize - targetH) / 2;
 
-      // Clip canvas to the user's cropped box
       ctx.save();
       ctx.beginPath();
       ctx.rect(targetX, targetY, targetW, targetH);
@@ -384,20 +463,21 @@ export const ImageCropModal: React.FC<ImageCropModalProps> = ({
       ctx.drawImage(img, -naturalSize.width / 2, -naturalSize.height / 2);
       ctx.restore();
 
-      let croppedUrl = '';
-      try {
-        croppedUrl = canvas.toDataURL('image/webp', 0.88);
-      } catch {
-        croppedUrl = canvas.toDataURL('image/jpeg', 0.88);
+      // Automatically remove outside white background so ONLY the product is visible!
+      if (autoRemoveBg) {
+        removeWhiteBackground(ctx, outputSize, outputSize, 35);
       }
 
-      // Return both cropped DataURL and cropConfig so reopening restores exact state
+      // Export as PNG (guarantees transparent background)
+      const croppedUrl = canvas.toDataURL('image/png');
+
       const savedConfig: CropConfig = {
         cropBox: { ...cropBox },
         zoom,
         pan: { ...pan },
         rotation,
         originalSrc: imageSrc,
+        autoRemoveBg,
       };
 
       onConfirm(croppedUrl, savedConfig);
@@ -406,7 +486,7 @@ export const ImageCropModal: React.FC<ImageCropModalProps> = ({
     } finally {
       setIsProcessing(false);
     }
-  }, [cropBox, effH, effW, imageDisplayScale, naturalSize.height, naturalSize.width, onConfirm, outputSize, pan.x, pan.y, rotation, containerWidth, containerHeight, zoom, imageSrc]);
+  }, [cropBox, effH, effW, imageDisplayScale, naturalSize.height, naturalSize.width, onConfirm, outputSize, pan.x, pan.y, rotation, containerWidth, containerHeight, zoom, imageSrc, autoRemoveBg]);
 
   if (!isOpen) return null;
 
@@ -456,10 +536,10 @@ export const ImageCropModal: React.FC<ImageCropModalProps> = ({
         >
           <div>
             <div style={{ fontSize: '15px', fontWeight: 800, color: '#0F172A', display: 'flex', alignItems: 'center', gap: '8px' }}>
-              <span>✂️</span> Cắt & Zoom Ảnh (Ngang & Dọc)
+              <span>✂️</span> Cắt & Fit Ảnh Sản Phẩm Vào Menu
             </div>
             <div style={{ fontSize: '11px', color: '#64748B', marginTop: '1px' }}>
-              Ảnh giữ nguyên • Kéo 4 mép ôm sát sản phẩm để phóng to hiển thị trên menu
+              Ảnh giữ nguyên • Kéo 4 mép ôm sát sản phẩm • Tự động tách nền fit màu menu
             </div>
           </div>
           <button
@@ -843,7 +923,7 @@ export const ImageCropModal: React.FC<ImageCropModalProps> = ({
                 </button>
               </div>
 
-              {/* Sliders for explicit width & height if needed */}
+              {/* Sliders for explicit width & height */}
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px', marginBottom: '8px' }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
                   <span style={{ fontSize: '11px', fontWeight: 700, color: '#475569', minWidth: '55px' }}>
@@ -888,27 +968,51 @@ export const ImageCropModal: React.FC<ImageCropModalProps> = ({
                 </div>
               </div>
 
-              {/* Zoom Slider */}
-              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                <span style={{ fontSize: '11px', fontWeight: 700, color: '#475569', minWidth: '55px' }}>
-                  🔍 Zoom:
-                </span>
-                <input
-                  type="range"
-                  min="0.4"
-                  max="3.5"
-                  step="0.01"
-                  value={zoom}
-                  onChange={(e) => setZoom(parseFloat(e.target.value))}
-                  style={{ flex: 1, accentColor: '#10B981', cursor: 'pointer' }}
-                />
-                <span style={{ fontSize: '11px', fontWeight: 800, color: '#10B981', minWidth: '35px', textAlign: 'right' }}>
-                  {Math.round(zoom * 100)}%
-                </span>
+              {/* Zoom & Auto Remove Background Toggle */}
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '10px' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flex: 1 }}>
+                  <span style={{ fontSize: '11px', fontWeight: 700, color: '#475569', minWidth: '55px' }}>
+                    🔍 Zoom:
+                  </span>
+                  <input
+                    type="range"
+                    min="0.4"
+                    max="3.5"
+                    step="0.01"
+                    value={zoom}
+                    onChange={(e) => setZoom(parseFloat(e.target.value))}
+                    style={{ flex: 1, accentColor: '#10B981', cursor: 'pointer' }}
+                  />
+                  <span style={{ fontSize: '11px', fontWeight: 800, color: '#10B981', minWidth: '35px', textAlign: 'right' }}>
+                    {Math.round(zoom * 100)}%
+                  </span>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={() => setAutoRemoveBg(!autoRemoveBg)}
+                  style={{
+                    padding: '4px 8px',
+                    borderRadius: '6px',
+                    fontSize: '11px',
+                    fontWeight: 700,
+                    backgroundColor: autoRemoveBg ? '#ECFDF5' : '#F1F5F9',
+                    color: autoRemoveBg ? '#047857' : '#64748B',
+                    border: autoRemoveBg ? '1px solid #10B981' : '1px solid #CBD5E1',
+                    cursor: 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '4px',
+                    whiteSpace: 'nowrap',
+                  }}
+                  title="Tự động khử nền trắng ngoài viền sản phẩm để fit màu menu như Mì ly Hảo Hảo"
+                >
+                  <span>🪄</span> {autoRemoveBg ? 'Tách nền: BẬT' : 'Tách nền: TẮT'}
+                </button>
               </div>
             </div>
 
-            {/* Right Column: Live Menu Card Preview (Shows product expanding as box hugs tighter!) */}
+            {/* Right Column: Live Menu Card Preview with #F4F8F5 matching customer card! */}
             <div
               style={{
                 display: 'flex',
@@ -926,16 +1030,17 @@ export const ImageCropModal: React.FC<ImageCropModalProps> = ({
               </div>
               <div
                 style={{
-                  width: '88px',
-                  height: '88px',
-                  backgroundColor: '#FFFFFF',
-                  borderRadius: '8px',
+                  width: '90px',
+                  height: '90px',
+                  backgroundColor: '#F4F8F5',
+                  borderRadius: '10px',
                   border: '1px solid #E2E8F0',
                   boxShadow: '0 2px 6px rgba(0,0,0,0.06)',
                   overflow: 'hidden',
                   display: 'flex',
                   alignItems: 'center',
                   justifyContent: 'center',
+                  padding: '4px',
                 }}
               >
                 <canvas
@@ -944,11 +1049,13 @@ export const ImageCropModal: React.FC<ImageCropModalProps> = ({
                     width: '100%',
                     height: '100%',
                     objectFit: 'contain',
+                    mixBlendMode: 'multiply',
+                    filter: 'drop-shadow(0 4px 8px rgba(18, 67, 46, 0.12))',
                   }}
                 />
               </div>
               <div style={{ fontSize: '9px', color: '#64748B', marginTop: '3px' }}>
-                Tỷ lệ chuẩn 1:1
+                Khớp màu menu
               </div>
             </div>
           </div>
