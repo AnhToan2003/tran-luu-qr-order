@@ -12,10 +12,10 @@
 > **Ghi chú kiểm toán triển khai (2026-09-23):** Tài liệu này bắt đầu từ một blueprint
 > Cloudflare Workers/Supabase/PostgreSQL. Runtime hiện tại trong repository **không dùng
 > stack đó**: frontend React/Vite được build cùng backend Express 5/Node.js, MongoDB 7
-> Replica Set và Redis, triển khai bằng Docker trên Railway. Các phần mô tả Cloudflare,
+> Replica Set và Redis, triển khai trên Render. Các phần mô tả Cloudflare,
 > Supabase, PostgreSQL, Supabase Auth hoặc SQL bên dưới là **thiết kế lịch sử/không phải
 > hợp đồng runtime**; khi sửa hệ thống phải ưu tiên source code, `.env.production.example`,
-> `.railway/railway.ts` và `docs/operations.md`.
+> `render.yaml` và `docs/operations.md`.
 
 ---
 

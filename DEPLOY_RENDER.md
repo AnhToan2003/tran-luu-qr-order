@@ -7,7 +7,7 @@
 - Gói Free ngủ sau 15 phút không có traffic và có thể mất khoảng một phút để thức dậy. Không phù hợp cho quầy bán hàng cần hoạt động ổn định cả ngày.
 - Filesystem của web service là tạm thời. Không lưu backup, ảnh upload hay dữ liệu cần giữ lâu dài trên máy chủ này.
 - MongoDB Atlas Free là replica set để đáp ứng transaction. Redis phải là dịch vụ ngoài có xác thực và TLS; không dùng Render Key Value Free cho session/rate limit production vì dữ liệu có thể mất khi Redis khởi động lại.
-- Blueprint này không tự copy dữ liệu từ Railway. Giữ Railway chạy cho tới khi đã chuyển dữ liệu và kiểm tra app mới.
+- Blueprint này không tự copy dữ liệu từ hệ thống cũ. Giữ hệ thống cũ hoạt động cho tới khi đã chuyển dữ liệu và kiểm tra app mới.
 
 ## Chuẩn bị dịch vụ
 
@@ -21,15 +21,15 @@
    - `ADMIN_PASSWORD_HASH`: hash scrypt theo định dạng `32-hex-salt:128-hex-hash`. Nếu muốn đặt mật khẩu admin mới, chạy `npm run generate:secrets:staging` ở checkout local chưa có `.env.staging`; lấy hash từ file `.env.staging` bị Git ignore, cất mật khẩu được in ra ở nơi an toàn, rồi chỉ nhập hash vào Render.
 5. Render tự tạo `QR_SIGN_SECRET`, `COOKIE_SECRET`, `INTERNAL_HEALTH_TOKEN`; không chép các giá trị này vào Git.
 
-## Chuyển dữ liệu từ Railway
+## Chuyển dữ liệu từ hệ thống cũ
 
 Không chạy seed data trên production. Trước khi đổi DNS hoặc cho người dùng vào app mới:
 
-1. Tạo bản dump MongoDB từ Railway bằng thông tin kết nối Railway hiện tại và lưu ngoài repo ở nơi an toàn.
-2. Tạm dừng ghi đơn trên app cũ, tạo bản dump cuối cùng, rồi restore vào Atlas. Không xóa hoặc tắt database Railway.
+1. Tạo bản dump MongoDB từ môi trường hiện tại bằng thông tin kết nối đang dùng và lưu ngoài repo ở nơi an toàn.
+2. Tạm dừng ghi đơn trên app cũ, tạo bản dump cuối cùng, rồi restore vào Atlas. Giữ nguyên database nguồn cho tới khi xác minh xong.
 3. Kiểm tra số lượng dữ liệu chính (orders, products, users, settings) trên Atlas và chạy health check của Render.
 4. Đăng nhập admin, thử tạo đơn thử và xác minh WebSocket cập nhật realtime.
-5. Chỉ chuyển domain sau khi kiểm tra thành công; giữ nguyên dịch vụ/database Railway để có thể quay lui.
+5. Chỉ chuyển domain sau khi kiểm tra thành công; giữ nguyên dịch vụ/database nguồn để có thể quay lui.
 
 ## Khi dùng thật
 

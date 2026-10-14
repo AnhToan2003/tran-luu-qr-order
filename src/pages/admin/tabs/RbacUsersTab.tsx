@@ -485,7 +485,7 @@ export const RbacUsersTab: React.FC = () => {
                     <td style={{ padding: '12px 16px', textAlign: 'right' }}>
                       {u.isSystemAdmin ? (
                         <span
-                          title="Tài khoản này được cấu hình bằng ADMIN_USERNAME và ADMIN_PASSWORD_HASH trên Railway"
+                          title="Tài khoản này được cấu hình bằng ADMIN_USERNAME và ADMIN_PASSWORD_HASH trong biến môi trường của dịch vụ"
                           style={{ fontSize: '11px', color: '#64748B', fontWeight: 600 }}
                         >
                           Quản lý

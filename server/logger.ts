@@ -67,7 +67,7 @@ export function logError(event: string, fields: Record<string, unknown> = {}) {
 
 /**
  * Adds a stable request ID and emits query-safe JSON access logs to stdout.
- * Railway can search these fields without an in-app monitoring dashboard.
+ * The hosting provider can search these fields without an in-app monitoring dashboard.
  */
 export function requestLoggingMiddleware(req: Request, res: Response, next: NextFunction) {
   const rawRequestId = req.headers['x-request-id'];
