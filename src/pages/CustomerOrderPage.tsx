@@ -1061,17 +1061,18 @@ export const CustomerOrderPage: React.FC = () => {
                     type="button"
                     onClick={() => setSelectedCategory(cat.key)}
                     style={{
-                      padding: '7px 14px',
-                      borderRadius: '20px',
-                      border: isSelected ? '1.5px solid var(--color-primary)' : '1px solid var(--color-border)',
-                      backgroundColor: isSelected ? 'var(--color-primary)' : '#FFFFFF',
-                      color: isSelected ? '#FFFFFF' : '#334155',
+                      padding: '8px 16px',
+                      borderRadius: '999px',
+                      border: isSelected ? '1.5px solid #12432E' : '1px solid #E2E8F0',
+                      backgroundColor: isSelected ? '#12432E' : '#FFFFFF',
+                      color: isSelected ? '#D5EF76' : '#475569',
                       fontSize: '12px',
                       fontWeight: 800,
                       whiteSpace: 'nowrap',
                       cursor: 'pointer',
-                      boxShadow: isSelected ? '0 2px 6px rgba(10, 107, 74, 0.25)' : 'none',
-                      transition: 'all 0.15s ease'
+                      boxShadow: isSelected ? '0 3px 10px rgba(18, 67, 46, 0.25)' : '0 1px 2px rgba(0,0,0,0.03)',
+                      transition: 'all 0.16s ease',
+                      letterSpacing: '0.2px'
                     }}
                   >
                     {cat.label}

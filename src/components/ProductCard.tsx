@@ -20,53 +20,62 @@ export const ProductCard: React.FC<ProductCardProps> = ({
   const isMaxStock = quantityInCart >= product.stock;
 
   return (
-    <div style={{
-      backgroundColor: '#FFFFFF',
-      borderRadius: '16px',
-      border: '1px solid #E2E8F0',
-      padding: '10px',
-      display: 'flex',
-      flexDirection: 'column',
-      justifyContent: 'space-between',
-      position: 'relative',
-      boxShadow: '0 2px 8px rgba(10, 41, 28, 0.04)',
-      boxSizing: 'border-box',
-      height: '100%'
-    }}>
+    <div
+      style={{
+        backgroundColor: '#FFFFFF',
+        borderRadius: '16px',
+        border: '1px solid #E2E8F0',
+        padding: '11px',
+        display: 'flex',
+        flexDirection: 'column',
+        justifyContent: 'space-between',
+        position: 'relative',
+        boxShadow: '0 3px 10px rgba(18, 67, 46, 0.05)',
+        boxSizing: 'border-box',
+        height: '100%',
+        transition: 'transform 0.18s ease, box-shadow 0.18s ease'
+      }}
+    >
       {/* Product Tag / Category */}
       {product.tag && (
-        <span style={{
-          position: 'absolute',
-          top: '8px',
-          left: '8px',
-          zIndex: 2,
-          backgroundColor: '#ECFDF5',
-          color: '#065F46',
-          border: '1px solid #A7F3D0',
-          fontSize: '10px',
-          fontWeight: 800,
-          padding: '2px 8px',
-          borderRadius: '999px',
-          boxShadow: '0 1px 2px rgba(0,0,0,0.04)'
-        }}>
+        <span
+          style={{
+            position: 'absolute',
+            top: '9px',
+            left: '9px',
+            zIndex: 2,
+            backgroundColor: '#ECFDF5',
+            color: '#065F46',
+            border: '1px solid #A7F3D0',
+            fontSize: '10px',
+            fontWeight: 800,
+            padding: '2px 8px',
+            borderRadius: '999px',
+            boxShadow: '0 1px 3px rgba(0,0,0,0.04)',
+            letterSpacing: '0.2px'
+          }}
+        >
           {product.tag}
         </span>
       )}
 
-      {/* Product Image Frame */}
-      <div style={{
-        width: '100%',
-        aspectRatio: '1 / 1',
-        backgroundColor: '#F8FAFC',
-        borderRadius: '12px',
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        padding: '6px',
-        marginBottom: '8px',
-        overflow: 'hidden',
-        boxSizing: 'border-box'
-      }}>
+      {/* Product Image Frame with Pure White Seamless Background */}
+      <div
+        style={{
+          width: '100%',
+          aspectRatio: '1 / 1',
+          backgroundColor: '#FFFFFF',
+          borderRadius: '12px',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          padding: '4px',
+          marginBottom: '8px',
+          overflow: 'hidden',
+          boxSizing: 'border-box',
+          position: 'relative'
+        }}
+      >
         <img
           src={product.imageUrl || product.imageSvg}
           alt={product.name}
@@ -74,69 +83,79 @@ export const ProductCard: React.FC<ProductCardProps> = ({
             maxWidth: '100%',
             maxHeight: '100%',
             objectFit: 'contain',
-            mixBlendMode: 'multiply',
-            filter: 'drop-shadow(0 3px 5px rgba(18, 67, 46, 0.08))',
-            opacity: isOutOfStock ? 0.45 : 1
+            filter: 'drop-shadow(0 4px 10px rgba(0, 0, 0, 0.05))',
+            opacity: isOutOfStock ? 0.45 : 1,
+            transition: 'transform 0.2s ease'
           }}
           loading="lazy"
         />
       </div>
 
-      {/* Details: Name & Volume (Đồng bộ chiều cao tuyệt đối giữa mọi thẻ) */}
+      {/* Details: Name & Volume */}
       <div style={{ flex: 1, display: 'flex', flexDirection: 'column', marginBottom: '6px' }}>
-        <h3 style={{
-          fontSize: '14px',
-          fontWeight: 800,
-          color: isOutOfStock ? '#94A3B8' : '#0F172A',
-          lineHeight: '18px',
-          height: '36px',
-          marginBottom: '2px',
-          display: '-webkit-box',
-          WebkitLineClamp: 2,
-          WebkitBoxOrient: 'vertical',
-          overflow: 'hidden',
-          textOverflow: 'ellipsis'
-        }}>
+        <h3
+          style={{
+            fontSize: '14px',
+            fontWeight: 800,
+            color: isOutOfStock ? '#94A3B8' : '#0F172A',
+            lineHeight: '18px',
+            height: '36px',
+            marginBottom: '3px',
+            display: '-webkit-box',
+            WebkitLineClamp: 2,
+            WebkitBoxOrient: 'vertical',
+            overflow: 'hidden',
+            textOverflow: 'ellipsis'
+          }}
+        >
           {product.name}
         </h3>
-        <span style={{
-          fontSize: '11px',
-          fontWeight: 600,
-          color: '#64748B',
-          lineHeight: '14px',
-          height: '14px',
-          overflow: 'hidden',
-          textOverflow: 'ellipsis',
-          whiteSpace: 'nowrap'
-        }}>
-          Dung tích: {product.volume}
-        </span>
+        {product.volume && (
+          <span
+            style={{
+              fontSize: '11px',
+              fontWeight: 600,
+              color: '#64748B',
+              lineHeight: '14px',
+              height: '14px',
+              overflow: 'hidden',
+              textOverflow: 'ellipsis',
+              whiteSpace: 'nowrap'
+            }}
+          >
+            {product.volume}
+          </span>
+        )}
       </div>
 
-      {/* Price & Action Row (Thanh lịch, thẳng hàng, tuyệt đối không bị đè chữ) */}
-      <div style={{
-        marginTop: 'auto',
-        paddingTop: '8px',
-        borderTop: '1px dashed #E2E8F0',
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'space-between',
-        gap: '4px',
-        minHeight: '32px',
-        boxSizing: 'border-box'
-      }}>
+      {/* Price & Action Row */}
+      <div
+        style={{
+          marginTop: 'auto',
+          paddingTop: '8px',
+          borderTop: '1px dashed #E2E8F0',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          gap: '4px',
+          minHeight: '34px',
+          boxSizing: 'border-box'
+        }}
+      >
         {/* Giá tiền */}
         <div style={{ display: 'flex', flexDirection: 'column', minWidth: 0, flexShrink: 1 }}>
-          <div style={{
-            fontSize: '15px',
-            fontWeight: 900,
-            color: isOutOfStock ? '#94A3B8' : '#0A6B4A',
-            letterSpacing: '-0.3px',
-            whiteSpace: 'nowrap',
-            overflow: 'hidden',
-            textOverflow: 'ellipsis',
-            lineHeight: 1.2
-          }}>
+          <div
+            style={{
+              fontSize: '15px',
+              fontWeight: 900,
+              color: isOutOfStock ? '#94A3B8' : '#137A49',
+              letterSpacing: '-0.3px',
+              whiteSpace: 'nowrap',
+              overflow: 'hidden',
+              textOverflow: 'ellipsis',
+              lineHeight: 1.2
+            }}
+          >
             {formatVnd(product.priceVnd)}
           </div>
           {product.stock <= 5 && product.stock > 0 && !isOutOfStock && (
@@ -166,15 +185,17 @@ export const ProductCard: React.FC<ProductCardProps> = ({
                 Đang giữ
               </span>
             ) : (
-              <span style={{
-                fontSize: '11px',
-                fontWeight: 800,
-                color: '#DC2626',
-                backgroundColor: '#FEE2E2',
-                padding: '3px 8px',
-                borderRadius: '6px',
-                display: 'inline-block'
-              }}>
+              <span
+                style={{
+                  fontSize: '11px',
+                  fontWeight: 800,
+                  color: '#DC2626',
+                  backgroundColor: '#FEE2E2',
+                  padding: '3px 8px',
+                  borderRadius: '6px',
+                  display: 'inline-block'
+                }}
+              >
                 Hết
               </span>
             )
@@ -186,14 +207,15 @@ export const ProductCard: React.FC<ProductCardProps> = ({
                 width: '32px',
                 height: '32px',
                 borderRadius: '8px',
-                backgroundColor: '#0A6B4A',
+                backgroundColor: '#137A49',
+                backgroundImage: 'linear-gradient(135deg, #137A49 0%, #0E623A 100%)',
                 color: '#FFFFFF',
                 border: 'none',
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'center',
                 cursor: 'pointer',
-                boxShadow: '0 2px 6px rgba(10, 107, 74, 0.25)',
+                boxShadow: '0 2px 6px rgba(19, 122, 73, 0.3)',
                 transition: 'transform 0.1s ease',
                 padding: 0,
                 boxSizing: 'border-box'
@@ -208,17 +230,19 @@ export const ProductCard: React.FC<ProductCardProps> = ({
               </svg>
             </button>
           ) : (
-            <div style={{
-              display: 'inline-flex',
-              alignItems: 'center',
-              backgroundColor: '#FFFFFF',
-              border: '1.5px solid #0A6B4A',
-              borderRadius: '8px',
-              height: '32px',
-              overflow: 'hidden',
-              boxSizing: 'border-box',
-              boxShadow: '0 2px 6px rgba(10, 107, 74, 0.12)'
-            }}>
+            <div
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                backgroundColor: '#FFFFFF',
+                border: '1.5px solid #137A49',
+                borderRadius: '8px',
+                height: '32px',
+                overflow: 'hidden',
+                boxSizing: 'border-box',
+                boxShadow: '0 2px 6px rgba(19, 122, 73, 0.15)'
+              }}
+            >
               <button
                 type="button"
                 onClick={onDecrease}
@@ -227,7 +251,7 @@ export const ProductCard: React.FC<ProductCardProps> = ({
                   height: '100%',
                   border: 'none',
                   backgroundColor: '#F0FDF4',
-                  color: '#0A6B4A',
+                  color: '#137A49',
                   display: 'flex',
                   alignItems: 'center',
                   justifyContent: 'center',
@@ -243,16 +267,18 @@ export const ProductCard: React.FC<ProductCardProps> = ({
               >
                 −
               </button>
-              <span style={{
-                minWidth: '22px',
-                textAlign: 'center',
-                fontWeight: 900,
-                fontSize: '13px',
-                color: '#0F172A',
-                userSelect: 'none',
-                padding: '0 2px',
-                lineHeight: '32px'
-              }}>
+              <span
+                style={{
+                  minWidth: '22px',
+                  textAlign: 'center',
+                  fontWeight: 900,
+                  fontSize: '13px',
+                  color: '#0F172A',
+                  userSelect: 'none',
+                  padding: '0 2px',
+                  lineHeight: '32px'
+                }}
+              >
                 {quantityInCart}
               </span>
               <button
@@ -263,7 +289,7 @@ export const ProductCard: React.FC<ProductCardProps> = ({
                   width: '28px',
                   height: '100%',
                   border: 'none',
-                  backgroundColor: isMaxStock ? '#E2E8F0' : '#0A6B4A',
+                  backgroundColor: isMaxStock ? '#E2E8F0' : '#137A49',
                   color: isMaxStock ? '#94A3B8' : '#FFFFFF',
                   display: 'flex',
                   alignItems: 'center',
