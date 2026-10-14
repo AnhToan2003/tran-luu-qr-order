@@ -280,14 +280,13 @@ async function applyCollectionValidators(database: Db) {
           });
         }
       } catch (err: any) {
-        if (process.env.NODE_ENV === 'production') throw err;
-        console.warn(`[DB Schema] Could not apply validator for ${collName}:`, err?.message || err);
+        // Runtime app users intentionally have readWrite only. Updating validators
+        // on existing collections requires collMod, which is an administrative
+        // privilege and must not prevent the service from starting.
+        console.warn(`[DB Schema] Could not apply validator for ${collName}; continuing with application-level validation:`, err?.message || err);
       }
     }
   } catch (outerErr: any) {
-    if (process.env.NODE_ENV === 'production') {
-      throw new Error(`[DB Schema] Không thể áp dụng validator production: ${outerErr?.message || outerErr}`);
-    }
     console.warn('[DB Schema] Failed listing collections for schema validators:', outerErr?.message || outerErr);
   }
 }
