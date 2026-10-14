@@ -1,0 +1,40 @@
+services:
+  - type: web
+    name: tran-luu-qr-order
+    runtime: docker
+    plan: free
+    region: singapore
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    healthCheckPath: /api/health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: DB_NAME
+        value: tran_luu_qr_order
+      - key: ALLOW_STANDALONE
+        value: "false"
+      - key: REDIS_ENABLED
+        value: "true"
+      # Use a managed Redis provider with authentication and TLS (rediss://).
+      # Render's free Key Value tier has no persistence and can lose session state.
+      - key: REDIS_URL
+        sync: false
+      - key: LOG_LEVEL
+        value: info
+      - key: API_DOCS_ENABLED
+        value: "false"
+      - key: PUBLIC_ORIGIN
+        sync: false
+      - key: MONGO_URI
+        sync: false
+      - key: ADMIN_USERNAME
+        value: admin
+      - key: ADMIN_PASSWORD_HASH
+        sync: false
+      - key: INTERNAL_HEALTH_TOKEN
+        generateValue: true
+      - key: QR_SIGN_SECRET
+        generateValue: true
+      - key: COOKIE_SECRET
+        generateValue: true
