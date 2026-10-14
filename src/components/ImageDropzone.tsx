@@ -1,5 +1,5 @@
 import React, { useState, useRef } from 'react';
-import { ImageCropModal } from './ImageCropModal.js';
+import { ImageCropModal, CropConfig } from './ImageCropModal.js';
 
 export interface ImageDropzoneProps {
   imageUrl: string;
@@ -7,6 +7,10 @@ export interface ImageDropzoneProps {
   disabled?: boolean;
   label?: string;
 }
+
+// Session cache to remember previous crop configurations across modal re-opens
+const globalCropConfigHistory = new Map<string, CropConfig>();
+const globalOriginalSrcHistory = new Map<string, string>();
 
 export const ImageDropzone: React.FC<ImageDropzoneProps> = ({
   imageUrl,
@@ -17,6 +21,7 @@ export const ImageDropzone: React.FC<ImageDropzoneProps> = ({
   const [isDragging, setIsDragging] = useState(false);
   const [uploadError, setUploadError] = useState('');
   const [pendingCropSrc, setPendingCropSrc] = useState<string | null>(null);
+  const [activeConfig, setActiveConfig] = useState<CropConfig | null>(null);
   const [isCropOpen, setIsCropOpen] = useState(false);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
@@ -40,7 +45,10 @@ export const ImageDropzone: React.FC<ImageDropzoneProps> = ({
     setUploadError('');
     try {
       const dataUrl = await readFileAsDataUrl(file);
+      // New raw upload: reset previous crop config and record raw image
+      globalOriginalSrcHistory.set(dataUrl, dataUrl);
       setPendingCropSrc(dataUrl);
+      setActiveConfig(null);
       setIsCropOpen(true);
     } catch (err: any) {
       setUploadError(err.message || 'Lỗi xử lý file ảnh');
@@ -70,26 +78,41 @@ export const ImageDropzone: React.FC<ImageDropzoneProps> = ({
   const onFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files.length > 0) {
       handleFile(e.target.files[0]);
-      // reset input value so re-selecting the same file still triggers onChange
       e.target.value = '';
     }
   };
 
+  // Re-open crop modal on existing image with remembered crop settings & original uncropped source
   const handleOpenEditCurrent = () => {
     if (!imageUrl || disabled) return;
-    setPendingCropSrc(imageUrl);
+
+    // Use original uncropped photo if available, so we don't re-crop an already cropped image
+    const rawSource = globalOriginalSrcHistory.get(imageUrl) || imageUrl;
+    const rememberedConfig = globalCropConfigHistory.get(imageUrl) || globalCropConfigHistory.get(rawSource) || null;
+
+    setPendingCropSrc(rawSource);
+    setActiveConfig(rememberedConfig);
     setIsCropOpen(true);
   };
 
-  const handleCropConfirm = (croppedDataUrl: string) => {
+  const handleCropConfirm = (croppedDataUrl: string, config: CropConfig) => {
+    // Save configuration into session memory for both cropped and raw keys
+    globalCropConfigHistory.set(croppedDataUrl, config);
+    if (config.originalSrc) {
+      globalCropConfigHistory.set(config.originalSrc, config);
+      globalOriginalSrcHistory.set(croppedDataUrl, config.originalSrc);
+    }
+
     onChange(croppedDataUrl);
     setIsCropOpen(false);
     setPendingCropSrc(null);
+    setActiveConfig(null);
   };
 
   const handleCropCancel = () => {
     setIsCropOpen(false);
     setPendingCropSrc(null);
+    setActiveConfig(null);
   };
 
   return (
@@ -172,7 +195,7 @@ export const ImageDropzone: React.FC<ImageDropzoneProps> = ({
                   alignItems: 'center',
                   gap: '4px'
                 }}
-                title="Kéo thả vị trí, phóng to/thu nhỏ sản phẩm"
+                title="Kéo mép để cắt ôm sản phẩm, giữ nguyên góc chỉnh lần trước"
               >
                 <span>✂️</span> Chỉnh sửa / Cắt ảnh
               </button>
@@ -238,7 +261,7 @@ export const ImageDropzone: React.FC<ImageDropzoneProps> = ({
             Kéo và thả file ảnh vào đây, hoặc click để chọn từ máy
           </div>
           <div style={{ fontSize: '11px', color: '#64748B' }}>
-            Hỗ trợ PNG, JPG, WEBP • Kèm công cụ kéo thả để cắt & zoom sản phẩm trực quan
+            Ảnh giữ nguyên • Kéo 4 mép để cắt ôm sát sản phẩm, tự động phóng to trên menu
           </div>
         </div>
       )}
@@ -257,14 +280,14 @@ export const ImageDropzone: React.FC<ImageDropzoneProps> = ({
         </div>
       )}
 
-      {/* Interactive Crop & Zoom Modal */}
+      {/* Interactive Crop & Zoom Modal with Memory of Previous Edits */}
       {isCropOpen && pendingCropSrc && (
         <ImageCropModal
           isOpen={isCropOpen}
           imageSrc={pendingCropSrc}
+          initialConfig={activeConfig}
           onConfirm={handleCropConfirm}
           onCancel={handleCropCancel}
-          boxSize={320}
           outputSize={600}
         />
       )}
